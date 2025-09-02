@@ -1,1 +1,11 @@
-.wrap{max-width:720px;margin:40px auto;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.6;padding:0 16px}h1{margin-bottom:8px}code{background:#f2f2f2;padding:1px 4px;border-radius:4px}a{color:inherit;text-decoration:underline}
+:root { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; }
+body { margin: 0; background: #0b0e11; color: #e6ebef; }
+.container { max-width: 860px; margin: 48px auto; padding: 0 16px; }
+h1 { margin: 0 0 12px; font-size: 28px; }
+p { color: #b8c2cc; }
+button { background: #2d6cdf; color: #fff; border: 0; padding: 10px 16px; border-radius: 10px; cursor: pointer; }
+button:hover { filter: brightness(1.05); }
+pre { background: #0f141a; border: 1px solid #203040; padding: 12px; border-radius: 10px; overflow: auto; }
+.links { margin-top: 16px; }
+a { color: #9ad0ff; text-decoration: none; }
+a:hover { text-decoration: underline; }

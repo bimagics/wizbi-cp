@@ -5,17 +5,26 @@ import { fileURLToPath } from 'url';
 import healthRouter from './routes/health.js';
 
 const app = express();
-app.use(cors());
+
+// CORS
+const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
+app.use(cors({ origin: CORS_ORIGIN === '*' ? true : CORS_ORIGIN.split(',') }));
+
 app.use(express.json());
 
-// routes
+// Routes
 app.use('/health', healthRouter);
 
-// static UI (Vanilla)
+// Static + fallback
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-app.use('/', express.static(path.join(__dirname, '../public')));
+const staticDir = path.join(__dirname, '../public');
+app.use(express.static(staticDir));
 
+// fallback ל-SPA/סטטי: כל GET אחר יחזיר index.html
+app.get('*', (_req, res) => res.sendFile(path.join(staticDir, 'index.html')));
+
+// Start
 const port = process.env.PORT || 8080;
 app.listen(port, () => {
   console.log(`[wizbi-cp] listening on :${port}`);

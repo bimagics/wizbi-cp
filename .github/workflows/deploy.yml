@@ -1,0 +1,60 @@
+name: CI/CD (Cloud Run only)
+
+on:
+  push:
+    branches: [ "dev", "main" ]
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      REGION: ${{ secrets.GCP_REGION }}
+      WIF_PROVIDER: ${{ secrets.WIF_PROVIDER }}
+      DEPLOYER_SA: ${{ secrets.DEPLOYER_SA }}
+      IMAGE: ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/wizbi/cp-unified:${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Auth to GCP via OIDC (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.DEPLOYER_SA }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev -q
+
+      - name: Build Docker image
+        run: docker build -t "${IMAGE}" .
+
+      - name: Push Docker image
+        run: docker push "${IMAGE}"
+
+      - name: Decide service by branch
+        id: cfg
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/dev" ]]; then
+            echo "service=cp-unified-qa" >> $GITHUB_OUTPUT
+          else
+            echo "service=cp-unified" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy ${{ steps.cfg.outputs.service }} \
+            --image "${IMAGE}" \
+            --region ${REGION} \
+            --allow-unauthenticated \
+            --service-account wizbi-runner@${PROJECT_ID}.iam.gserviceaccount.com \
+            --update-env-vars NODE_ENV=production,CORS_ORIGIN=*,FIREBASE_PROJECT_ID=${PROJECT_ID}

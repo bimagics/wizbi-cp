@@ -1,19 +1,22 @@
 <!doctype html>
 <html lang="he" dir="rtl">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>WIZBI.AI — Control Plane</title>
-    <link rel="stylesheet" href="/styles.css" />
-  </head>
-  <body>
-    <main class="wrap">
-      <h1>WIZBI.AI — CP (QA/Prod Ready)</h1>
-      <p>אם אתה רואה את הדף הזה—הפריסה הבסיסית עובדת. 🎉</p>
-      <ul>
-        <li><a href="/health" target="_blank">/health</a> — בדיקת חיים</li>
-      </ul>
-      <p>המשך: הוסף ראוטים (/api, /whatsapp/webhook) ושירותים תחת <code>src/</code>.</p>
-    </main>
-  </body>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>WIZBI Control Plane</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main class="container">
+    <h1>WIZBI.AI — Control Plane</h1>
+    <p>השירות רץ ב-Cloud Run. כפתור הבדיקה קורא ל-<code>/health</code>.</p>
+    <button id="check">בדוק /health</button>
+    <pre id="out">לחץ "בדוק /health"</pre>
+
+    <section class="links">
+      <a id="healthLink" href="/health" target="_blank" rel="noreferrer">פתח /health בלשונית</a>
+    </section>
+  </main>
+  <script src="/script.js" defer></script>
+</body>
 </html>
