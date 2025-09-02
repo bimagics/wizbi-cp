@@ -1,4 +1,4 @@
-name: CI/CD (Cloud Run + optional Hosting)
+name: CI/CD (Cloud Run only)
 
 on:
   push:
@@ -17,7 +17,6 @@ jobs:
       REGION: ${{ secrets.GCP_REGION }}
       WIF_PROVIDER: ${{ secrets.WIF_PROVIDER }}
       DEPLOYER_SA: ${{ secrets.DEPLOYER_SA }}
-      FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
       IMAGE: ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/wizbi/cp-unified:${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
@@ -33,7 +32,7 @@ jobs:
         with:
           project_id: ${{ env.PROJECT_ID }}
 
-      - name: Configure Docker to use Artifact Registry
+      - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev -q
 
       - name: Build Docker image
@@ -42,15 +41,13 @@ jobs:
       - name: Push Docker image
         run: docker push "${IMAGE}"
 
-      - name: Decide service / channel by branch
+      - name: Decide service by branch
         id: cfg
         run: |
           if [[ "${{ github.ref }}" == "refs/heads/dev" ]]; then
             echo "service=cp-unified-qa" >> $GITHUB_OUTPUT
-            echo "channel=qa" >> $GITHUB_OUTPUT
           else
             echo "service=cp-unified" >> $GITHUB_OUTPUT
-            echo "channel=live" >> $GITHUB_OUTPUT
           fi
 
       - name: Deploy to Cloud Run
@@ -60,14 +57,4 @@ jobs:
             --region ${REGION} \
             --allow-unauthenticated \
             --service-account wizbi-runner@${PROJECT_ID}.iam.gserviceaccount.com \
-            --update-env-vars NODE_ENV=production
-
-      - name: Deploy to Firebase Hosting (optional)
-        if: ${{ env.FIREBASE_TOKEN != '' }}
-        uses: FirebaseExtended/action-hosting-deploy@v0
-        with:
-          repoToken: ${{ secrets.GITHUB_TOKEN }}
-          channelId: ${{ steps.cfg.outputs.channel }}
-          projectId: ${{ env.PROJECT_ID }}
-        env:
-          FIREBASE_TOKEN: ${{ env.FIREBASE_TOKEN }}
+            --update-env-vars NODE_ENV=production,CORS_ORIGIN=*,FIREBASE_PROJECT_ID=${PROJECT_ID}
