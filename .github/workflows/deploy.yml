@@ -1,4 +1,4 @@
-name: CI/CD (Cloud Run only)
+name: Deploy to Cloud Run (QA/PROD)
 
 on:
   push:
@@ -17,9 +17,10 @@ jobs:
       REGION: ${{ secrets.GCP_REGION }}
       WIF_PROVIDER: ${{ secrets.WIF_PROVIDER }}
       DEPLOYER_SA: ${{ secrets.DEPLOYER_SA }}
-      IMAGE: ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/wizbi/cp-unified:${{ github.sha }}
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Auth to GCP via OIDC (WIF)
         uses: google-github-actions/auth@v2
@@ -32,29 +33,53 @@ jobs:
         with:
           project_id: ${{ env.PROJECT_ID }}
 
-      - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev -q
+      - name: Configure Docker auth to Artifact Registry
+        run: |
+          gcloud auth configure-docker ${REGION}-docker.pkg.dev -q
 
-      - name: Build Docker image
-        run: docker build -t "${IMAGE}" .
-
-      - name: Push Docker image
-        run: docker push "${IMAGE}"
-
-      - name: Decide service by branch
+      - name: Decide service / channel / secrets suffix
         id: cfg
+        shell: bash
         run: |
           if [[ "${{ github.ref }}" == "refs/heads/dev" ]]; then
             echo "service=cp-unified-qa" >> $GITHUB_OUTPUT
+            echo "channel=qa" >> $GITHUB_OUTPUT
+            echo "suffix=_QA" >> $GITHUB_OUTPUT
           else
             echo "service=cp-unified" >> $GITHUB_OUTPUT
+            echo "channel=live" >> $GITHUB_OUTPUT
+            echo "suffix=_PROD" >> $GITHUB_OUTPUT
           fi
+          echo "image=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/wizbi/cp-unified:latest" >> $GITHUB_OUTPUT
 
-      - name: Deploy to Cloud Run
+      - name: Build image
+        run: |
+          docker build -t "${{ steps.cfg.outputs.image }}" .
+
+      - name: Push image
+        run: |
+          docker push "${{ steps.cfg.outputs.image }}"
+
+      - name: Deploy to Cloud Run (authenticated only)
         run: |
           gcloud run deploy ${{ steps.cfg.outputs.service }} \
-            --image "${IMAGE}" \
+            --image "${{ steps.cfg.outputs.image }}" \
             --region ${REGION} \
-            --allow-unauthenticated \
+            --no-allow-unauthenticated \
+            --ingress all \
             --service-account wizbi-runner@${PROJECT_ID}.iam.gserviceaccount.com \
-            --update-env-vars NODE_ENV=production,CORS_ORIGIN=*,FIREBASE_PROJECT_ID=${PROJECT_ID}
+            --update-env-vars NODE_ENV=production,CORS_ORIGIN=*,FIREBASE_PROJECT_ID=${PROJECT_ID} \
+            --set-secrets \
+              WHATSAPP_VERIFY_TOKEN=WHATSAPP_VERIFY_TOKEN${{ steps.cfg.outputs.suffix }}:latest,\
+              WHATSAPP_ACCESS_TOKEN=WHATSAPP_ACCESS_TOKEN${{ steps.cfg.outputs.suffix }}:latest,\
+              WABA_PHONE_NUMBER_ID=WABA_PHONE_NUMBER_ID${{ steps.cfg.outputs.suffix }}:latest
+
+      # אם תרצה בהמשך להחזיר Firebase Hosting, נוכל להחזיר את הבלוק הבא בתנאי שספקת firebaseServiceAccount
+      # - name: Deploy to Firebase Hosting (optional)
+      #   if: ${{ false }}
+      #   uses: FirebaseExtended/action-hosting-deploy@v0
+      #   with:
+      #     repoToken: "${{ secrets.GITHUB_TOKEN }}"
+      #     firebaseServiceAccount: "${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}"
+      #     channelId: "${{ steps.cfg.outputs.channel }}"
+      #     projectId: "${{ env.PROJECT_ID }}"
