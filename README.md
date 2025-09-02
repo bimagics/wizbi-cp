@@ -1,4 +1,4 @@
-# WIZBI Control-Plane (Unified Service) main A
+# WIZBI Control-Plane (Unified Service) main 
 > Start-from-zero skeleton: GitHub-only + Cloud Shell, GCP-native (Cloud Run/Build, Artifact Registry, Secret Manager, Firestore, Firebase Hosting/Auth), OIDC/WIF. No React — Vanilla web.
 
 ## What this repo gives you
