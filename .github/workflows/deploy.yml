@@ -37,7 +37,7 @@ jobs:
         run: |
           gcloud auth configure-docker ${REGION}-docker.pkg.dev -q
 
-      - name: Decide service / channel / secrets suffix
+      - name: Decide service / channel / suffix
         id: cfg
         shell: bash
         run: |
@@ -60,7 +60,8 @@ jobs:
         run: |
           docker push "${{ steps.cfg.outputs.image }}"
 
-      - name: Deploy to Cloud Run (authenticated only)
+      - name: Deploy to Cloud Run (authenticated only, with secrets)
+        shell: bash
         run: |
           gcloud run deploy ${{ steps.cfg.outputs.service }} \
             --image "${{ steps.cfg.outputs.image }}" \
@@ -69,12 +70,9 @@ jobs:
             --ingress all \
             --service-account wizbi-runner@${PROJECT_ID}.iam.gserviceaccount.com \
             --update-env-vars NODE_ENV=production,CORS_ORIGIN=*,FIREBASE_PROJECT_ID=${PROJECT_ID} \
-            --set-secrets \
-              WHATSAPP_VERIFY_TOKEN=WHATSAPP_VERIFY_TOKEN${{ steps.cfg.outputs.suffix }}:latest,\
-              WHATSAPP_ACCESS_TOKEN=WHATSAPP_ACCESS_TOKEN${{ steps.cfg.outputs.suffix }}:latest,\
-              WABA_PHONE_NUMBER_ID=WABA_PHONE_NUMBER_ID${{ steps.cfg.outputs.suffix }}:latest
+            --set-secrets "WHATSAPP_VERIFY_TOKEN=WHATSAPP_VERIFY_TOKEN${{ steps.cfg.outputs.suffix }}:latest,WHATSAPP_ACCESS_TOKEN=WHATSAPP_ACCESS_TOKEN${{ steps.cfg.outputs.suffix }}:latest,WABA_PHONE_NUMBER_ID=WABA_PHONE_NUMBER_ID${{ steps.cfg.outputs.suffix }}:latest"
 
-      # ננטרל כרגע Firebase Hosting כדי לא להתקע על json לחשבון שירות
+      # השארנו את Hosting כבוי כדי לא לעכב את ה־CI כרגע
       # - name: Deploy to Firebase Hosting (optional)
       #   if: ${{ false }}
       #   uses: FirebaseExtended/action-hosting-deploy@v0
