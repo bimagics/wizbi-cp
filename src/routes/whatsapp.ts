@@ -19,7 +19,7 @@ router.get('/webhook', (req: Request, res: Response) => {
   return deny(res, 403, 'verify-token-mismatch');
 });
 
-// POST /whatsapp/webhook (ack + log)
+// POST /whatsapp/webhook
 router.post('/webhook', async (req: Request, res: Response) => {
   try {
     res.status(200).send('EVENT_RECEIVED');
