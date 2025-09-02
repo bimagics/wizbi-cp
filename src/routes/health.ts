@@ -1,25 +1,17 @@
 import { Router } from 'express';
-import { getDb } from '../services/firebaseAdmin.js';
+import { db } from '../services/firebaseAdmin';
 
-const r = Router();
+const router = Router();
 
-r.get('/', async (_req, res) => {
-  const status: any = { ok: true, ts: new Date().toISOString() };
-
+router.get('/', async (_req, res) => {
   try {
-    const db = await getDb(); // lazy init
-    if (db) {
-      // בדיקת קריאה פשוטה: לא כותבים כלום, רק לוקחים זמן שרת
-      const rt = await db.recursiveDelete ? 'firestore-admin' : 'firestore';
-      status.firestore = { ok: true, rt };
-    } else {
-      status.firestore = { ok: false, reason: 'no-project' };
-    }
+    // בדיקת Firestore בסיסית
+    const rt = 'firestore-admin';
+    await db().collection('__health').doc('__ping').set({ ts: new Date().toISOString() }, { merge: true });
+    res.json({ ok: true, ts: new Date().toISOString(), firestore: { ok: true, rt } });
   } catch (e: any) {
-    status.firestore = { ok: false, error: String(e?.message || e) };
+    res.status(500).json({ ok: false, error: e?.message || 'health-failed' });
   }
-
-  res.json(status);
 });
 
-export default r;
+export default router;
