@@ -17,6 +17,7 @@ jobs:
       REGION: ${{ secrets.GCP_REGION }}
       WIF_PROVIDER: ${{ secrets.WIF_PROVIDER }}
       DEPLOYER_SA: ${{ secrets.DEPLOYER_SA }}
+      FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}  # נגיש בתור env, לא ישירות מ-secrets
     steps:
       - uses: actions/checkout@v4
 
@@ -56,14 +57,12 @@ jobs:
             --service-account wizbi-runner@${PROJECT_ID}.iam.gserviceaccount.com \
             --update-env-vars NODE_ENV=production
 
-      # Optional: Hosting deploy (runs only if FIREBASE_TOKEN exists)
       - name: Deploy to Firebase Hosting (optional)
-        if: ${{ secrets.FIREBASE_TOKEN != '' }}
+        if: ${{ env.FIREBASE_TOKEN != '' }}   # בודקים env, לא secrets
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
-          repoToken: "${{ secrets.GITHUB_TOKEN }}"
-          firebaseServiceAccount: ""
-          channelId: "${{ steps.cfg.outputs.channel }}"
-          projectId: "${{ env.PROJECT_ID }}"
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          channelId: ${{ steps.cfg.outputs.channel }}
+          projectId: ${{ env.PROJECT_ID }}
         env:
-          FIREBASE_TOKEN: "${{ secrets.FIREBASE_TOKEN }}"
+          FIREBASE_TOKEN: ${{ env.FIREBASE_TOKEN }}
