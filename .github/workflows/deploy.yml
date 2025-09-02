@@ -74,7 +74,7 @@ jobs:
               WHATSAPP_ACCESS_TOKEN=WHATSAPP_ACCESS_TOKEN${{ steps.cfg.outputs.suffix }}:latest,\
               WABA_PHONE_NUMBER_ID=WABA_PHONE_NUMBER_ID${{ steps.cfg.outputs.suffix }}:latest
 
-      # אם תרצה בהמשך להחזיר Firebase Hosting, נוכל להחזיר את הבלוק הבא בתנאי שספקת firebaseServiceAccount
+      # ננטרל כרגע Firebase Hosting כדי לא להתקע על json לחשבון שירות
       # - name: Deploy to Firebase Hosting (optional)
       #   if: ${{ false }}
       #   uses: FirebaseExtended/action-hosting-deploy@v0
