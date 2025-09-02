@@ -5,7 +5,7 @@ WORKDIR /app
 # ---- deps (prod) ----
 FROM base AS deps
 COPY package*.json ./
-# אם יש package-lock.json נריץ npm ci, אחרת npm install
+# אם יש lockfile נשתמש ב-ci, אחרת install
 RUN if [ -f package-lock.json ]; then npm ci --omit=dev; else npm install --omit=dev; fi
 
 # ---- build (dev deps + קומפילציה) ----
@@ -22,13 +22,13 @@ FROM node:20-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
-# מעתיקים מודולים פרודקשן בלבד
+# מודולים לפרודקשן בלבד
 COPY --from=deps /app/node_modules ./node_modules
 COPY package*.json ./
 COPY public ./public
 COPY --from=build /app/dist ./dist
 
-# Cloud Run מאזין ל-$PORT (ברירת מחדל 8080)
+# Cloud Run מאזין ל-$PORT
 ENV PORT=8080
 EXPOSE 8080
 
