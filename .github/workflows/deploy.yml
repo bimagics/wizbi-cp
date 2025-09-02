@@ -17,7 +17,8 @@ jobs:
       REGION: ${{ secrets.GCP_REGION }}
       WIF_PROVIDER: ${{ secrets.WIF_PROVIDER }}
       DEPLOYER_SA: ${{ secrets.DEPLOYER_SA }}
-      FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}  # נגיש בתור env, לא ישירות מ-secrets
+      FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+      IMAGE: ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/wizbi/cp-unified:${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
 
@@ -32,10 +33,14 @@ jobs:
         with:
           project_id: ${{ env.PROJECT_ID }}
 
-      - name: Build & Push via Cloud Build
-        run: |
-          gcloud builds submit --config=cloudbuild.yaml \
-            --substitutions=_REGION=${{ env.REGION }},_AR_REPO=wizbi
+      - name: Configure Docker to use Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev -q
+
+      - name: Build Docker image
+        run: docker build -t "${IMAGE}" .
+
+      - name: Push Docker image
+        run: docker push "${IMAGE}"
 
       - name: Decide service / channel by branch
         id: cfg
@@ -51,14 +56,14 @@ jobs:
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy ${{ steps.cfg.outputs.service }} \
-            --image ${REGION}-docker.pkg.dev/${PROJECT_ID}/wizbi/cp-unified:latest \
+            --image "${IMAGE}" \
             --region ${REGION} \
             --allow-unauthenticated \
             --service-account wizbi-runner@${PROJECT_ID}.iam.gserviceaccount.com \
             --update-env-vars NODE_ENV=production
 
       - name: Deploy to Firebase Hosting (optional)
-        if: ${{ env.FIREBASE_TOKEN != '' }}   # בודקים env, לא secrets
+        if: ${{ env.FIREBASE_TOKEN != '' }}
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
