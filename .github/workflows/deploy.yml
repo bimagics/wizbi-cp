@@ -1,0 +1,69 @@
+name: CI/CD (Cloud Run + optional Hosting)
+
+on:
+  push:
+    branches: [ "dev", "main" ]
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      REGION: ${{ secrets.GCP_REGION }}
+      WIF_PROVIDER: ${{ secrets.WIF_PROVIDER }}
+      DEPLOYER_SA: ${{ secrets.DEPLOYER_SA }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Auth to GCP via OIDC (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.DEPLOYER_SA }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Build & Push via Cloud Build
+        run: |
+          gcloud builds submit --config=cloudbuild.yaml \
+            --substitutions=_REGION=${{ env.REGION }},_AR_REPO=wizbi
+
+      - name: Decide service / channel by branch
+        id: cfg
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/dev" ]]; then
+            echo "service=cp-unified-qa" >> $GITHUB_OUTPUT
+            echo "channel=qa" >> $GITHUB_OUTPUT
+          else
+            echo "service=cp-unified" >> $GITHUB_OUTPUT
+            echo "channel=live" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy ${{ steps.cfg.outputs.service }} \
+            --image ${REGION}-docker.pkg.dev/${PROJECT_ID}/wizbi/cp-unified:latest \
+            --region ${REGION} \
+            --allow-unauthenticated \
+            --service-account wizbi-runner@${PROJECT_ID}.iam.gserviceaccount.com \
+            --update-env-vars NODE_ENV=production
+
+      # Optional: Hosting deploy (runs only if FIREBASE_TOKEN exists)
+      - name: Deploy to Firebase Hosting (optional)
+        if: ${{ secrets.FIREBASE_TOKEN != '' }}
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: "${{ secrets.GITHUB_TOKEN }}"
+          firebaseServiceAccount: ""
+          channelId: "${{ steps.cfg.outputs.channel }}"
+          projectId: "${{ env.PROJECT_ID }}"
+        env:
+          FIREBASE_TOKEN: "${{ secrets.FIREBASE_TOKEN }}"
