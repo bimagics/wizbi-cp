@@ -1,0 +1,9 @@
+{
+  "hosting": [
+    {
+      "target": "wizbi-cp",
+      "public": "public",
+      "ignore": ["**/.*", "**/node_modules/**"]
+    }
+  ]
+}
