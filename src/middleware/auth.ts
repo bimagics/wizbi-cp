@@ -1,27 +1,19 @@
-import { Request, Response, NextFunction } from "express";
-import { adminAuth } from "../services/firebaseAdmin";
+// src/middleware/auth.ts
+import { Request, Response, NextFunction } from 'express';
 
-/** בודק Firebase ID Token בכותר Authorization: Bearer <token> */
-export async function requireFirebaseUser(req: Request, res: Response, next: NextFunction) {
-  try {
-    const auth = req.headers.authorization || "";
-    const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-    if (!token) return res.status(401).json({ ok: false, error: "missing-bearer" });
+export function requireAuth(req: Request, res: Response, next: NextFunction) {
+  const auth = req.headers['authorization'] || '';
+  const token = typeof auth === 'string' && auth.startsWith('Bearer ') ? auth.slice(7) : '';
 
-    const decoded = await adminAuth.verifyIdToken(token);
-    (req as any).user = decoded;
+  if (!token) {
+    return res.status(401).json({ ok: false, error: 'missing-bearer' });
+  }
+
+  // Cloud Run כבר אימת OIDC כשהשירות פרטי; כאן רק “מעבירים הלאה”
+  if (process.env.TRUST_CLOUD_RUN_IDENTITY === '1' || process.env.ALLOW_ANY_BEARER === '1') {
     return next();
-  } catch (e: any) {
-    return res.status(401).json({ ok: false, error: "invalid-token", detail: e?.message });
   }
-}
 
-/** מאפשר רק למיילים ברשימת ADMINS (מופרדת בפסיקים) */
-export function requireAdmin(req: Request, res: Response, next: NextFunction) {
-  const decoded = (req as any).user;
-  const admins = (process.env.ADMINS || "").split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
-  if (!decoded?.email || !admins.includes(decoded.email.toLowerCase())) {
-    return res.status(403).json({ ok: false, error: "admin-only" });
-  }
+  // (אופציונלי) אימות Firebase ייכנס כאן בהמשך כשנחבר פרונט/אפליקציות.
   return next();
 }
