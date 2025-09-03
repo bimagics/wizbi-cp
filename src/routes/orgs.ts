@@ -1,10 +1,10 @@
-import { Router, type Express } from 'express';
+import { Router } from 'express';
 import { getDb } from '../services/firebaseAdmin';
 
 const router = Router();
 const COL = 'orgs';
 
-router.get('/', async (_req, res) => {
+router.get('/orgs', async (_req, res) => {
   try {
     const snap = await getDb().collection(COL).limit(50).get();
     const items = snap.docs.map((d: FirebaseFirestore.QueryDocumentSnapshot) => ({
@@ -18,7 +18,7 @@ router.get('/', async (_req, res) => {
   }
 });
 
-router.post('/', async (req, res) => {
+router.post('/orgs', async (req, res) => {
   try {
     const { name, phone } = req.body || {};
     if (!name) return res.status(400).json({ ok: false, error: 'missing-name' });
@@ -36,10 +36,4 @@ router.post('/', async (req, res) => {
   }
 });
 
-/** ייצוא בשם – תואם לייבוא הקיים ב־index.ts */
-export function registerOrgRoutes(app: Express) {
-  app.use('/orgs', router);
-}
-
-/** נשאיר גם ברירת־מחדל למקרה שמייבאים כ-router */
 export default router;
