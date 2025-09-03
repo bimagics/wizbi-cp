@@ -18,21 +18,29 @@ const ALLOWED = (process.env.ALLOWED_ADMIN_EMAILS || '')
 
 // Structured logger helper
 function log(evt: string, meta: Record<string, any> = {}) {
-  // שמרתי על קיצור כדי שלא יעמיס בלוגים: כל הודעה היא JSON אחד
   console.log(JSON.stringify({ ts: new Date().toISOString(), evt, ...meta }));
 }
 
 // ==== Auth (Firebase ID token) ====
+// Hosting לא מעביר Authorization של הלקוח כמו שהוא, לכן נקבל טוקן גם ב-X-Firebase-ID-Token
 async function requireUser(req: Request, res: Response, next: Function) {
   try {
-    const hdr = req.headers.authorization || '';
-    if (!hdr.startsWith('Bearer ')) {
+    const hdrAuth = req.headers.authorization || '';
+    const hdrX = (req.headers['x-firebase-id-token'] as string) || '';
+    let token = '';
+    let via: 'x-header' | 'auth-bearer' | 'none' = 'none';
+
+    if (hdrX) { token = hdrX; via = 'x-header'; }
+    else if (hdrAuth.startsWith('Bearer ')) { token = hdrAuth.substring(7); via = 'auth-bearer'; }
+
+    if (!token) {
       log('auth.missing_token', { path: req.path });
       return res.status(401).json({ error: 'missing token' });
     }
-    const idToken = hdr.substring('Bearer '.length);
-    const decoded = await admin.auth().verifyIdToken(idToken);
+
+    const decoded = await admin.auth().verifyIdToken(token);
     (req as any).user = decoded;
+    log('auth.ok', { via, uid: decoded.uid, email: decoded.email });
     next();
   } catch (e: any) {
     log('auth.verify_failed', { path: req.path, error: String(e) });
