@@ -14,12 +14,12 @@ const PROJECT_PREFIX = process.env.PROJECT_PREFIX || 'wizbi';
 const FOLDER_ID = process.env.FOLDER_ID || '';
 const ALLOWED = (process.env.ALLOWED_ADMIN_EMAILS || '').split(',').map(s=>s.trim().toLowerCase()).filter(Boolean);
 
-function log(evt: string, meta: Record<string, any> = {}) {
+export function log(evt: string, meta: Record<string, any> = {}) {
   console.log(JSON.stringify({ ts: new Date().toISOString(), evt, ...meta }));
 }
 
 // ---- Auth: קורא קודם X-Firebase-ID-Token (Hosting), ואם אין – Authorization: Bearer
-async function requireUser(req: Request, res: Response, next: Function) {
+export async function requireUser(req: Request, res: Response, next: Function) {
   try {
     const hdrAuth = req.headers.authorization || '';
     const hdrX = (req.headers['x-firebase-id-token'] as string) || '';
@@ -134,11 +134,6 @@ async function provisionTenant(tenantId:string, displayName:string, env:'qa'|'pr
 }
 
 // ---- Routes
-router.get('/me', requireUser, async (req,res)=>{
-  const u=(req as any).user as { email?:string, name?:string, uid?:string };
-  const email=(u.email||'').toLowerCase(); const isAdmin=!ALLOWED.length||ALLOWED.includes(email);
-  log('me',{email,isAdmin}); res.json({ email, isAdmin, name:u.name||null, uid:u.uid||null });
-});
 router.get('/tenants', requireUser, requireAdmin, async (_req,res)=>{
   const snap=await TENANTS.orderBy('startedAt','desc').limit(100).get();
   const list=snap.docs.map(d=>({id:d.id,...d.data()})); log('tenants.list',{count:list.length}); res.json(list);
