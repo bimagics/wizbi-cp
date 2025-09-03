@@ -12,7 +12,7 @@ concurrency:
 permissions:
   id-token: write
   contents: read
-  actions: write # Required for GHA cache backend
+  actions: write # Required for the GHA cache backend
 
 env:
   AR_REPO: wizbi
@@ -50,10 +50,8 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # --- שינוי מרכזי: שימוש במנגנון ה-Cache המובנה של GitHub ---
-      # המטרה: לשמור על מהירות הבנייה אבל למנוע "תקיעות" של גרסאות ישנות.
-      # השינוי: במקום לנהל קבצי cache מקומיים, אנחנו אומרים ל-Docker להשתמש
-      # ישירות ב-backend של GitHub Actions. זה אמין ויעיל יותר.
+      # This step uses a more reliable, built-in caching mechanism (gha)
+      # to speed up builds without using stale layers.
       - name: Build and Push Image (with GHA Cache)
         uses: docker/build-push-action@v5
         with:
@@ -132,7 +130,6 @@ jobs:
           SERVICE_NAME="${{ steps.svc.outputs.service }}"
           echo "Verifying deployment status for service: $SERVICE_NAME"
 
-          # Poll the service for up to 5 minutes to ensure it's 100% ready
           for i in {1..30}; do
             LATEST_REVISION=$(gcloud run services describe "$SERVICE_NAME" --region "${{ env.REGION }}" --format 'value(status.latestReadyRevisionName)')
             TRAFFIC_TARGET=$(gcloud run services describe "$SERVICE_NAME" --region "${{ env.REGION }}" --format 'value(status.traffic[0].revisionName)')
@@ -148,3 +145,4 @@ jobs:
 
           echo "::error::Service $SERVICE_NAME did not become ready in time."
           exit 1
+
