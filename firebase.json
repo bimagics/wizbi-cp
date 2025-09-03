@@ -1,9 +1,15 @@
 {
-  "hosting": [
-    {
-      "target": "wizbi-cp",
-      "public": "public",
-      "ignore": ["**/.*", "**/node_modules/**"]
-    }
-  ]
+  "hosting": {
+    "public": "public",
+    "cleanUrls": true,
+    "rewrites": [
+      {
+        "source": "/whatsapp/webhook",
+        "run": {
+          "serviceId": "cp-unified-qa",
+          "region": "europe-west1"
+        }
+      }
+    ]
+  }
 }
