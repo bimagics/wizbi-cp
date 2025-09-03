@@ -88,7 +88,7 @@ jobs:
         run: |
           FULL="${{ steps.meta.outputs.image_sha }}"
           DIGEST="$(gcloud artifacts docker images describe "$FULL" --format='value(image_summary.digest)')"
-          echo "digest=$DIGEST"                                   >> $GITHUB_OUTPUT
+          echo "digest=$DIGEST"                                      >> $GITHUB_OUTPUT
           echo "pinned=${{ steps.meta.outputs.image_base }}@$DIGEST" >> $GITHUB_OUTPUT
 
       - name: Decide target service (QA vs PROD)
@@ -119,10 +119,8 @@ jobs:
     needs: build-and-deploy-cloud-run
     runs-on: ubuntu-latest
     env:
-      PROJECT_ID:    ${{ secrets.GCP_PROJECT_ID }}
-      FIREBASE_TOKEN:${{ secrets.FIREBASE_TOKEN }}  # create via: firebase login:ci
-      HOSTING_SITE_PROD: wizbi-cp
-      HOSTING_SITE_QA:   wizbi-cp-qa
+      PROJECT_ID:     ${{ secrets.GCP_PROJECT_ID }}
+      FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}  # create via: firebase login:ci
     steps:
       - name: Checkout
         uses: actions/checkout@v4
