@@ -1,20 +1,23 @@
 {
-  "name": "wizbi-cp",
+  "name": "cp-unified",
   "version": "0.1.0",
-  "private": true,
+  "main": "dist/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js"
   },
   "dependencies": {
+    "body-parser": "^1.20.3",
     "cors": "^2.8.5",
     "express": "^4.19.2",
-    "firebase-admin": "^12.6.0"
+    "firebase-admin": "^12.5.0",
+    "googleapis": "^129.0.0"
   },
   "devDependencies": {
+    "@types/body-parser": "^1.19.5",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/node": "^20.12.12",
-    "typescript": "^5.5.4"
+    "typescript": "^5.4.5"
   }
 }

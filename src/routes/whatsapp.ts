@@ -1,32 +1,24 @@
-import { Router, Request, Response } from 'express';
+import { Express, Request, Response } from "express";
 
-const router = Router();
+const VERIFY = process.env.WHATSAPP_VERIFY_TOKEN || "";
+export function registerWhatsappRoutes(app: Express) {
+  // אימות GET
+  app.get("/whatsapp/webhook", (req: Request, res: Response) => {
+    const mode = req.query["hub.mode"];
+    const token = req.query["hub.verify_token"];
+    const challenge = req.query["hub.challenge"];
+    if (mode === "subscribe" && token === VERIFY) return res.status(200).send(challenge);
+    return res.status(403).send("Forbidden");
+  });
 
-function deny(res: Response, code = 403, msg = 'forbidden') {
-  return res.status(code).json({ ok: false, error: msg });
+  // אירועים POST
+  app.post("/whatsapp/webhook", async (req: Request, res: Response) => {
+    try {
+      console.log("WhatsApp incoming:", JSON.stringify(req.body || {}));
+      return res.status(200).send("EVENT_RECEIVED");
+    } catch (e: any) {
+      console.error("POST /whatsapp/webhook error:", e);
+      return res.status(500).send("ERROR");
+    }
+  });
 }
-
-// GET /whatsapp/webhook (Meta verification)
-router.get('/webhook', (req: Request, res: Response) => {
-  const mode = req.query['hub.mode'];
-  const token = req.query['hub.verify_token'];
-  const challenge = req.query['hub.challenge'];
-  const expected = process.env.WHATSAPP_VERIFY_TOKEN;
-
-  if (mode === 'subscribe' && token === expected) {
-    return res.status(200).send(challenge);
-  }
-  return deny(res, 403, 'verify-token-mismatch');
-});
-
-// POST /whatsapp/webhook
-router.post('/webhook', async (req: Request, res: Response) => {
-  try {
-    res.status(200).send('EVENT_RECEIVED');
-    console.log('[wa] incoming', JSON.stringify(req.body).slice(0, 4000));
-  } catch (e: any) {
-    console.error('[wa] error', e?.message || e);
-  }
-});
-
-export default router;

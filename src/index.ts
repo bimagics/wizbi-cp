@@ -1,25 +1,36 @@
-import express from 'express';
-import cors from 'cors';
-import path from 'path';
-
-import healthRouter from './routes/health';
-import whatsappRouter from './routes/whatsapp';
-import orgsRouter from './routes/orgs';
+import express from "express";
+import cors from "cors";
+import bodyParser from "body-parser";
+import { getDb } from "./services/firebaseAdmin";
+import { registerOrgRoutes } from "./routes/orgs";
+import { registerFactoryRoutes } from "./routes/factory";
+// אופציונלי: רוטים לווצאפ – נרשמים רק אם מופעל
+import { registerWhatsappRoutes } from "./routes/whatsapp";
 
 const app = express();
-
-const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
-app.use(cors({ origin: CORS_ORIGIN === '*' ? true : CORS_ORIGIN.split(',') }));
-app.use(express.json({ limit: '2mb' }));
-
-app.use('/health', healthRouter);
-app.use('/whatsapp', whatsappRouter);
-app.use('/orgs', orgsRouter);
-
-// static (נקרא מתוך dist, לכן ../public)
-const staticDir = path.join(__dirname, '../public');
-app.use(express.static(staticDir));
-app.get('*', (_req, res) => res.sendFile(path.join(staticDir, 'index.html')));
-
 const port = process.env.PORT || 8080;
-app.listen(port, () => console.log(`[wizbi-cp] listening on :${port}`));
+const WHATSAPP_ENABLED = (process.env.WHATSAPP_ENABLED || "false").toLowerCase() === "true";
+
+app.use(bodyParser.json({ limit: "5mb" }));
+app.use(cors({ origin: process.env.CORS_ORIGIN || "*" }));
+
+// Health (אפשר למחוק את src/routes/health.ts הישן)
+app.get("/health", async (_req, res) => {
+  try {
+    const db = getDb();
+    await db.collection("_health").doc("ping").set({ ts: new Date().toISOString() }, { merge: true });
+    return res.json({ ok: true, ts: new Date().toISOString(), firestore: { ok: true, rt: "firestore-admin" }});
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: "health-failed", detail: e?.message });
+  }
+});
+
+registerOrgRoutes(app);
+registerFactoryRoutes(app);
+if (WHATSAPP_ENABLED) {
+  registerWhatsappRoutes(app);
+}
+
+app.listen(port, () => {
+  console.log(`[wizbi-cp] listening on :${port}`);
+});
