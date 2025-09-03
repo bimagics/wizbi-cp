@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WizBI Control — ניהול</title>
+  <style>
+    :root{ --bg:#0f172a; --card:#0b1220; --muted:#94a3b8; --text:#e2e8f0; --ok:#22c55e; --warn:#f59e0b; --err:#ef4444; --pri:#3b82f6; --border:#1f2937; }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{ margin:0; font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif; background:linear-gradient(180deg,#0b1220,#0f172a); color:var(--text);
+      display:flex; flex-direction:column; align-items:center; padding:24px; gap:16px; }
+    .wrap{width:min(1100px,100%); display:grid; gap:16px}
+    h1{margin:0 0 6px 0; font-size:28px}
+    .muted{color:var(--muted); font-size:14px}
+    .card{background:var(--card); border:1px solid var(--border); border-radius:16px; padding:16px; box-shadow:0 2px 16px rgba(0,0,0,.25)}
+    .row{display:grid; grid-template-columns:1fr 1fr; gap:12px}
+    label{display:block; margin:8px 0 4px}
+    input,select,textarea{ width:100%; padding:10px 12px; border-radius:12px; border:1px solid var(--border); background:#0b1220; color:var(--text) }
+    button{ padding:10px 16px; border:0; border-radius:12px; cursor:pointer; font-weight:700; background:var(--pri); color:white; }
+    button.secondary{background:#334155}
+    button:disabled{opacity:.5; cursor:not-allowed}
+    .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+    .tag{display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; background:#1f2937}
+    .ok{color:var(--ok)} .warn{color:var(--warn)} .err{color:var(--err)}
+    .flex{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+    .list{display:grid; gap:10px}
+    .tenant{display:grid; grid-template-columns:180px 1fr auto; gap:8px; align-items:center; padding:10px; border:1px solid var(--border); border-radius:12px}
+    .foot{color:var(--muted); font-size:12px; text-align:center; margin-top:8px}
+    .hidden{display:none}
+    .spinner{width:16px;height:16px;border:3px solid #334155;border-top-color:#fff;border-radius:50%;animation:spin .9s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+  </style>
+  <!-- Firebase Hosting injects config -->
+  <script src="/__/firebase/9.6.1/firebase-app-compat.js"></script>
+  <script src="/__/firebase/9.6.1/firebase-auth-compat.js"></script>
+  <script src="/__/firebase/init.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <header class="card">
+      <div class="flex" style="justify-content:space-between">
+        <div>
+          <h1>WizBI Control</h1>
+          <div class="muted">מרכז שליטה אחד — יצירת טננטים, סטטוס, והפעלת שירותים — בלי לצאת ל-GCP.</div>
+        </div>
+        <div id="authBox" class="flex">
+          <span id="userEmail" class="tag">לא מחובר</span>
+          <button id="btnLogin">כניסה עם Google</button>
+          <button id="btnLogout" class="secondary hidden">התנתק</button>
+        </div>
+      </div>
+    </header>
+
+    <section class="card" id="adminOnly" class="hidden">
+      <h3 style="margin:0 0 8px 0">יצירת פרויקט חדש ללקוח (Tenant)</h3>
+      <div class="muted" style="margin-bottom:8px">הפעולה תיצור פרויקט GCP, תחבר חיוב, תפעיל APIs, תקים Artifact Registry ו-BigQuery.</div>
+      <div class="row">
+        <div>
+          <label>Tenant ID (אנגלית קצר, לדוג׳ <span class="mono">acme</span>)</label>
+          <input id="tenantId" placeholder="acme">
+        </div>
+        <div>
+          <label>Display Name</label>
+          <input id="displayName" placeholder="ACME Ltd">
+        </div>
+        <div>
+          <label>סביבה</label>
+          <select id="env">
+            <option value="qa">QA</option>
+            <option value="prod">PROD</option>
+          </select>
+        </div>
+      </div>
+      <div class="flex" style="margin-top:12px">
+        <button id="btnCreate"><span class="spinner hidden" id="spinnerCreate"></span> צור פרויקט</button>
+        <span class="muted">מזהה ייוצר כ־<span class="mono">wizbi-&lt;tenant&gt;-&lt;env&gt;</span></span>
+      </div>
+      <pre id="createLog" class="mono" style="margin-top:12px; background:#0a0f1a; padding:12px; border-radius:12px; max-height:240px; overflow:auto"></pre>
+    </section>
+
+    <section class="card">
+      <div class="flex" style="justify-content:space-between">
+        <h3 style="margin:0">טננטים קיימים</h3>
+        <button id="btnRefresh" class="secondary">רענן</button>
+      </div>
+      <div id="tenants" class="list" style="margin-top:12px"></div>
+    </section>
+
+    <footer class="foot">© WizBI.ai — Control Plane</footer>
+  </div>
+
+<script>
+const auth = firebase.auth();
+const provider = new firebase.auth.GoogleAuthProvider();
+const el = id=>document.getElementById(id);
+const show = (node, yes)=>node.classList[yes?'remove':'add']('hidden');
+
+function setBusy(btn, spin, busy){ btn.disabled = busy; show(spin,busy); }
+
+async function callApi(path, opts={}){
+  const user = auth.currentUser;
+  if(!user) throw new Error('unauthenticated');
+  const token = await user.getIdToken();
+  const res = await fetch(path, {
+    ...opts,
+    headers: { 'Content-Type':'application/json', 'Authorization':`Bearer ${token}`, ...(opts.headers||{}) }
+  });
+  const text = await res.text();
+  try{ return { ok: res.ok, status: res.status, json: JSON.parse(text), raw: text }; }
+  catch{ return { ok: res.ok, status: res.status, json: null, raw: text }; }
+}
+
+async function renderTenants(){
+  const box = el('tenants'); box.innerHTML = '';
+  const r = await callApi('/tenants');
+  if(!r.ok){ box.innerHTML = `<div class="muted">שגיאה בקריאה ל-/tenants (${r.status})</div>`; return; }
+  const list = r.json || [];
+  if(!list.length){ box.innerHTML = `<div class="muted">אין עדיין טננטים</div>`; return; }
+  list.forEach(t=>{
+    const div = document.createElement('div');
+    div.className='tenant';
+    div.innerHTML = `
+      <div class="mono">${t.projectId || '-'}</div>
+      <div>
+        <div><b>${t.displayName || t.tenantId}</b> <span class="tag">${t.env?.toUpperCase()||''}</span></div>
+        <div class="muted" style="font-size:12px">BQ: ${t.bigquery?.datasets?.join(', ')||'-'} · AR: ${t.artifactRegistry||'-'} · State: ${t.state||'-'}</div>
+      </div>
+      <div class="flex">
+        <button class="secondary" onclick="window.open('/health','_blank')">Health</button>
+      </div>
+    `;
+    box.appendChild(div);
+  });
+}
+
+async function ensureAdminUI(){
+  const r = await callApi('/me');
+  const admin = r.ok && r.json && r.json.isAdmin;
+  show(el('adminOnly'), admin);
+}
+
+auth.onAuthStateChanged(async (user)=>{
+  if(user){
+    el('userEmail').textContent = user.email;
+    show(el('btnLogin'), false); show(el('btnLogout'), true);
+    await ensureAdminUI();
+    await renderTenants();
+  }else{
+    el('userEmail').textContent = 'לא מחובר';
+    show(el('btnLogin'), true); show(el('btnLogout'), false);
+    show(el('adminOnly'), false);
+    el('tenants').innerHTML = '<div class="muted">התחבר כדי לראות נתונים</div>';
+  }
+});
+
+el('btnLogin').onclick = ()=>auth.signInWithPopup(provider);
+el('btnLogout').onclick = ()=>auth.signOut();
+el('btnRefresh').onclick = renderTenants;
+
+el('btnCreate').onclick = async ()=>{
+  const tenantId = el('tenantId').value.trim();
+  const displayName = el('displayName').value.trim() || tenantId.toUpperCase();
+  const env = el('env').value;
+  if(!tenantId){ alert('Tenant ID נדרש'); return; }
+
+  setBusy(el('btnCreate'), el('spinnerCreate'), true);
+  el('createLog').textContent = 'מייצר פרויקט...';
+  try{
+    const r = await callApi('/tenants/provision', {
+      method:'POST', body: JSON.stringify({ tenantId, displayName, env })
+    });
+    el('createLog').textContent = r.ok ? JSON.stringify(r.json, null, 2) : (r.raw || `HTTP ${r.status}`);
+    if(r.ok) await renderTenants();
+  }catch(e){ el('createLog').textContent = String(e); }
+  finally{ setBusy(el('btnCreate'), el('spinnerCreate'), false); }
+};
+</script>
+</body>
+</html>
