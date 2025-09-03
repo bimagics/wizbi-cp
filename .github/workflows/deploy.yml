@@ -27,7 +27,7 @@ jobs:
     env:
       PROJECT_ID:   ${{ secrets.GCP_PROJECT_ID }}
       REGION:       ${{ secrets.GCP_REGION }}
-      WIF_PROVIDER: ${{ secrets.WIF_PROVIDER }}   # e.g. projects/2708.../locations/global/workloadIdentityPools/gh-pool/providers/github
+      WIF_PROVIDER: ${{ secrets.WIF_PROVIDER }}   # e.g. projects/XXXX/locations/global/workloadIdentityPools/POOL/providers/PROVIDER
       DEPLOYER_SA:  ${{ secrets.DEPLOYER_SA }}    # e.g. gh-deployer@wizbi-cp.iam.gserviceaccount.com
     steps:
       - name: Checkout
@@ -109,26 +109,20 @@ jobs:
             --no-allow-unauthenticated \
             --update-env-vars "NODE_ENV=production,FIREBASE_PROJECT_ID=${{ env.PROJECT_ID }},CORS_ORIGIN=*,WHATSAPP_ENABLED=false,ADMINS=${{ env.ADMINS }}"
 
-      - name: Smoke test /health (private with identity token)
-        run: |
-          set -e
-          URL="$(gcloud run services describe "${{ steps.svc.outputs.service }}" --region "${{ env.REGION }}" --format='value(status.url)')"
-          CODE="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $(gcloud auth print-identity-token)" "$URL/health")"
-          echo "Health ${URL}/health => ${CODE}"
-          test "$CODE" = "200"
-
       - name: Print service URL
         run: |
           URL=$(gcloud run services describe "${{ steps.svc.outputs.service }}" --region "${{ env.REGION }}" --format='value(status.url)')
           echo "Deployed: $URL"
 
   deploy-hosting:
-    name: Deploy Firebase Hosting (per branch)
+    name: Deploy Firebase Hosting (per branch) + Smoke test
     needs: build-and-deploy-cloud-run
     runs-on: ubuntu-latest
     env:
-      PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-      FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}  # create via: firebase login:ci
+      PROJECT_ID:    ${{ secrets.GCP_PROJECT_ID }}
+      FIREBASE_TOKEN:${{ secrets.FIREBASE_TOKEN }}  # create via: firebase login:ci
+      HOSTING_SITE_PROD: wizbi-cp
+      HOSTING_SITE_QA:   wizbi-cp-qa
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -153,8 +147,10 @@ jobs:
         run: |
           if [[ "${GITHUB_REF_NAME}" == "dev" ]]; then
             echo "site=${{ env.HOSTING_SITE_QA }}"  >> $GITHUB_OUTPUT
+            echo "url=https://${{ env.HOSTING_SITE_QA }}.web.app" >> $GITHUB_OUTPUT
           else
             echo "site=${{ env.HOSTING_SITE_PROD }}" >> $GITHUB_OUTPUT
+            echo "url=https://${{ env.HOSTING_SITE_PROD }}.web.app" >> $GITHUB_OUTPUT
           fi
 
       - name: Deploy Hosting
@@ -166,11 +162,14 @@ jobs:
             --non-interactive \
             --token "${{ env.FIREBASE_TOKEN }}"
 
-      - name: Print Hosting URL
+      - name: Smoke test via Hosting (/health)
         if: steps.chk.outputs.present == 'true'
         run: |
-          if [[ "${{ steps.host.outputs.site }}" == "${{ env.HOSTING_SITE_QA }}" ]]; then
-            echo "Hosting QA:   https://${{ env.HOSTING_SITE_QA }}.web.app"
-          else
-            echo "Hosting PROD: https://${{ env.HOSTING_SITE_PROD }}.web.app"
-          fi
+          set -e
+          CODE="$(curl -s -o /dev/null -w '%{http_code}' "${{ steps.host.outputs.url }}/health")"
+          echo "Hosting health: ${{ steps.host.outputs.url }}/health => $CODE"
+          test "$CODE" = "200"
+
+      - name: Print Hosting URL
+        if: steps.chk.outputs.present == 'true'
+        run: echo "Hosting URL: ${{ steps.host.outputs.url }}/admin"
