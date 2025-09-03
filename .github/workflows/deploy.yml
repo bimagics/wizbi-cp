@@ -100,14 +100,14 @@ jobs:
             echo "service=cp-unified"     >> $GITHUB_OUTPUT
           fi
 
-      - name: Deploy to Cloud Run (pinned by digest)
-        run: |
-          gcloud run deploy "${{ steps.svc.outputs.service }}" \
-            --image "${{ steps.digest.outputs.pinned }}" \
-            --region "${{ env.REGION }}" \
-            --service-account "wizbi-runner@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
-            --no-allow-unauthenticated \
-            --update-env-vars "NODE_ENV=production,FIREBASE_PROJECT_ID=${{ env.PROJECT_ID }},CORS_ORIGIN=*,WHATSAPP_ENABLED=false,ADMINS=${{ env.ADMINS }}"
+     - name: Deploy to Cloud Run (pinned by digest)
+  run: |
+    gcloud run deploy "${{ steps.svc.outputs.service }}" \
+      --image "${{ steps.digest.outputs.pinned }}" \
+      --region "${{ env.REGION }}" \
+      --service-account "wizbi-runner@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
+      --allow-unauthenticated \
+      --update-env-vars "NODE_ENV=production,FIREBASE_PROJECT_ID=${{ env.PROJECT_ID }},CORS_ORIGIN=*,WHATSAPP_ENABLED=false,ADMINS=${{ env.ADMINS }}"
 
       - name: Print service URL
         run: |
