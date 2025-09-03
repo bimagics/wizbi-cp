@@ -27,8 +27,8 @@ jobs:
     env:
       PROJECT_ID:   ${{ secrets.GCP_PROJECT_ID }}
       REGION:       ${{ secrets.GCP_REGION }}
-      WIF_PROVIDER: ${{ secrets.WIF_PROVIDER }}   # e.g. projects/XXXX/locations/global/workloadIdentityPools/POOL/providers/PROVIDER
-      DEPLOYER_SA:  ${{ secrets.DEPLOYER_SA }}    # e.g. gh-deployer@wizbi-cp.iam.gserviceaccount.com
+      WIF_PROVIDER: ${{ secrets.WIF_PROVIDER }}
+      DEPLOYER_SA:  ${{ secrets.DEPLOYER_SA }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -50,8 +50,7 @@ jobs:
           set -e
           if ! gcloud artifacts repositories describe "${{ env.AR_REPO }}" --location "${{ env.REGION }}" >/dev/null 2>&1; then
             gcloud artifacts repositories create "${{ env.AR_REPO }}" \
-              --repository-format=DOCKER \
-              --location "${{ env.REGION }}" \
+              --repository-format=DOCKER --location "${{ env.REGION }}" \
               --description "WizBI images"
           fi
 
@@ -66,16 +65,15 @@ jobs:
           BASE="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}"
           echo "image_sha=${BASE}:sha-${SHA_SHORT}"             >> $GITHUB_OUTPUT
           echo "image_branch=${BASE}:branch-${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
-          echo "image_ts=${BASE}:${TS}"                          >> $GITHUB_OUTPUT
-          echo "image_base=${BASE}"                              >> $GITHUB_OUTPUT
+          echo "image_ts=${BASE}:${TS}"                         >> $GITHUB_OUTPUT
+          echo "image_base=${BASE}"                             >> $GITHUB_OUTPUT
 
       - name: Build image
         run: |
           docker build \
             -t "${{ steps.meta.outputs.image_sha }}" \
             -t "${{ steps.meta.outputs.image_branch }}" \
-            -t "${{ steps.meta.outputs.image_ts }}" \
-            .
+            -t "${{ steps.meta.outputs.image_ts }}" .
 
       - name: Push image
         run: |
@@ -115,12 +113,12 @@ jobs:
           echo "Deployed: $URL"
 
   deploy-hosting:
-    name: Deploy Firebase Hosting (per branch) + Smoke test
+    name: Deploy Firebase Hosting (per branch) + Smoke test (with retry)
     needs: build-and-deploy-cloud-run
     runs-on: ubuntu-latest
     env:
       PROJECT_ID:     ${{ secrets.GCP_PROJECT_ID }}
-      FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}  # create via: firebase login:ci
+      FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}  # אפשר להשאיר בשלב זה
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -160,13 +158,19 @@ jobs:
             --non-interactive \
             --token "${{ env.FIREBASE_TOKEN }}"
 
-      - name: Smoke test via Hosting (/health)
+      - name: Smoke test via Hosting (/health) with retry
         if: steps.chk.outputs.present == 'true'
         run: |
           set -e
-          CODE="$(curl -s -o /dev/null -w '%{http_code}' "${{ steps.host.outputs.url }}/health")"
-          echo "Hosting health: ${{ steps.host.outputs.url }}/health => $CODE"
-          test "$CODE" = "200"
+          URL="${{ steps.host.outputs.url }}/health"
+          for i in {1..12}; do
+            CODE="$(curl -s -o /dev/null -w '%{http_code}' "$URL")"
+            echo "Attempt $i: $URL => $CODE"
+            if [ "$CODE" = "200" ]; then exit 0; fi
+            sleep 10
+          done
+          echo "❌ Still not 200 after retries"
+          exit 1
 
       - name: Print Hosting URL
         if: steps.chk.outputs.present == 'true'
