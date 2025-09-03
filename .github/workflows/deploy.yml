@@ -85,7 +85,7 @@ jobs:
           gcloud run deploy "${{ steps.svc.outputs.service }}" \
             --image "$IMAGE_TAG" \
             --region "${{ env.REGION }}" \
-            --service-account "runner@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
+            --service-account "wizbi-runner@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
             --ingress=internal \
             --allow-unauthenticated \
             --update-env-vars "NODE_ENV=production,FIREBASE_PROJECT_ID=${{ env.PROJECT_ID }},CORS_ORIGIN=*,WHATSAPP_ENABLED=false,ADMINS=${{ env.ADMINS }}"
@@ -140,7 +140,6 @@ jobs:
           SERVICE_NAME="${{ steps.svc.outputs.service }}"
           echo "Verifying deployment status for service: $SERVICE_NAME"
           
-          # Poll the service for up to 5 minutes to ensure it's 100% ready
           for i in {1..30}; do
             LATEST_REVISION=$(gcloud run services describe "$SERVICE_NAME" --region "${{ env.REGION }}" --format 'value(status.latestReadyRevisionName)')
             TRAFFIC_TARGET=$(gcloud run services describe "$SERVICE_NAME" --region "${{ env.REGION }}" --format 'value(status.traffic[0].revisionName)')
