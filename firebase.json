@@ -1,21 +1,40 @@
 {
-  "hosting": {
-    "public": "public",
-    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
-    "redirects": [
-      { "source": "/", "destination": "/admin/", "type": 301 }
-    ],
-    "headers": [
-      { "source": "/admin/**", "headers": [{ "key": "Cache-Control", "value": "no-store" }] }
-    ],
-    "rewrites": [
-      { "source": "/admin/**", "destination": "/admin/index.html" },
-
-      { "source": "/health", "run": { "serviceId": "cp-unified-qa", "region": "europe-west1" } },
-      { "source": "/me",     "run": { "serviceId": "cp-unified-qa", "region": "europe-west1" } },
-      { "source": "/tenants/**", "run": { "serviceId": "cp-unified-qa", "region": "europe-west1" } },
-
-      { "source": "/whatsapp/webhook", "run": { "serviceId": "cp-unified-qa", "region": "europe-west1" } }
-    ]
-  }
+  "hosting": [
+    {
+      "site": "wizbi-cp",
+      "public": "public",
+      "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+      "redirects": [
+        { "source": "/", "destination": "/admin/", "type": 301 }
+      ],
+      "headers": [
+        { "source": "/admin/**", "headers": [{ "key": "Cache-Control", "value": "no-store" }] }
+      ],
+      "rewrites": [
+        { "source": "/admin/**", "destination": "/admin/index.html" },
+        { "source": "/health", "run": { "serviceId": "cp-unified", "region": "europe-west1" } },
+        { "source": "/me", "run": { "serviceId": "cp-unified", "region": "europe-west1" } },
+        { "source": "/tenants/**", "run": { "serviceId": "cp-unified", "region": "europe-west1" } },
+        { "source": "/whatsapp/webhook", "run": { "serviceId": "cp-unified", "region": "europe-west1" } }
+      ]
+    },
+    {
+      "site": "wizbi-cp-qa",
+      "public": "public",
+      "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+      "redirects": [
+        { "source": "/", "destination": "/admin/", "type": 301 }
+      ],
+      "headers": [
+        { "source": "/admin/**", "headers": [{ "key": "Cache-Control", "value": "no-store" }] }
+      ],
+      "rewrites": [
+        { "source": "/admin/**", "destination": "/admin/index.html" },
+        { "source": "/health", "run": { "serviceId": "cp-unified-qa", "region": "europe-west1" } },
+        { "source": "/me", "run": { "serviceId": "cp-unified-qa", "region": "europe-west1" } },
+        { "source": "/tenants/**", "run": { "serviceId": "cp-unified-qa", "region": "europe-west1" } },
+        { "source": "/whatsapp/webhook", "run": { "serviceId": "cp-unified-qa", "region": "europe-west1" } }
+      ]
+    }
+  ]
 }
