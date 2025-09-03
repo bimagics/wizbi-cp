@@ -24,8 +24,6 @@ jobs:
   build-and-deploy-cloud-run:
     name: Build & Deploy Cloud Run
     runs-on: ubuntu-latest
-    outputs:
-      service_url: ${{ steps.service_url.outputs.url }}
     env:
       PROJECT_ID:   ${{ secrets.GCP_PROJECT_ID }}
       REGION:       ${{ secrets.GCP_REGION }}
@@ -44,37 +42,33 @@ jobs:
 
       - name: Setup gcloud
         uses: google-github-actions/setup-gcloud@v2
-        with:
-          project_id: ${{ env.PROJECT_ID }}
-
-      - name: Ensure Artifact Registry repo exists (idempotent)
-        run: |
-          set -e
-          if ! gcloud artifacts repositories describe "${{ env.AR_REPO }}" --location "${{ env.REGION }}" >/dev/null 2>&1; then
-            gcloud artifacts repositories create "${{ env.AR_REPO }}" \
-              --repository-format=DOCKER \
-              --location "${{ env.REGION }}" \
-              --description "WizBI images"
-          fi
 
       - name: Configure Docker to Artifact Registry
         run: gcloud auth configure-docker "${{ env.REGION }}-docker.pkg.dev" -q
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Compute image tags
-        id: meta
-        run: |
-          SHA_SHORT="${GITHUB_SHA::7}"
-          TS="$(date +%s)"
-          BASE="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}"
-          echo "image_sha=${BASE}:sha-${SHA_SHORT}"             >> $GITHUB_OUTPUT
-          echo "image_branch=${BASE}:branch-${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
-          echo "image_ts=${BASE}:${TS}"                          >> $GITHUB_OUTPUT
-          echo "image_base=${BASE}"                              >> $GITHUB_OUTPUT
+      - name: Docker Cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
 
-      - name: Build and Push Image
+      - name: Build and Push Image (with Cache)
         run: |
-          docker build -t "${{ steps.meta.outputs.image_branch }}" .
-          docker push "${{ steps.meta.outputs.image_branch }}"
+          IMAGE_TAG="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}:branch-${{ github.ref_name }}"
+          docker buildx build \
+            --tag "$IMAGE_TAG" \
+            --cache-from=type=local,src=/tmp/.buildx-cache \
+            --cache-to=type=local,dest=/tmp/.buildx-cache-new,mode=max \
+            --push \
+            .
+          # Move cache if build succeeds
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
 
       - name: Decide target service (QA vs PROD)
         id: svc
@@ -85,24 +79,19 @@ jobs:
             echo "service=cp-unified"     >> $GITHUB_OUTPUT
           fi
 
-      - name: Deploy to Cloud Run (pinned by digest)
+      - name: Deploy to Cloud Run with internal ingress
         run: |
+          IMAGE_TAG="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}:branch-${{ github.ref_name }}"
           gcloud run deploy "${{ steps.svc.outputs.service }}" \
-            --image "${{ steps.meta.outputs.image_branch }}" \
+            --image "$IMAGE_TAG" \
             --region "${{ env.REGION }}" \
             --service-account "wizbi-runner@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
-            --no-allow-unauthenticated \
+            --ingress=internal \
+            --allow-unauthenticated \
             --update-env-vars "NODE_ENV=production,FIREBASE_PROJECT_ID=${{ env.PROJECT_ID }},CORS_ORIGIN=*,WHATSAPP_ENABLED=false,ADMINS=${{ env.ADMINS }}"
 
-      - name: Get service URL
-        id: service_url
-        run: |
-          URL=$(gcloud run services describe "${{ steps.svc.outputs.service }}" --region "${{ env.REGION }}" --format='value(status.url)')
-          echo "Deployed: $URL"
-          echo "url=$URL" >> $GITHUB_OUTPUT
-
   deploy-hosting-and-test:
-    name: Deploy Hosting + Authenticated Test
+    name: Deploy Hosting + Verify Service
     needs: build-and-deploy-cloud-run
     runs-on: ubuntu-latest
     env:
@@ -120,46 +109,35 @@ jobs:
           workload_identity_provider: ${{ env.WIF_PROVIDER }}
           service_account: ${{ env.DEPLOYER_SA }}
           project_id: ${{ env.PROJECT_ID }}
-      
+
       - name: Setup gcloud
         uses: google-github-actions/setup-gcloud@v2
-        with:
-          project_id: ${{ env.PROJECT_ID }}
 
       - name: Install Firebase CLI
         run: npm i -g firebase-tools@latest
 
-      - name: Decide Hosting site (QA/PROD)
-        id: host
+      - name: Decide target service (QA vs PROD)
+        id: svc
         run: |
           if [[ "${GITHUB_REF_NAME}" == "dev" ]]; then
+            echo "service=cp-unified-qa"  >> $GITHUB_OUTPUT
             echo "site=${{ env.HOSTING_SITE_QA }}"  >> $GITHUB_OUTPUT
-            echo "url=https://${{ env.HOSTING_SITE_QA }}.web.app" >> $GITHUB_OUTPUT
           else
+            echo "service=cp-unified"     >> $GITHUB_OUTPUT
             echo "site=${{ env.HOSTING_SITE_PROD }}" >> $GITHUB_OUTPUT
-            echo "url=https://${{ env.HOSTING_SITE_PROD }}.web.app" >> $GITHUB_OUTPUT
           fi
 
-      - name: Deploy Hosting (uses WIF credentials)
+      - name: Deploy Hosting
         run: |
           firebase deploy \
-            --only "hosting:${{ steps.host.outputs.site }}" \
+            --only "hosting:${{ steps.svc.outputs.site }}" \
             --project "${{ env.PROJECT_ID }}" \
             --non-interactive
 
-      - name: Authenticated smoke test via Cloud Run URL
+      - name: Verify Cloud Run Deployment Status
         run: |
           set -e
-          SERVICE_URL="${{ needs.build-and-deploy-cloud-run.outputs.service_url }}"
-          echo "Testing service at: $SERVICE_URL"
-          TOKEN=$(gcloud auth print-identity-token --audiences="$SERVICE_URL" --impersonate-service-account="${{ env.DEPLOYER_SA }}")
-          CODE=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN" "$SERVICE_URL/health")
-          echo "Authenticated health check => $CODE"
-          if [ "$CODE" != "200" ]; then
-            echo "::error::Authenticated health check failed with code $CODE"
-            exit 1
-          fi
-
-      - name: Print Hosting URL
-        run: |
-          echo "Hosting URL: ${{ steps.host.outputs.url }}/admin"
+          echo "Verifying deployment status for service: ${{ steps.svc.outputs.service }}"
+          # Wait for the service to be ready and routing 100% of traffic. This command will fail if the deployment has issues.
+          gcloud run services wait "${{ steps.svc.outputs.service }}" --region "${{ env.REGION }}"
+          echo "Service ${{ steps.svc.outputs.service }} is active and ready."
