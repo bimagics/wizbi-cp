@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type Express } from 'express';
 import { getDb } from '../services/firebaseAdmin';
 
 const router = Router();
@@ -36,4 +36,10 @@ router.post('/', async (req, res) => {
   }
 });
 
+/** ייצוא בשם – תואם לייבוא הקיים ב־index.ts */
+export function registerOrgRoutes(app: Express) {
+  app.use('/orgs', router);
+}
+
+/** נשאיר גם ברירת־מחדל למקרה שמייבאים כ-router */
 export default router;
