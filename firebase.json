@@ -12,9 +12,7 @@
       ],
       "rewrites": [
         { "source": "/admin/**", "destination": "/admin/index.html" },
-        { "source": "/health", "run": { "serviceId": "cp-unified", "region": "europe-west1" } },
-        { "source": "/me", "run": { "serviceId": "cp-unified", "region": "europe-west1" } },
-        { "source": "/tenants/**", "run": { "serviceId": "cp-unified", "region": "europe-west1" } },
+        { "source": "/api/**", "run": { "serviceId": "cp-unified", "region": "europe-west1" } },
         { "source": "/whatsapp/webhook", "run": { "serviceId": "cp-unified", "region": "europe-west1" } }
       ]
     },
@@ -30,9 +28,7 @@
       ],
       "rewrites": [
         { "source": "/admin/**", "destination": "/admin/index.html" },
-        { "source": "/health", "run": { "serviceId": "cp-unified-qa", "region": "europe-west1" } },
-        { "source": "/me", "run": { "serviceId": "cp-unified-qa", "region": "europe-west1" } },
-        { "source": "/tenants/**", "run": { "serviceId": "cp-unified-qa", "region": "europe-west1" } },
+        { "source": "/api/**", "run": { "serviceId": "cp-unified-qa", "region": "europe-west1" } },
         { "source": "/whatsapp/webhook", "run": { "serviceId": "cp-unified-qa", "region": "europe-west1" } }
       ]
     }

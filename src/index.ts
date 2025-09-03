@@ -1,36 +1,44 @@
-// src/index.ts
 import express from "express";
 import cors from "cors";
 import bodyParser from "body-parser";
-import { registerOrgRoutes } from "./routes/orgs";
-import { registerFactoryRoutes } from "./routes/factory";
-import { registerWhatsappRoutes } from "./routes/whatsapp";
-import tenantsRouter from './routes/tenants';
-import userRouter from './routes/user';
-import healthRouter from './routes/health'; // ייבוא חדש של ראוטר ה-health
 
+// --- Import all routers using the unified pattern ---
+import healthRouter from './routes/health';
+import userRouter from './routes/user';
+import tenantsRouter from './routes/tenants';
+import orgsRouter from './routes/orgs';
+import factoryRouter from './routes/factory';
+import whatsappRouter from './routes/whatsapp';
+
+// --- App Initialization ---
 const app = express();
 const port = process.env.PORT || 8080;
 const WHATSAPP_ENABLED = (process.env.WHATSAPP_ENABLED || "false").toLowerCase() === "true";
 
+console.log("[wizbi-cp] Initializing middleware...");
 app.use(express.json({ limit: '1mb' }));
 app.use(bodyParser.json({ limit: "5mb" }));
 app.use(cors({ origin: process.env.CORS_ORIGIN || "*" }));
+console.log("[wizbi-cp] Middleware initialized.");
 
-// --- טעינה אחידה של כל הראוטרים ---
-app.use(healthRouter); // שימוש בראוטר החדש
-app.use(tenantsRouter);
-app.use(userRouter);
+// --- Register all API routes ---
+console.log("[wizbi-cp] Registering routes...");
+app.use('/api', healthRouter);
+app.use('/api', userRouter);
+app.use('/api', tenantsRouter);
+app.use('/api', orgsRouter);
+app.use('/api', factoryRouter);
+console.log("   -> Core routers registered under /api.");
 
-// --- רוטים קיימים (שעדיין לא הועברו למבנה החדש) ---
-registerOrgRoutes(app);
-registerFactoryRoutes(app);
 if (WHATSAPP_ENABLED) {
-  registerWhatsappRoutes(app);
+  app.use('/', whatsappRouter); // WhatsApp webhook needs to be at the root
+  console.log("   -> WhatsApp router registered at root.");
+} else {
+  console.log("   -> WhatsApp router skipped (disabled).");
 }
+console.log("[wizbi-cp] All routes registered.");
 
-// הסרנו את ההגדרה הישנה של /health מכאן
-
+// --- Start Server ---
 app.listen(port, () => {
-  console.log(`[wizbi-cp] listening on :${port}`);
+  console.log(`[wizbi-cp] Server is fully initialized and listening on :${port}`);
 });
