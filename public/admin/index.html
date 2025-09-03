@@ -6,8 +6,7 @@
   <title>WizBI Control — ניהול</title>
   <style>
     :root{ --bg:#0f172a; --card:#0b1220; --muted:#94a3b8; --text:#e2e8f0; --ok:#22c55e; --warn:#f59e0b; --err:#ef4444; --pri:#3b82f6; --border:#1f2937; }
-    *{box-sizing:border-box}
-    html,body{height:100%}
+    *{box-sizing:border-box} html,body{height:100%}
     body{ margin:0; font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif; background:linear-gradient(180deg,#0b1220,#0f172a); color:var(--text);
       display:flex; flex-direction:column; align-items:center; padding:24px; gap:16px; }
     .wrap{width:min(1100px,100%); display:grid; gap:16px}
@@ -18,20 +17,15 @@
     label{display:block; margin:8px 0 4px}
     input,select,textarea{ width:100%; padding:10px 12px; border-radius:12px; border:1px solid var(--border); background:#0b1220; color:var(--text) }
     button{ padding:10px 16px; border:0; border-radius:12px; cursor:pointer; font-weight:700; background:var(--pri); color:white; }
-    button.secondary{background:#334155}
-    button:disabled{opacity:.5; cursor:not-allowed}
+    button.secondary{background:#334155} button:disabled{opacity:.5; cursor:not-allowed}
     .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
     .tag{display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; background:#1f2937}
-    .ok{color:var(--ok)} .warn{color:var(--warn)} .err{color:var(--err)}
-    .flex{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
     .list{display:grid; gap:10px}
     .tenant{display:grid; grid-template-columns:180px 1fr auto; gap:8px; align-items:center; padding:10px; border:1px solid var(--border); border-radius:12px}
-    .foot{color:var(--muted); font-size:12px; text-align:center; margin-top:8px}
     .hidden{display:none}
     .spinner{width:16px;height:16px;border:3px solid #334155;border-top-color:#fff;border-radius:50%;animation:spin .9s linear infinite}
     @keyframes spin{to{transform:rotate(360deg)}}
   </style>
-  <!-- Firebase Hosting injects config -->
   <script src="/__/firebase/9.6.1/firebase-app-compat.js"></script>
   <script src="/__/firebase/9.6.1/firebase-auth-compat.js"></script>
   <script src="/__/firebase/init.js"></script>
@@ -39,12 +33,12 @@
 <body>
   <div class="wrap">
     <header class="card">
-      <div class="flex" style="justify-content:space-between">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
         <div>
           <h1>WizBI Control</h1>
-          <div class="muted">מרכז שליטה אחד — יצירת טננטים, סטטוס, והפעלת שירותים — בלי לצאת ל-GCP.</div>
+          <div class="muted">לוח בקרה — יצירת טננטים, סטטוס, והפעלת שירותים — בלי לצאת ל-GCP.</div>
         </div>
-        <div id="authBox" class="flex">
+        <div id="authBox" style="display:flex;gap:8px;align-items:center">
           <span id="userEmail" class="tag">לא מחובר</span>
           <button id="btnLogin">כניסה עם Google</button>
           <button id="btnLogout" class="secondary hidden">התנתק</button>
@@ -54,15 +48,15 @@
 
     <section class="card" id="adminOnly" class="hidden">
       <h3 style="margin:0 0 8px 0">יצירת פרויקט חדש ללקוח (Tenant)</h3>
-      <div class="muted" style="margin-bottom:8px">הפעולה תיצור פרויקט GCP, תחבר חיוב, תפעיל APIs, תקים Artifact Registry ו-BigQuery.</div>
+      <div class="muted" style="margin-bottom:8px">נוצר GCP Project, Billing, APIs, Artifact Registry, BigQuery.</div>
       <div class="row">
         <div>
-          <label>Tenant ID (אנגלית קצר, לדוג׳ <span class="mono">acme</span>)</label>
+          <label>Tenant ID</label>
           <input id="tenantId" placeholder="acme">
         </div>
         <div>
           <label>Display Name</label>
-          <input id="displayName" placeholder="ACME Ltd">
+        <input id="displayName" placeholder="ACME Ltd">
         </div>
         <div>
           <label>סביבה</label>
@@ -72,22 +66,20 @@
           </select>
         </div>
       </div>
-      <div class="flex" style="margin-top:12px">
+      <div style="display:flex;gap:10px;align-items:center;margin-top:12px">
         <button id="btnCreate"><span class="spinner hidden" id="spinnerCreate"></span> צור פרויקט</button>
-        <span class="muted">מזהה ייוצר כ־<span class="mono">wizbi-&lt;tenant&gt;-&lt;env&gt;</span></span>
+        <span class="muted">מזהה: <span class="mono">wizbi-&lt;tenant&gt;-&lt;env&gt;</span></span>
       </div>
-      <pre id="createLog" class="mono" style="margin-top:12px; background:#0a0f1a; padding:12px; border-radius:12px; max-height:240px; overflow:auto"></pre>
+      <pre id="createLog" class="mono" style="margin-top:12px;background:#0a0f1a;padding:12px;border-radius:12px;max-height:240px;overflow:auto"></pre>
     </section>
 
     <section class="card">
-      <div class="flex" style="justify-content:space-between">
+      <div style="display:flex;justify-content:space-between;align-items:center">
         <h3 style="margin:0">טננטים קיימים</h3>
         <button id="btnRefresh" class="secondary">רענן</button>
       </div>
       <div id="tenants" class="list" style="margin-top:12px"></div>
     </section>
-
-    <footer class="foot">© WizBI.ai — Control Plane</footer>
   </div>
 
 <script>
@@ -98,13 +90,14 @@ const show = (node, yes)=>node.classList[yes?'remove':'add']('hidden');
 
 function setBusy(btn, spin, busy){ btn.disabled = busy; show(spin,busy); }
 
+// שולחים את ה-ID Token בכותרת X-Firebase-ID-Token (לא Authorization)
 async function callApi(path, opts={}){
   const user = auth.currentUser;
   if(!user) throw new Error('unauthenticated');
   const token = await user.getIdToken();
   const res = await fetch(path, {
     ...opts,
-    headers: { 'Content-Type':'application/json', 'Authorization':`Bearer ${token}`, ...(opts.headers||{}) }
+    headers: { 'Content-Type':'application/json', 'X-Firebase-ID-Token': token, ...(opts.headers||{}) }
   });
   const text = await res.text();
   try{ return { ok: res.ok, status: res.status, json: JSON.parse(text), raw: text }; }
@@ -126,7 +119,7 @@ async function renderTenants(){
         <div><b>${t.displayName || t.tenantId}</b> <span class="tag">${t.env?.toUpperCase()||''}</span></div>
         <div class="muted" style="font-size:12px">BQ: ${t.bigquery?.datasets?.join(', ')||'-'} · AR: ${t.artifactRegistry||'-'} · State: ${t.state||'-'}</div>
       </div>
-      <div class="flex">
+      <div>
         <button class="secondary" onclick="window.open('/health','_blank')">Health</button>
       </div>
     `;
@@ -138,6 +131,7 @@ async function ensureAdminUI(){
   const r = await callApi('/me');
   const admin = r.ok && r.json && r.json.isAdmin;
   show(el('adminOnly'), admin);
+  if(!admin) alert('אין לך הרשאת אדמין במערכת (בדוק ALLOWED_ADMIN_EMAILS)');
 }
 
 auth.onAuthStateChanged(async (user)=>{
