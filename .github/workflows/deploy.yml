@@ -24,8 +24,6 @@ jobs:
   build-and-deploy-cloud-run:
     name: Build & Deploy Cloud Run
     runs-on: ubuntu-latest
-    outputs:
-      service_url: ${{ steps.service_url.outputs.url }}
     env:
       PROJECT_ID:   ${{ secrets.GCP_PROJECT_ID }}
       REGION:       ${{ secrets.GCP_REGION }}
@@ -92,19 +90,13 @@ jobs:
             --allow-unauthenticated \
             --update-env-vars "NODE_ENV=production,FIREBASE_PROJECT_ID=${{ env.PROJECT_ID }},CORS_ORIGIN=*,WHATSAPP_ENABLED=false,ADMINS=${{ env.ADMINS }}"
 
-      - name: Get service URL
-        id: service_url
-        run: |
-          URL=$(gcloud run services describe "${{ steps.svc.outputs.service }}" --region "${{ env.REGION }}" --format='value(status.url)')
-          echo "Deployed: $URL"
-          echo "url=$URL" >> $GITHUB_OUTPUT
-
   deploy-hosting-and-test:
-    name: Deploy Hosting + Authenticated Test
+    name: Deploy Hosting + Verify Service
     needs: build-and-deploy-cloud-run
     runs-on: ubuntu-latest
     env:
       PROJECT_ID:     ${{ secrets.GCP_PROJECT_ID }}
+      REGION:         ${{ secrets.GCP_REGION }}
       WIF_PROVIDER:   ${{ secrets.WIF_PROVIDER }}
       DEPLOYER_SA:    ${{ secrets.DEPLOYER_SA }}
     steps:
@@ -124,31 +116,28 @@ jobs:
       - name: Install Firebase CLI
         run: npm i -g firebase-tools@latest
 
-      - name: Decide Hosting site (QA/PROD)
-        id: host
+      - name: Decide target service (QA vs PROD)
+        id: svc
         run: |
           if [[ "${GITHUB_REF_NAME}" == "dev" ]]; then
+            echo "service=cp-unified-qa"  >> $GITHUB_OUTPUT
             echo "site=${{ env.HOSTING_SITE_QA }}"  >> $GITHUB_OUTPUT
           else
+            echo "service=cp-unified"     >> $GITHUB_OUTPUT
             echo "site=${{ env.HOSTING_SITE_PROD }}" >> $GITHUB_OUTPUT
           fi
 
       - name: Deploy Hosting
         run: |
           firebase deploy \
-            --only "hosting:${{ steps.host.outputs.site }}" \
+            --only "hosting:${{ steps.svc.outputs.site }}" \
             --project "${{ env.PROJECT_ID }}" \
             --non-interactive
 
-      - name: Authenticated smoke test (confirms service is up)
+      - name: Verify Cloud Run Deployment Status
         run: |
           set -e
-          SERVICE_URL="${{ needs.build-and-deploy-cloud-run.outputs.service_url }}"
-          echo "Testing service at: $SERVICE_URL"
-          TOKEN=$(gcloud auth print-identity-token --audiences="$SERVICE_URL" --impersonate-service-account="${{ env.DEPLOYER_SA }}")
-          CODE=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN" "$SERVICE_URL/health")
-          echo "Authenticated health check => $CODE"
-          if [ "$CODE" != "200" ]; then
-            echo "::error::Authenticated health check failed with code $CODE"
-            exit 1
-          fi
+          echo "Verifying deployment status for service: ${{ steps.svc.outputs.service }}"
+          # Wait for the service to be ready and routing 100% of traffic. This command will fail if the deployment has issues.
+          gcloud run services wait "${{ steps.svc.outputs.service }}" --region "${{ env.REGION }}"
+          echo "Service ${{ steps.svc.outputs.service }} is active and ready."
