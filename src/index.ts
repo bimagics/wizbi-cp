@@ -7,6 +7,7 @@ import { registerOrgRoutes } from "./routes/orgs";
 import { registerFactoryRoutes } from "./routes/factory";
 import { registerWhatsappRoutes } from "./routes/whatsapp";
 import tenantsRouter from './routes/tenants';
+import userRouter from './routes/user'; // Import the new user router
 
 const app = express();
 const port = process.env.PORT || 8080;
@@ -16,8 +17,9 @@ app.use(express.json({ limit: '1mb' }));
 app.use(bodyParser.json({ limit: "5mb" }));
 app.use(cors({ origin: process.env.CORS_ORIGIN || "*" }));
 
-// Router חדש (Tenants)
+// הוספת הראוטרים החדשים
 app.use(tenantsRouter);
+app.use(userRouter); // Use the new user router
 
 // Health
 app.get("/health", async (_req, res) => {
