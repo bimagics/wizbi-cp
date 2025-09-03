@@ -105,6 +105,7 @@ jobs:
             --region "${{ env.REGION }}" \
             --service-account "wizbi-runner@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
             --no-allow-unauthenticated \
+            --ingress all \
             --update-env-vars "NODE_ENV=production,FIREBASE_PROJECT_ID=${{ env.PROJECT_ID }},CORS_ORIGIN=*,WHATSAPP_ENABLED=false,ADMINS=${{ env.ADMINS }}"
 
       - name: Print service URL
@@ -118,27 +119,25 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PROJECT_ID:     ${{ secrets.GCP_PROJECT_ID }}
-      FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}  # אפשר להשאיר בשלב זה
+      REGION:         ${{ secrets.GCP_REGION }}
+      WIF_PROVIDER:   ${{ secrets.WIF_PROVIDER }}
+      DEPLOYER_SA:    ${{ secrets.DEPLOYER_SA }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Check if firebase.json exists
-        id: chk
-        shell: bash
-        run: |
-          if [ -f "firebase.json" ]; then
-            echo "present=true"  >> $GITHUB_OUTPUT
-          else
-            echo "present=false" >> $GITHUB_OUTPUT
-          fi
+      # 👇 זה החלק שחסר עד עכשיו: WIF גם ל-Hosting
+      - name: Auth to GCP (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.DEPLOYER_SA }}
+          project_id: ${{ env.PROJECT_ID }}
 
       - name: Install Firebase CLI
-        if: steps.chk.outputs.present == 'true'
         run: npm i -g firebase-tools@latest
 
       - name: Decide Hosting site (QA/PROD)
-        if: steps.chk.outputs.present == 'true'
         id: host
         run: |
           if [[ "${GITHUB_REF_NAME}" == "dev" ]]; then
@@ -149,17 +148,16 @@ jobs:
             echo "url=https://${{ env.HOSTING_SITE_PROD }}.web.app" >> $GITHUB_OUTPUT
           fi
 
-      - name: Deploy Hosting
-        if: steps.chk.outputs.present == 'true'
+      # ⚠️ בלי --token. ה-CLI יקח ADC מה-WIF (GOOGLE_APPLICATION_CREDENTIALS שכבר הוזרק ע"י צעד ה-Auth)
+      - name: Deploy Hosting (ADC via WIF)
         run: |
           firebase deploy \
+            --config "${GITHUB_WORKSPACE}/firebase.json" \
             --only "hosting:${{ steps.host.outputs.site }}" \
             --project "${{ env.PROJECT_ID }}" \
-            --non-interactive \
-            --token "${{ env.FIREBASE_TOKEN }}"
+            --non-interactive
 
       - name: Smoke test via Hosting (/health) with retry
-        if: steps.chk.outputs.present == 'true'
         run: |
           set -e
           URL="${{ steps.host.outputs.url }}/health"
@@ -173,6 +171,5 @@ jobs:
           exit 1
 
       - name: Print Hosting URL
-        if: steps.chk.outputs.present == 'true'
         run: |
           echo "Hosting URL: ${{ steps.host.outputs.url }}/admin"
