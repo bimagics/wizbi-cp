@@ -5,13 +5,12 @@ on:
     branches: [ "dev", "main" ]
   workflow_dispatch: {}
 
-# שלא יהיו ריצות חופפות על אותו ברנץ'
 concurrency:
   group: deploy-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
-  id-token: write   # ל-WIF
+  id-token: write
   contents: read
 
 env:
@@ -26,10 +25,10 @@ jobs:
     name: Build & Deploy Cloud Run
     runs-on: ubuntu-latest
     env:
-      PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-      REGION:     ${{ secrets.GCP_REGION }}
-      WIF_PROVIDER: ${{ secrets.WIF_PROVIDER }}            # example: projects/123/locations/global/workloadIdentityPools/gh-pool/providers/gh
-      DEPLOYER_SA:  ${{ secrets.DEPLOYER_SA }}             # example: gh-deployer@wizbi-cp.iam.gserviceaccount.com
+      PROJECT_ID:   ${{ secrets.GCP_PROJECT_ID }}
+      REGION:       ${{ secrets.GCP_REGION }}
+      WIF_PROVIDER: ${{ secrets.WIF_PROVIDER }}   # e.g. projects/2708.../locations/global/workloadIdentityPools/gh-pool/providers/github
+      DEPLOYER_SA:  ${{ secrets.DEPLOYER_SA }}    # e.g. gh-deployer@wizbi-cp.iam.gserviceaccount.com
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -65,10 +64,10 @@ jobs:
           SHA_SHORT="${GITHUB_SHA::7}"
           TS="$(date +%s)"
           BASE="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}"
-          echo "image_sha=${BASE}:sha-${SHA_SHORT}"           >> $GITHUB_OUTPUT
-          echo "image_branch=${BASE}:branch-${GITHUB_REF##*/}" >> $GITHUB_OUTPUT
-          echo "image_ts=${BASE}:${TS}"                        >> $GITHUB_OUTPUT
-          echo "image_base=${BASE}"                            >> $GITHUB_OUTPUT
+          echo "image_sha=${BASE}:sha-${SHA_SHORT}"             >> $GITHUB_OUTPUT
+          echo "image_branch=${BASE}:branch-${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+          echo "image_ts=${BASE}:${TS}"                          >> $GITHUB_OUTPUT
+          echo "image_base=${BASE}"                              >> $GITHUB_OUTPUT
 
       - name: Build image
         run: |
@@ -87,17 +86,15 @@ jobs:
       - name: Resolve digest (pin)
         id: digest
         run: |
-          # נעדיף את תג ה-SHA
           FULL="${{ steps.meta.outputs.image_sha }}"
           DIGEST="$(gcloud artifacts docker images describe "$FULL" --format='value(image_summary.digest)')"
-          echo "digest=$DIGEST" >> $GITHUB_OUTPUT
-          echo "pinned=${{ steps.meta.outputs.image_base }}@${DIGEST}" >> $GITHUB_OUTPUT
+          echo "digest=$DIGEST"                                   >> $GITHUB_OUTPUT
+          echo "pinned=${{ steps.meta.outputs.image_base }}@$DIGEST" >> $GITHUB_OUTPUT
 
       - name: Decide target service (QA vs PROD)
         id: svc
         run: |
-          BRANCH="${GITHUB_REF##*/}"
-          if [[ "$BRANCH" == "dev" ]]; then
+          if [[ "${GITHUB_REF_NAME}" == "dev" ]]; then
             echo "service=cp-unified-qa"  >> $GITHUB_OUTPUT
           else
             echo "service=cp-unified"     >> $GITHUB_OUTPUT
@@ -129,28 +126,39 @@ jobs:
     name: Deploy Firebase Hosting (per branch)
     needs: build-and-deploy-cloud-run
     runs-on: ubuntu-latest
-    if: ${{ hashFiles('firebase.json') != '' }}   # פרוס רק אם יש firebase.json בריפו
     env:
       PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-      FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}  # הפק: firebase login:ci
+      FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}  # create via: firebase login:ci
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check if firebase.json exists
+        id: chk
+        shell: bash
+        run: |
+          if [ -f "firebase.json" ]; then
+            echo "present=true"  >> $GITHUB_OUTPUT
+          else
+            echo "present=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Install Firebase CLI
+        if: steps.chk.outputs.present == 'true'
         run: npm i -g firebase-tools@latest
 
       - name: Decide Hosting site (QA/PROD)
+        if: steps.chk.outputs.present == 'true'
         id: host
         run: |
-          BRANCH="${GITHUB_REF##*/}"
-          if [[ "$BRANCH" == "dev" ]]; then
+          if [[ "${GITHUB_REF_NAME}" == "dev" ]]; then
             echo "site=${{ env.HOSTING_SITE_QA }}"  >> $GITHUB_OUTPUT
           else
             echo "site=${{ env.HOSTING_SITE_PROD }}" >> $GITHUB_OUTPUT
           fi
 
       - name: Deploy Hosting
+        if: steps.chk.outputs.present == 'true'
         run: |
           firebase deploy \
             --only "hosting:${{ steps.host.outputs.site }}" \
@@ -159,6 +167,7 @@ jobs:
             --token "${{ env.FIREBASE_TOKEN }}"
 
       - name: Print Hosting URL
+        if: steps.chk.outputs.present == 'true'
         run: |
           if [[ "${{ steps.host.outputs.site }}" == "${{ env.HOSTING_SITE_QA }}" ]]; then
             echo "Hosting QA:   https://${{ env.HOSTING_SITE_QA }}.web.app"
