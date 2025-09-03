@@ -1,13 +1,17 @@
+// src/routes/tenants.ts
 import { Router, Request, Response } from 'express';
 import admin from 'firebase-admin';
 import { google } from 'googleapis';
 import { BigQuery } from '@google-cloud/bigquery';
+import { getDb } from '../services/firebaseAdmin';
 
 const router = Router();
 
-// ===== Env =====
-const ORG_ID = process.env.ORG_ID!;
-const BILLING = process.env.BILLING_ACCOUNT!;
+// ודא ש-Firebase Admin מאותחל (באמצעות הסינגלטון שלך)
+const db = getDb();
+const TENANTS = db.collection('tenants');
+
+// ===== Env (לא מפילים את התהליך בהיעדר ערכים; נבדוק בזמן ריצה של הפעולה) =====
 const REGION = process.env.REGION || 'europe-west1';
 const PROJECT_PREFIX = process.env.PROJECT_PREFIX || 'wizbi';
 const FOLDER_ID = process.env.FOLDER_ID || '';
@@ -27,16 +31,12 @@ async function requireUser(req: Request, res: Response, next: Function){
 }
 
 function requireAdmin(req: Request, res: Response, next: Function){
-  const user = (req as any).user as {email?:string};
+  const user = (req as any).user as { email?: string };
   const email = (user?.email||'').toLowerCase();
   if(!email) return res.status(403).json({error:'no-email'});
   if(ALLOWED.length && !ALLOWED.includes(email)) return res.status(403).json({error:'not-admin'});
   next();
 }
-
-// ===== Firestore =====
-const db = admin.firestore();
-const TENANTS = db.collection('tenants');
 
 // ===== Google Auth client =====
 async function gauth(){
@@ -51,27 +51,26 @@ async function waitProjectActive(crm:any, projectId:string, timeoutMs=180000){
     try{
       const { data } = await crm.projects.get({ name });
       if(data?.state === 'ACTIVE') return;
-    }catch{/* ignore */}
+    }catch{/* ignore until ACTIVE */}
     if(Date.now()>deadline) throw new Error('timeout waiting for project ACTIVE');
     await new Promise(r=>setTimeout(r, 3000));
   }
 }
 
-async function createProject(projectId:string, displayName:string){
+async function createProject(projectId:string, displayName:string, orgId:string){
   const auth = await gauth();
   const crm = google.cloudresourcemanager({version:'v3', auth});
-  const parent = FOLDER_ID ? { type:'folder', id: FOLDER_ID.replace('folders/','') } : { type:'organization', id: ORG_ID };
-  const req = { requestBody: { projectId, displayName, parent } as any };
-  await crm.projects.create(req as any);
+  const parent = FOLDER_ID ? { type:'folder', id: FOLDER_ID.replace('folders/','') } : { type:'organization', id: orgId };
+  await crm.projects.create({ requestBody: { projectId, displayName, parent } } as any);
   await waitProjectActive(crm, projectId);
 }
 
-async function linkBilling(projectId:string){
+async function linkBilling(projectId:string, billingAccount:string){
   const auth = await gauth();
   const billing = google.cloudbilling({version:'v1', auth});
   await billing.projects.updateBillingInfo({
     name: `projects/${projectId}`,
-    requestBody: { billingAccountName: `billingAccounts/${BILLING}` }
+    requestBody: { billingAccountName: `billingAccounts/${billingAccount}` }
   });
 }
 
@@ -139,14 +138,20 @@ const CORE_APIS = [
 ];
 
 async function provisionTenant(tenantId:string, displayName:string, env:'qa'|'prod'){
+  const ORG_ID = process.env.ORG_ID;
+  const BILLING = process.env.BILLING_ACCOUNT;
+  if(!ORG_ID || !BILLING){
+    throw new Error('missing ORG_ID and/or BILLING_ACCOUNT env (set via Secret Manager)');
+  }
+
   const projectId = `${PROJECT_PREFIX}-${tenantId}-${env}`;
   const docRef = TENANTS.doc(`${tenantId}-${env}`);
   const startedAt = new Date().toISOString();
 
   await docRef.set({ tenantId, displayName, env, projectId, state:'provisioning', startedAt }, { merge:true });
 
-  await createProject(projectId, `${displayName} (${env.toUpperCase()})`);
-  await linkBilling(projectId);
+  await createProject(projectId, `${displayName} (${env.toUpperCase()})`, ORG_ID);
+  await linkBilling(projectId, BILLING);
   await enableApis(projectId, CORE_APIS);
   const ar = await createArtifactRegistry(projectId, REGION);
   await createBigQueryDatasets(projectId, ['raw','curated'], 'EU');
