@@ -5,15 +5,16 @@ import { BigQuery } from '@google-cloud/bigquery';
 
 const router = Router();
 
-// ===== Config =====
+// ===== Env =====
 const ORG_ID = process.env.ORG_ID!;
 const BILLING = process.env.BILLING_ACCOUNT!;
 const REGION = process.env.REGION || 'europe-west1';
 const PROJECT_PREFIX = process.env.PROJECT_PREFIX || 'wizbi';
 const FOLDER_ID = process.env.FOLDER_ID || '';
-const ALLOWED = (process.env.ALLOWED_ADMIN_EMAILS || '').split(',').map(s=>s.trim().toLowerCase()).filter(Boolean);
+const ALLOWED = (process.env.ALLOWED_ADMIN_EMAILS || '')
+  .split(',').map(s=>s.trim().toLowerCase()).filter(Boolean);
 
-// ===== Auth middleware (ID token from Firebase Auth) =====
+// ===== Auth (Firebase ID token) =====
 async function requireUser(req: Request, res: Response, next: Function){
   try{
     const hdr = req.headers.authorization || '';
@@ -22,30 +23,27 @@ async function requireUser(req: Request, res: Response, next: Function){
     const decoded = await admin.auth().verifyIdToken(idToken);
     (req as any).user = decoded;
     next();
-  }catch(e:any){
-    res.status(401).json({error:'unauthorized', detail: String(e)});
-  }
+  }catch(e:any){ res.status(401).json({error:'unauthorized', detail: String(e)}); }
 }
 
 function requireAdmin(req: Request, res: Response, next: Function){
-  const user = (req as any).user as { email?: string };
-  const email = (user?.email || '').toLowerCase();
+  const user = (req as any).user as {email?:string};
+  const email = (user?.email||'').toLowerCase();
   if(!email) return res.status(403).json({error:'no-email'});
   if(ALLOWED.length && !ALLOWED.includes(email)) return res.status(403).json({error:'not-admin'});
   next();
 }
 
-// ===== Firestore Tenants collection =====
+// ===== Firestore =====
 const db = admin.firestore();
 const TENANTS = db.collection('tenants');
 
-// ===== Utilities: Google Auth client =====
+// ===== Google Auth client =====
 async function gauth(){
   return await google.auth.getClient({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
 }
 
-// ===== Core Provision Steps (NO Terraform) =====
-
+// ===== Helpers =====
 async function waitProjectActive(crm:any, projectId:string, timeoutMs=180000){
   const deadline = Date.now() + timeoutMs;
   const name = `projects/${projectId}`;
@@ -53,7 +51,7 @@ async function waitProjectActive(crm:any, projectId:string, timeoutMs=180000){
     try{
       const { data } = await crm.projects.get({ name });
       if(data?.state === 'ACTIVE') return;
-    }catch(e:any){ /* might be 404 until created */ }
+    }catch{/* ignore */}
     if(Date.now()>deadline) throw new Error('timeout waiting for project ACTIVE');
     await new Promise(r=>setTimeout(r, 3000));
   }
@@ -64,16 +62,15 @@ async function createProject(projectId:string, displayName:string){
   const crm = google.cloudresourcemanager({version:'v3', auth});
   const parent = FOLDER_ID ? { type:'folder', id: FOLDER_ID.replace('folders/','') } : { type:'organization', id: ORG_ID };
   const req = { requestBody: { projectId, displayName, parent } as any };
-  await crm.projects.create(req as any); // returns LRO; we poll by GET
+  await crm.projects.create(req as any);
   await waitProjectActive(crm, projectId);
 }
 
 async function linkBilling(projectId:string){
   const auth = await gauth();
   const billing = google.cloudbilling({version:'v1', auth});
-  const name = `projects/${projectId}`;
   await billing.projects.updateBillingInfo({
-    name,
+    name: `projects/${projectId}`,
     requestBody: { billingAccountName: `billingAccounts/${BILLING}` }
   });
 }
@@ -82,7 +79,6 @@ async function enableApis(projectId:string, services:string[]){
   const auth = await gauth();
   const su = google.serviceusage({version:'v1', auth});
   const parent = `projects/${projectId}`;
-  // batchEnable up to 20 at a time
   const chunks: string[][] = [];
   for (let i=0;i<services.length;i+=20) chunks.push(services.slice(i,i+20));
   for(const list of chunks){
@@ -94,27 +90,35 @@ async function createArtifactRegistry(projectId:string, region:string){
   const auth = await gauth();
   const ar = google.artifactregistry({version:'v1', auth});
   const parent = `projects/${projectId}/locations/${region}`;
-  // idempotent: ignore if exists
   try{
     await ar.projects.locations.repositories.create({
-      parent,
-      repositoryId: 'images',
+      parent, repositoryId: 'images',
       requestBody: { format:'DOCKER', description:'Tenant container images' }
     });
-  }catch(e:any){
-    if(!String(e).includes('ALREADY_EXISTS')) throw e;
-  }
+  }catch(e:any){ if(!String(e).includes('ALREADY_EXISTS')) throw e; }
   return `${region}-docker.pkg.dev/${projectId}/images`;
 }
 
 async function createBigQueryDatasets(projectId:string, datasets:string[], location='EU'){
   const bq = new BigQuery({ projectId });
   for(const ds of datasets){
-    try{
-      await bq.createDataset(ds, { location });
-    }catch(e:any){
-      if(!String(e).includes('Already Exists')) throw e;
-    }
+    try{ await bq.createDataset(ds, { location }); }
+    catch(e:any){ if(!String(e).includes('Already Exists')) throw e; }
+  }
+}
+
+async function createFirestoreDatabase(projectId:string, locationId='europe-west1'){
+  const auth = await gauth();
+  const fs = google.firestore('v1');
+  try{
+    await fs.projects.databases.create({
+      parent: `projects/${projectId}`,
+      requestBody: { database: { type:'FIRESTORE_NATIVE', locationId }, databaseId: '(default)' },
+      auth
+    } as any);
+  }catch(e:any){
+    const s = String(e);
+    if(!(s.includes('ALREADY_EXISTS') || s.includes('already exists'))) throw e;
   }
 }
 
@@ -139,48 +143,38 @@ async function provisionTenant(tenantId:string, displayName:string, env:'qa'|'pr
   const docRef = TENANTS.doc(`${tenantId}-${env}`);
   const startedAt = new Date().toISOString();
 
-  await docRef.set({
-    tenantId, displayName, env, projectId,
-    state: 'provisioning', startedAt
-  }, { merge:true });
+  await docRef.set({ tenantId, displayName, env, projectId, state:'provisioning', startedAt }, { merge:true });
 
   await createProject(projectId, `${displayName} (${env.toUpperCase()})`);
   await linkBilling(projectId);
   await enableApis(projectId, CORE_APIS);
   const ar = await createArtifactRegistry(projectId, REGION);
   await createBigQueryDatasets(projectId, ['raw','curated'], 'EU');
+  await createFirestoreDatabase(projectId, 'europe-west1');
 
   const updatedAt = new Date().toISOString();
   await docRef.set({
-    projectId,
-    artifactRegistry: ar,
+    projectId, artifactRegistry: ar,
     bigquery: { datasets: ['raw','curated'], location: 'EU' },
-    region: REGION,
-    state: 'ready',
-    updatedAt
+    region: REGION, state:'ready', updatedAt
   }, { merge:true });
 
   return { projectId, artifactRegistry: ar, bigquery: { datasets: ['raw','curated'], location:'EU' }, region: REGION, state:'ready' };
 }
 
 // ===== Routes =====
-
-// מי אני + האם אדמין
 router.get('/me', requireUser, async (req, res)=>{
-  const user = (req as any).user as { email?: string, name?: string, uid?: string };
-  const email = (user.email||'').toLowerCase();
+  const u = (req as any).user as { email?: string, name?: string, uid?: string };
+  const email = (u.email||'').toLowerCase();
   const isAdmin = !ALLOWED.length || ALLOWED.includes(email);
-  res.json({ email, isAdmin, name: user.name||null, uid: user.uid||null });
+  res.json({ email, isAdmin, name: u.name||null, uid: u.uid||null });
 });
 
-// רשימת טננטים (מ-Firestore)
-router.get('/tenants', requireUser, requireAdmin, async (req, res)=>{
-  const snap = await TENANTS.orderBy('startedAt','desc').limit(50).get();
-  const list = snap.docs.map(d=>({ id:d.id, ...d.data() }));
-  res.json(list);
+router.get('/tenants', requireUser, requireAdmin, async (_req, res)=>{
+  const snap = await TENANTS.orderBy('startedAt','desc').limit(100).get();
+  res.json(snap.docs.map(d=>({ id:d.id, ...d.data() })));
 });
 
-// יצירת טננט חדש (Provision)
 router.post('/tenants/provision', requireUser, requireAdmin, async (req, res)=>{
   try{
     const { tenantId, displayName, env } = req.body || {};
