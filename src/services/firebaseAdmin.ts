@@ -1,14 +1,17 @@
-import { initializeApp, applicationDefault, getApps, getApp } from "firebase-admin/app";
-import { getFirestore, Firestore } from "firebase-admin/firestore";
-import { getAuth } from "firebase-admin/auth";
+import { applicationDefault, getApps, initializeApp } from 'firebase-admin/app';
+import { getFirestore, Firestore } from 'firebase-admin/firestore';
 
-const app = getApps().length
-  ? getApp()
-  : initializeApp({
-      credential: applicationDefault(),
-      projectId: process.env.FIREBASE_PROJECT_ID || "wizbi-cp",
-    });
+const app =
+  getApps().length > 0
+    ? getApps()[0]
+    : initializeApp({
+        credential: applicationDefault(),
+        projectId: process.env.FIREBASE_PROJECT_ID,
+      });
 
-export const db: Firestore = getFirestore(app);        // <-- נייצא גם db כדי לתאם עם קוד קיים
-export function getDb() { return db; }
-export const adminAuth = getAuth(app);
+export const db: Firestore = getFirestore(app);
+
+// השארתי גם פונקציה אם תרצה API יציב
+export function getDb(): Firestore {
+  return db;
+}
