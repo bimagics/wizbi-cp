@@ -170,4 +170,5 @@ jobs:
 
       - name: Print Hosting URL
         if: steps.chk.outputs.present == 'true'
-        run: echo "Hosting URL: ${{ steps.host.outputs.url }}/admin"
+        run: |
+          echo "Hosting URL: ${{ steps.host.outputs.url }}/admin"
