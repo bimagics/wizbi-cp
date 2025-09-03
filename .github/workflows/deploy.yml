@@ -1,72 +1,167 @@
-name: Deploy (Cloud Run)
+name: Deploy (Cloud Run + Hosting)
 
 on:
   push:
     branches: [ "dev", "main" ]
   workflow_dispatch: {}
 
+# שלא יהיו ריצות חופפות על אותו ברנץ'
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
-  id-token: write
+  id-token: write   # ל-WIF
   contents: read
 
+env:
+  AR_REPO: wizbi
+  IMAGE_NAME: cp-unified
+  HOSTING_SITE_PROD: wizbi-cp
+  HOSTING_SITE_QA: wizbi-cp-qa
+  ADMINS: "omer.cohen@bimagics.com"
+
 jobs:
-  deploy:
+  build-and-deploy-cloud-run:
+    name: Build & Deploy Cloud Run
     runs-on: ubuntu-latest
     env:
       PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-      REGION: ${{ secrets.GCP_REGION }}
-      WIF_PROVIDER: ${{ secrets.WIF_PROVIDER }}
-      DEPLOYER_SA: ${{ secrets.DEPLOYER_SA }}
-      AR_REPO: wizbi
-      IMAGE_NAME: cp-unified
-      ADMINS: "omer.cohen@bimagics.com"
-
+      REGION:     ${{ secrets.GCP_REGION }}
+      WIF_PROVIDER: ${{ secrets.WIF_PROVIDER }}            # example: projects/123/locations/global/workloadIdentityPools/gh-pool/providers/gh
+      DEPLOYER_SA:  ${{ secrets.DEPLOYER_SA }}             # example: gh-deployer@wizbi-cp.iam.gserviceaccount.com
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Auth to GCP (WIF)
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ env.WIF_PROVIDER }}
           service_account: ${{ env.DEPLOYER_SA }}
+          project_id: ${{ env.PROJECT_ID }}
 
       - name: Setup gcloud
         uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: ${{ env.PROJECT_ID }}
 
-      - name: Configure Docker for Artifact Registry
+      - name: Ensure Artifact Registry repo exists (idempotent)
+        run: |
+          set -e
+          if ! gcloud artifacts repositories describe "${{ env.AR_REPO }}" --location "${{ env.REGION }}" >/dev/null 2>&1; then
+            gcloud artifacts repositories create "${{ env.AR_REPO }}" \
+              --repository-format=DOCKER \
+              --location "${{ env.REGION }}" \
+              --description "WizBI images"
+          fi
+
+      - name: Configure Docker to push to Artifact Registry
         run: gcloud auth configure-docker "${{ env.REGION }}-docker.pkg.dev" -q
+
+      - name: Compute image tags
+        id: meta
+        run: |
+          SHA_SHORT="${GITHUB_SHA::7}"
+          TS="$(date +%s)"
+          BASE="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}"
+          echo "image_sha=${BASE}:sha-${SHA_SHORT}"           >> $GITHUB_OUTPUT
+          echo "image_branch=${BASE}:branch-${GITHUB_REF##*/}" >> $GITHUB_OUTPUT
+          echo "image_ts=${BASE}:${TS}"                        >> $GITHUB_OUTPUT
+          echo "image_base=${BASE}"                            >> $GITHUB_OUTPUT
 
       - name: Build image
         run: |
-          IMAGE="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}:latest"
-          echo "IMAGE=$IMAGE" >> $GITHUB_ENV
-          docker build -t "$IMAGE" .
+          docker build \
+            -t "${{ steps.meta.outputs.image_sha }}" \
+            -t "${{ steps.meta.outputs.image_branch }}" \
+            -t "${{ steps.meta.outputs.image_ts }}" \
+            .
 
       - name: Push image
-        run: docker push "$IMAGE"
+        run: |
+          docker push "${{ steps.meta.outputs.image_sha }}"
+          docker push "${{ steps.meta.outputs.image_branch }}"
+          docker push "${{ steps.meta.outputs.image_ts }}"
 
-      - name: Decide target (QA vs PROD)
-        id: cfg
+      - name: Resolve digest (pin)
+        id: digest
+        run: |
+          # נעדיף את תג ה-SHA
+          FULL="${{ steps.meta.outputs.image_sha }}"
+          DIGEST="$(gcloud artifacts docker images describe "$FULL" --format='value(image_summary.digest)')"
+          echo "digest=$DIGEST" >> $GITHUB_OUTPUT
+          echo "pinned=${{ steps.meta.outputs.image_base }}@${DIGEST}" >> $GITHUB_OUTPUT
+
+      - name: Decide target service (QA vs PROD)
+        id: svc
         run: |
           BRANCH="${GITHUB_REF##*/}"
           if [[ "$BRANCH" == "dev" ]]; then
             echo "service=cp-unified-qa"  >> $GITHUB_OUTPUT
           else
-            echo "service=cp-unified"    >> $GITHUB_OUTPUT
+            echo "service=cp-unified"     >> $GITHUB_OUTPUT
           fi
 
-      - name: Deploy to Cloud Run
+      - name: Deploy to Cloud Run (pinned by digest)
         run: |
-          gcloud run deploy "${{ steps.cfg.outputs.service }}" \
-            --image "$IMAGE" \
+          gcloud run deploy "${{ steps.svc.outputs.service }}" \
+            --image "${{ steps.digest.outputs.pinned }}" \
             --region "${{ env.REGION }}" \
             --service-account "wizbi-runner@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
             --no-allow-unauthenticated \
-            --set-env-vars "NODE_ENV=production,FIREBASE_PROJECT_ID=${{ env.PROJECT_ID }},CORS_ORIGIN=*,WHATSAPP_ENABLED=false,ADMINS=${{ env.ADMINS }}"
+            --update-env-vars "NODE_ENV=production,FIREBASE_PROJECT_ID=${{ env.PROJECT_ID }},CORS_ORIGIN=*,WHATSAPP_ENABLED=false,ADMINS=${{ env.ADMINS }}"
+
+      - name: Smoke test /health (private with identity token)
+        run: |
+          set -e
+          URL="$(gcloud run services describe "${{ steps.svc.outputs.service }}" --region "${{ env.REGION }}" --format='value(status.url)')"
+          CODE="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $(gcloud auth print-identity-token)" "$URL/health")"
+          echo "Health ${URL}/health => ${CODE}"
+          test "$CODE" = "200"
 
       - name: Print service URL
         run: |
-          URL=$(gcloud run services describe "${{ steps.cfg.outputs.service }}" --region "${{ env.REGION }}" --format='value(status.url)')
+          URL=$(gcloud run services describe "${{ steps.svc.outputs.service }}" --region "${{ env.REGION }}" --format='value(status.url)')
           echo "Deployed: $URL"
+
+  deploy-hosting:
+    name: Deploy Firebase Hosting (per branch)
+    needs: build-and-deploy-cloud-run
+    runs-on: ubuntu-latest
+    if: ${{ hashFiles('firebase.json') != '' }}   # פרוס רק אם יש firebase.json בריפו
+    env:
+      PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}  # הפק: firebase login:ci
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Firebase CLI
+        run: npm i -g firebase-tools@latest
+
+      - name: Decide Hosting site (QA/PROD)
+        id: host
+        run: |
+          BRANCH="${GITHUB_REF##*/}"
+          if [[ "$BRANCH" == "dev" ]]; then
+            echo "site=${{ env.HOSTING_SITE_QA }}"  >> $GITHUB_OUTPUT
+          else
+            echo "site=${{ env.HOSTING_SITE_PROD }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Deploy Hosting
+        run: |
+          firebase deploy \
+            --only "hosting:${{ steps.host.outputs.site }}" \
+            --project "${{ env.PROJECT_ID }}" \
+            --non-interactive \
+            --token "${{ env.FIREBASE_TOKEN }}"
+
+      - name: Print Hosting URL
+        run: |
+          if [[ "${{ steps.host.outputs.site }}" == "${{ env.HOSTING_SITE_QA }}" ]]; then
+            echo "Hosting QA:   https://${{ env.HOSTING_SITE_QA }}.web.app"
+          else
+            echo "Hosting PROD: https://${{ env.HOSTING_SITE_PROD }}.web.app"
+          fi
