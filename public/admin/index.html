@@ -9,8 +9,8 @@
   <span id="userEmail">לא מחובר</span>
   <button id="btnLogin">כניסה עם Google</button>
   <button id="btnLogout" style="display:none">התנתק</button>
-  <button id="btnHealth">/health</button>
-  <button id="btnMe">/me</button>
+  <button id="btnHealth">/api/health</button>
+  <button id="btnMe">/api/me</button>
   <pre id="out"></pre>
 </div>
 <script>
@@ -27,7 +27,7 @@ async function callApi(path, opts={}){
   const r=await fetch(path,{...opts, headers:{'Content-Type':'application/json','X-Firebase-ID-Token':t,...(opts.headers||{})}});
   const txt=await r.text(); try{ log(JSON.parse(txt)); }catch{ log(txt); }
 }
-$('btnHealth').onclick=()=>fetch('/health').then(r=>r.text()).then(t=>{ try{log(JSON.parse(t))}catch{log(t)}});
-$('btnMe').onclick =()=>callApi('/me');
+$('btnHealth').onclick=()=>callApi('/api/health');
+$('btnMe').onclick =()=>callApi('/api/me');
 </script>
 </body></html>
