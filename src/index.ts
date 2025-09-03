@@ -1,39 +1,61 @@
-import express from "express";
-import cors from "cors";
-import bodyParser from "body-parser";
-import { getDb } from "./services/firebaseAdmin";
-import { registerOrgRoutes } from "./routes/orgs";
-import { registerFactoryRoutes } from "./routes/factory";
-// אופציונלי: רוטים לווצאפ – נרשמים רק אם מופעל
-import { registerWhatsappRoutes } from "./routes/whatsapp";
+import express from 'express';
+import cors from 'cors';
+import admin from 'firebase-admin';
 import tenantsRouter from './routes/tenants';
 
+// === אתחול Firebase Admin (ADC) ===
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.applicationDefault(),
+    projectId: process.env.GCP_PROJECT,
+  });
+}
 
-
+const db = admin.firestore();
 const app = express();
-const port = process.env.PORT || 8080;
-const WHATSAPP_ENABLED = (process.env.WHATSAPP_ENABLED || "false").toLowerCase() === "true";
+app.set('trust proxy', true);
 app.use(express.json({ limit: '1mb' }));
-app.use(bodyParser.json({ limit: "5mb" }));
-app.use(cors({ origin: process.env.CORS_ORIGIN || "*" }));
-app.use(tenantsRouter);
-// Health (אפשר למחוק את src/routes/health.ts הישן)
-app.get("/health", async (_req, res) => {
-  try {
-    const db = getDb();
-    await db.collection("_health").doc("ping").set({ ts: new Date().toISOString() }, { merge: true });
-    return res.json({ ok: true, ts: new Date().toISOString(), firestore: { ok: true, rt: "firestore-admin" }});
-  } catch (e: any) {
-    return res.status(500).json({ ok: false, error: "health-failed", detail: e?.message });
+
+// CORS (אם ניגשים ישר לשירות; דרך Hosting אין צורך)
+const ALLOW_ORIGINS = (process.env.CORS_ORIGINS || '').split(',').map(s=>s.trim()).filter(Boolean);
+app.use(cors({
+  origin: (origin, cb)=>{
+    if(!origin || !ALLOW_ORIGINS.length || ALLOW_ORIGINS.includes(origin)) return cb(null, true);
+    return cb(new Error('Not allowed by CORS'));
+  },
+  credentials: true
+}));
+
+// === Logging קל ===
+app.use((req, _res, next)=>{
+  (req as any).req_id = Math.random().toString(36).slice(2,10);
+  console.log(JSON.stringify({ ts:new Date().toISOString(), req_id:(req as any).req_id, method:req.method, path:req.path }));
+  next();
+});
+
+// === Health ===
+app.get('/health', async (_req, res)=>{
+  try{
+    const ts = Date.now();
+    await db.collection('_health').doc('ping').set({ ts }, { merge:true });
+    res.json({ ok:true, ts });
+  }catch(e:any){
+    res.status(500).json({ ok:false, error:String(e) });
   }
 });
 
-registerOrgRoutes(app);
-registerFactoryRoutes(app);
-if (WHATSAPP_ENABLED) {
-  registerWhatsappRoutes(app);
-}
+// === Routers (קיימים + חדשים) ===
+// שומרים על הקיימים אם ישנם בקוד שלך:
+try { app.use(require('./routes/orgs').default); } catch {}
+try { app.use(require('./routes/factory').default); } catch {}
+try { app.use(require('./routes/whatsapp').default); } catch {}
+app.use(tenantsRouter);
 
-app.listen(port, () => {
-  console.log(`[wizbi-cp] listening on :${port}`);
+// === Error handler ===
+app.use((err:any, _req:any, res:any, _next:any)=>{
+  console.error('Unhandled:', err);
+  res.status(500).json({ ok:false, error:String(err) });
 });
+
+const PORT = process.env.PORT || 8080;
+app.listen(PORT, ()=> console.log(`[cp-unified] listening on :${PORT}`));
