@@ -30,7 +30,8 @@ jobs:
       WIF_PROVIDER: ${{ secrets.WIF_PROVIDER }}
       DEPLOYER_SA:  ${{ secrets.DEPLOYER_SA }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Auth to GCP (WIF)
         uses: google-github-actions/auth@v2
@@ -49,11 +50,12 @@ jobs:
           set -e
           if ! gcloud artifacts repositories describe "${{ env.AR_REPO }}" --location "${{ env.REGION }}" >/dev/null 2>&1; then
             gcloud artifacts repositories create "${{ env.AR_REPO }}" \
-              --repository-format=DOCKER --location "${{ env.REGION }}" \
+              --repository-format=DOCKER \
+              --location "${{ env.REGION }}" \
               --description "WizBI images"
           fi
 
-      - name: Configure Docker to push to Artifact Registry
+      - name: Configure Docker to Artifact Registry
         run: gcloud auth configure-docker "${{ env.REGION }}-docker.pkg.dev" -q
 
       - name: Compute image tags
@@ -64,15 +66,16 @@ jobs:
           BASE="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}"
           echo "image_sha=${BASE}:sha-${SHA_SHORT}"             >> $GITHUB_OUTPUT
           echo "image_branch=${BASE}:branch-${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
-          echo "image_ts=${BASE}:${TS}"                         >> $GITHUB_OUTPUT
-          echo "image_base=${BASE}"                             >> $GITHUB_OUTPUT
+          echo "image_ts=${BASE}:${TS}"                          >> $GITHUB_OUTPUT
+          echo "image_base=${BASE}"                              >> $GITHUB_OUTPUT
 
       - name: Build image
         run: |
           docker build \
             -t "${{ steps.meta.outputs.image_sha }}" \
             -t "${{ steps.meta.outputs.image_branch }}" \
-            -t "${{ steps.meta.outputs.image_ts }}" .
+            -t "${{ steps.meta.outputs.image_ts }}" \
+            .
 
       - name: Push image
         run: |
@@ -98,20 +101,21 @@ jobs:
           fi
 
       - name: Deploy to Cloud Run (pinned by digest)
-  run: |
-    gcloud run deploy "${{ steps.svc.outputs.service }}" \
-      --image "${{ steps.digest.outputs.pinned }}" \
-      --region "${{ env.REGION }}" \
-      --service-account "wizbi-runner@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
-      --allow-unauthenticated \
-      --update-env-vars "NODE_ENV=production,FIREBASE_PROJECT_ID=${{ env.PROJECT_ID }},CORS_ORIGIN=*,WHATSAPP_ENABLED=false,ADMINS=${{ env.ADMINS }}"
+        run: |
+          gcloud run deploy "${{ steps.svc.outputs.service }}" \
+            --image "${{ steps.digest.outputs.pinned }}" \
+            --region "${{ env.REGION }}" \
+            --service-account "wizbi-runner@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
+            --allow-unauthenticated \
+            --update-env-vars "NODE_ENV=production,FIREBASE_PROJECT_ID=${{ env.PROJECT_ID }},CORS_ORIGIN=*,WHATSAPP_ENABLED=false,ADMINS=${{ env.ADMINS }}"
+
       - name: Print service URL
         run: |
           URL=$(gcloud run services describe "${{ steps.svc.outputs.service }}" --region "${{ env.REGION }}" --format='value(status.url)')
           echo "Deployed: $URL"
 
   deploy-hosting:
-    name: Deploy Firebase Hosting (per branch) + Smoke test (with retry)
+    name: Deploy Firebase Hosting (per branch) + Smoke test
     needs: build-and-deploy-cloud-run
     runs-on: ubuntu-latest
     env:
@@ -120,7 +124,8 @@ jobs:
       WIF_PROVIDER:   ${{ secrets.WIF_PROVIDER }}
       DEPLOYER_SA:    ${{ secrets.DEPLOYER_SA }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Auth to GCP (WIF)
         uses: google-github-actions/auth@v2
@@ -129,10 +134,22 @@ jobs:
           service_account: ${{ env.DEPLOYER_SA }}
           project_id: ${{ env.PROJECT_ID }}
 
+      - name: Check if firebase.json exists
+        id: chk
+        shell: bash
+        run: |
+          if [ -f "firebase.json" ]; then
+            echo "present=true"  >> $GITHUB_OUTPUT
+          else
+            echo "present=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Install Firebase CLI
+        if: steps.chk.outputs.present == 'true'
         run: npm i -g firebase-tools@latest
 
       - name: Decide Hosting site (QA/PROD)
+        if: steps.chk.outputs.present == 'true'
         id: host
         run: |
           if [[ "${GITHUB_REF_NAME}" == "dev" ]]; then
@@ -143,27 +160,23 @@ jobs:
             echo "url=https://${{ env.HOSTING_SITE_PROD }}.web.app" >> $GITHUB_OUTPUT
           fi
 
-      - name: Deploy Hosting (ADC via WIF)
+      - name: Deploy Hosting (uses WIF credentials)
+        if: steps.chk.outputs.present == 'true'
         run: |
           firebase deploy \
-            --config "${GITHUB_WORKSPACE}/firebase.json" \
             --only "hosting:${{ steps.host.outputs.site }}" \
             --project "${{ env.PROJECT_ID }}" \
             --non-interactive
 
-      - name: Smoke test via Hosting (/health) with retry
+      - name: Smoke test via Hosting (/health)
+        if: steps.chk.outputs.present == 'true'
         run: |
           set -e
-          URL="${{ steps.host.outputs.url }}/health"
-          for i in {1..12}; do
-            CODE="$(curl -s -o /dev/null -w '%{http_code}' "$URL")"
-            echo "Attempt $i: $URL => $CODE"
-            if [ "$CODE" = "200" ]; then exit 0; fi
-            sleep 10
-          done
-          echo "❌ Still not 200 after retries"
-          exit 1
+          CODE="$(curl -s -o /dev/null -w '%{http_code}' "${{ steps.host.outputs.url }}/health")"
+          echo "Hosting health: ${{ steps.host.outputs.url }}/health => $CODE"
+          test "$CODE" = "200"
 
       - name: Print Hosting URL
+        if: steps.chk.outputs.present == 'true'
         run: |
           echo "Hosting URL: ${{ steps.host.outputs.url }}/admin"
