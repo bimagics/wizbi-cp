@@ -4,33 +4,20 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>WizBI Control — ניהול</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
   <style>
-    :root{
-      --bg:#0f172a; --card:#0b1220; --muted:#94a3b8; --text:#e2e8f0; --ok:#22c55e; --warn:#f59e0b; --err:#ef4444; --pri:#3b82f6;
-      --border:#1f2937;
-    }
+    :root{ --bg:#0f172a; --card:#0b1220; --muted:#94a3b8; --text:#e2e8f0; --ok:#22c55e; --warn:#f59e0b; --err:#ef4444; --pri:#3b82f6; --border:#1f2937; }
     *{box-sizing:border-box}
     html,body{height:100%}
-    body{
-      margin:0; font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;
-      background:linear-gradient(180deg,#0b1220,#0f172a); color:var(--text);
-      display:flex; flex-direction:column; align-items:center; padding:24px; gap:16px;
-    }
+    body{ margin:0; font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif; background:linear-gradient(180deg,#0b1220,#0f172a); color:var(--text);
+      display:flex; flex-direction:column; align-items:center; padding:24px; gap:16px; }
     .wrap{width:min(1100px,100%); display:grid; gap:16px}
     h1{margin:0 0 6px 0; font-size:28px}
     .muted{color:var(--muted); font-size:14px}
     .card{background:var(--card); border:1px solid var(--border); border-radius:16px; padding:16px; box-shadow:0 2px 16px rgba(0,0,0,.25)}
     .row{display:grid; grid-template-columns:1fr 1fr; gap:12px}
     label{display:block; margin:8px 0 4px}
-    input,select,textarea{
-      width:100%; padding:10px 12px; border-radius:12px; border:1px solid var(--border);
-      background:#0b1220; color:var(--text)
-    }
-    button{
-      padding:10px 16px; border:0; border-radius:12px; cursor:pointer; font-weight:700;
-      background:var(--pri); color:white;
-    }
+    input,select,textarea{ width:100%; padding:10px 12px; border-radius:12px; border:1px solid var(--border); background:#0b1220; color:var(--text) }
+    button{ padding:10px 16px; border:0; border-radius:12px; cursor:pointer; font-weight:700; background:var(--pri); color:white; }
     button.secondary{background:#334155}
     button:disabled{opacity:.5; cursor:not-allowed}
     .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
@@ -44,8 +31,7 @@
     .spinner{width:16px;height:16px;border:3px solid #334155;border-top-color:#fff;border-radius:50%;animation:spin .9s linear infinite}
     @keyframes spin{to{transform:rotate(360deg)}}
   </style>
-
-  <!-- Firebase Hosting injects config at /__/firebase/init.js; using compat for simplicity -->
+  <!-- Firebase Hosting injects config -->
   <script src="/__/firebase/9.6.1/firebase-app-compat.js"></script>
   <script src="/__/firebase/9.6.1/firebase-auth-compat.js"></script>
   <script src="/__/firebase/init.js"></script>
@@ -56,7 +42,7 @@
       <div class="flex" style="justify-content:space-between">
         <div>
           <h1>WizBI Control</h1>
-          <div class="muted">מרכז שליטה אחד — יוצרים טננטים, רואים סטטוס, מפעילים שירותים, ללא יציאה מגיטהאב/‏GCP.</div>
+          <div class="muted">מרכז שליטה אחד — יצירת טננטים, סטטוס, והפעלת שירותים — בלי לצאת ל-GCP.</div>
         </div>
         <div id="authBox" class="flex">
           <span id="userEmail" class="tag">לא מחובר</span>
@@ -68,7 +54,7 @@
 
     <section class="card" id="adminOnly" class="hidden">
       <h3 style="margin:0 0 8px 0">יצירת פרויקט חדש ללקוח (Tenant)</h3>
-      <div class="muted" style="margin-bottom:8px">פעולה זו תיצור פרויקט GCP, תחבר חשבון חיוב, תפעיל APIs, תקים Artifact Registry ו-BigQuery.</div>
+      <div class="muted" style="margin-bottom:8px">הפעולה תיצור פרויקט GCP, תחבר חיוב, תפעיל APIs, תקים Artifact Registry ו-BigQuery.</div>
       <div class="row">
         <div>
           <label>Tenant ID (אנגלית קצר, לדוג׳ <span class="mono">acme</span>)</label>
@@ -88,7 +74,7 @@
       </div>
       <div class="flex" style="margin-top:12px">
         <button id="btnCreate"><span class="spinner hidden" id="spinnerCreate"></span> צור פרויקט</button>
-        <span class="muted">ייווצר מזהה פרויקט בפורמט <span class="mono">wizbi-&lt;tenant&gt;-&lt;env&gt;</span></span>
+        <span class="muted">מזהה ייוצר כ־<span class="mono">wizbi-&lt;tenant&gt;-&lt;env&gt;</span></span>
       </div>
       <pre id="createLog" class="mono" style="margin-top:12px; background:#0a0f1a; padding:12px; border-radius:12px; max-height:240px; overflow:auto"></pre>
     </section>
@@ -107,13 +93,10 @@
 <script>
 const auth = firebase.auth();
 const provider = new firebase.auth.GoogleAuthProvider();
-
 const el = id=>document.getElementById(id);
 const show = (node, yes)=>node.classList[yes?'remove':'add']('hidden');
 
-function setBusy(btn, spin, busy){
-  btn.disabled = busy; show(spin,busy);
-}
+function setBusy(btn, spin, busy){ btn.disabled = busy; show(spin,busy); }
 
 async function callApi(path, opts={}){
   const user = auth.currentUser;
@@ -151,8 +134,7 @@ async function renderTenants(){
   });
 }
 
-async function ensureAdminUI(user){
-  // בדיקת הרשאה מול השרת (השרת בודק allowlist/Firestore)
+async function ensureAdminUI(){
   const r = await callApi('/me');
   const admin = r.ok && r.json && r.json.isAdmin;
   show(el('adminOnly'), admin);
@@ -162,7 +144,7 @@ auth.onAuthStateChanged(async (user)=>{
   if(user){
     el('userEmail').textContent = user.email;
     show(el('btnLogin'), false); show(el('btnLogout'), true);
-    await ensureAdminUI(user);
+    await ensureAdminUI();
     await renderTenants();
   }else{
     el('userEmail').textContent = 'לא מחובר';
@@ -186,16 +168,12 @@ el('btnCreate').onclick = async ()=>{
   el('createLog').textContent = 'מייצר פרויקט...';
   try{
     const r = await callApi('/tenants/provision', {
-      method:'POST',
-      body: JSON.stringify({ tenantId, displayName, env })
+      method:'POST', body: JSON.stringify({ tenantId, displayName, env })
     });
     el('createLog').textContent = r.ok ? JSON.stringify(r.json, null, 2) : (r.raw || `HTTP ${r.status}`);
     if(r.ok) await renderTenants();
-  }catch(e){
-    el('createLog').textContent = String(e);
-  }finally{
-    setBusy(el('btnCreate'), el('spinnerCreate'), false);
-  }
+  }catch(e){ el('createLog').textContent = String(e); }
+  finally{ setBusy(el('btnCreate'), el('spinnerCreate'), false); }
 };
 </script>
 </body>
