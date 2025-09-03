@@ -30,8 +30,7 @@ jobs:
       WIF_PROVIDER: ${{ secrets.WIF_PROVIDER }}
       DEPLOYER_SA:  ${{ secrets.DEPLOYER_SA }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Auth to GCP (WIF)
         uses: google-github-actions/auth@v2
@@ -123,10 +122,8 @@ jobs:
       WIF_PROVIDER:   ${{ secrets.WIF_PROVIDER }}
       DEPLOYER_SA:    ${{ secrets.DEPLOYER_SA }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # 👇 זה החלק שחסר עד עכשיו: WIF גם ל-Hosting
       - name: Auth to GCP (WIF)
         uses: google-github-actions/auth@v2
         with:
@@ -148,7 +145,6 @@ jobs:
             echo "url=https://${{ env.HOSTING_SITE_PROD }}.web.app" >> $GITHUB_OUTPUT
           fi
 
-      # ⚠️ בלי --token. ה-CLI יקח ADC מה-WIF (GOOGLE_APPLICATION_CREDENTIALS שכבר הוזרק ע"י צעד ה-Auth)
       - name: Deploy Hosting (ADC via WIF)
         run: |
           firebase deploy \
