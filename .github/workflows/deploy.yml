@@ -98,15 +98,13 @@ jobs:
           fi
 
       - name: Deploy to Cloud Run (pinned by digest)
-        run: |
-          gcloud run deploy "${{ steps.svc.outputs.service }}" \
-            --image "${{ steps.digest.outputs.pinned }}" \
-            --region "${{ env.REGION }}" \
-            --service-account "wizbi-runner@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
-            --no-allow-unauthenticated \
-            --ingress all \
-            --update-env-vars "NODE_ENV=production,FIREBASE_PROJECT_ID=${{ env.PROJECT_ID }},CORS_ORIGIN=*,WHATSAPP_ENABLED=false,ADMINS=${{ env.ADMINS }}"
-
+  run: |
+    gcloud run deploy "${{ steps.svc.outputs.service }}" \
+      --image "${{ steps.digest.outputs.pinned }}" \
+      --region "${{ env.REGION }}" \
+      --service-account "wizbi-runner@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
+      --allow-unauthenticated \
+      --update-env-vars "NODE_ENV=production,FIREBASE_PROJECT_ID=${{ env.PROJECT_ID }},CORS_ORIGIN=*,WHATSAPP_ENABLED=false,ADMINS=${{ env.ADMINS }}"
       - name: Print service URL
         run: |
           URL=$(gcloud run services describe "${{ steps.svc.outputs.service }}" --region "${{ env.REGION }}" --format='value(status.url)')
