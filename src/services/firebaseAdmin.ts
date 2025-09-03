@@ -1,16 +1,35 @@
-// src/services/firebaseAdmin.ts
-import { Firestore } from '@google-cloud/firestore';
+import admin from 'firebase-admin';
+import type { ServiceAccount } from 'firebase-admin';
+import { getFirestore, Firestore } from 'firebase-admin/firestore';
+import { getAuth, Auth } from 'firebase-admin/auth';
 
-let _db: Firestore | null = null;
+let adminApp: admin.app.App;
+let db: Firestore;
+let adminAuth: Auth;
 
-/** החזר מופע יחיד של Firestore (אין settings() חוזר) */
-export function db(): Firestore {
-  if (!_db) {
-    _db = new Firestore({
+function initAdmin() {
+  if (admin.apps.length === 0) {
+    const cred = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON
+      ? admin.credential.cert(
+          JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) as ServiceAccount
+        )
+      : admin.credential.applicationDefault();
+
+    adminApp = admin.initializeApp({
+      credential: cred,
       projectId: process.env.FIREBASE_PROJECT_ID,
-      // אם תרצה REST:
-      // preferRest: true,
     });
+  } else {
+    adminApp = admin.app();
   }
-  return _db;
+
+  db = getFirestore(adminApp);
+  adminAuth = getAuth(adminApp);
+}
+
+initAdmin();
+
+export { adminApp, db, adminAuth };
+export function getDb() {
+  return db;
 }
