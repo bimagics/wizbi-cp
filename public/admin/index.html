@@ -1,23 +1,18 @@
-<!-- public/admin/index.html -->
-<!doctype html>
-<html lang="he" dir="rtl">
-<head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>WizBI Control — ניהול</title>
-  <script src="/__/firebase/9.6.1/firebase-app-compat.js"></script>
-  <script src="/__/firebase/9.6.1/firebase-auth-compat.js"></script>
-  <script src="/__/firebase/init.js"></script>
-</head>
-<body>
-  <div>
-    <span id="userEmail">לא מחובר</span>
-    <button id="btnLogin">כניסה עם Google</button>
-    <button id="btnLogout" style="display:none">התנתק</button>
-    <button id="btnHealth">/health</button>
-    <button id="btnMe">/me</button>
-    <pre id="out"></pre>
-  </div>
+<!doctype html><html lang="he" dir="rtl"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>WizBI Control — ניהול</title>
+<script src="/__/firebase/9.6.1/firebase-app-compat.js"></script>
+<script src="/__/firebase/9.6.1/firebase-auth-compat.js"></script>
+<script src="/__/firebase/init.js"></script>
+</head><body>
+<div>
+  <span id="userEmail">לא מחובר</span>
+  <button id="btnLogin">כניסה עם Google</button>
+  <button id="btnLogout" style="display:none">התנתק</button>
+  <button id="btnHealth">/health</button>
+  <button id="btnMe">/me</button>
+  <pre id="out"></pre>
+</div>
 <script>
 const auth=firebase.auth(); const provider=new firebase.auth.GoogleAuthProvider();
 const $=id=>document.getElementById(id), out=$('out');
@@ -35,5 +30,4 @@ async function callApi(path, opts={}){
 $('btnHealth').onclick=()=>fetch('/health').then(r=>r.text()).then(t=>{ try{log(JSON.parse(t))}catch{log(t)}});
 $('btnMe').onclick =()=>callApi('/me');
 </script>
-</body>
-</html>
+</body></html>
