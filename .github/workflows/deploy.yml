@@ -24,11 +24,13 @@ jobs:
   build-and-deploy-cloud-run:
     name: Build & Deploy Cloud Run
     runs-on: ubuntu-latest
+    outputs:
+      service_url: ${{ steps.service_url.outputs.url }}
     env:
       PROJECT_ID:   ${{ secrets.GCP_PROJECT_ID }}
       REGION:       ${{ secrets.GCP_REGION }}
-      WIF_PROVIDER: ${{ secrets.WIF_PROVIDER }}   # e.g. projects/XXXX/locations/global/workloadIdentityPools/POOL/providers/PROVIDER
-      DEPLOYER_SA:  ${{ secrets.DEPLOYER_SA }}    # e.g. gh-deployer@wizbi-cp.iam.gserviceaccount.com
+      WIF_PROVIDER: ${{ secrets.WIF_PROVIDER }}
+      DEPLOYER_SA:  ${{ secrets.DEPLOYER_SA }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -69,27 +71,10 @@ jobs:
           echo "image_ts=${BASE}:${TS}"                          >> $GITHUB_OUTPUT
           echo "image_base=${BASE}"                              >> $GITHUB_OUTPUT
 
-      - name: Build image
+      - name: Build and Push Image
         run: |
-          docker build \
-            -t "${{ steps.meta.outputs.image_sha }}" \
-            -t "${{ steps.meta.outputs.image_branch }}" \
-            -t "${{ steps.meta.outputs.image_ts }}" \
-            .
-
-      - name: Push image
-        run: |
-          docker push "${{ steps.meta.outputs.image_sha }}"
+          docker build -t "${{ steps.meta.outputs.image_branch }}" .
           docker push "${{ steps.meta.outputs.image_branch }}"
-          docker push "${{ steps.meta.outputs.image_ts }}"
-
-      - name: Resolve digest (pin)
-        id: digest
-        run: |
-          FULL="${{ steps.meta.outputs.image_sha }}"
-          DIGEST="$(gcloud artifacts docker images describe "$FULL" --format='value(image_summary.digest)')"
-          echo "digest=$DIGEST"                                      >> $GITHUB_OUTPUT
-          echo "pinned=${{ steps.meta.outputs.image_base }}@$DIGEST" >> $GITHUB_OUTPUT
 
       - name: Decide target service (QA vs PROD)
         id: svc
@@ -100,22 +85,24 @@ jobs:
             echo "service=cp-unified"     >> $GITHUB_OUTPUT
           fi
 
-     - name: Deploy to Cloud Run (pinned by digest)
-  run: |
-    gcloud run deploy "${{ steps.svc.outputs.service }}" \
-      --image "${{ steps.digest.outputs.pinned }}" \
-      --region "${{ env.REGION }}" \
-      --service-account "wizbi-runner@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
-      --allow-unauthenticated \
-      --update-env-vars "NODE_ENV=production,FIREBASE_PROJECT_ID=${{ env.PROJECT_ID }},CORS_ORIGIN=*,WHATSAPP_ENABLED=false,ADMINS=${{ env.ADMINS }}"
+      - name: Deploy to Cloud Run (pinned by digest)
+        run: |
+          gcloud run deploy "${{ steps.svc.outputs.service }}" \
+            --image "${{ steps.meta.outputs.image_branch }}" \
+            --region "${{ env.REGION }}" \
+            --service-account "wizbi-runner@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
+            --no-allow-unauthenticated \
+            --update-env-vars "NODE_ENV=production,FIREBASE_PROJECT_ID=${{ env.PROJECT_ID }},CORS_ORIGIN=*,WHATSAPP_ENABLED=false,ADMINS=${{ env.ADMINS }}"
 
-      - name: Print service URL
+      - name: Get service URL
+        id: service_url
         run: |
           URL=$(gcloud run services describe "${{ steps.svc.outputs.service }}" --region "${{ env.REGION }}" --format='value(status.url)')
           echo "Deployed: $URL"
+          echo "url=$URL" >> $GITHUB_OUTPUT
 
-  deploy-hosting:
-    name: Deploy Firebase Hosting (per branch) + Smoke test
+  deploy-hosting-and-test:
+    name: Deploy Hosting + Authenticated Test
     needs: build-and-deploy-cloud-run
     runs-on: ubuntu-latest
     env:
@@ -127,30 +114,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 🔐 חשוב: מאמתים גם את Job ה-Hosting עם WIF (במקום FIREBASE_TOKEN)
       - name: Auth to GCP (WIF)
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ env.WIF_PROVIDER }}
           service_account: ${{ env.DEPLOYER_SA }}
           project_id: ${{ env.PROJECT_ID }}
-
-      - name: Check if firebase.json exists
-        id: chk
-        shell: bash
-        run: |
-          if [ -f "firebase.json" ]; then
-            echo "present=true"  >> $GITHUB_OUTPUT
-          else
-            echo "present=false" >> $GITHUB_OUTPUT
-          fi
+      
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
 
       - name: Install Firebase CLI
-        if: steps.chk.outputs.present == 'true'
         run: npm i -g firebase-tools@latest
 
       - name: Decide Hosting site (QA/PROD)
-        if: steps.chk.outputs.present == 'true'
         id: host
         run: |
           if [[ "${GITHUB_REF_NAME}" == "dev" ]]; then
@@ -162,23 +141,25 @@ jobs:
           fi
 
       - name: Deploy Hosting (uses WIF credentials)
-        if: steps.chk.outputs.present == 'true'
         run: |
-          # אין --token. ה-CLI מזהה את GOOGLE_APPLICATION_CREDENTIALS מהמקטע Auth
           firebase deploy \
             --only "hosting:${{ steps.host.outputs.site }}" \
             --project "${{ env.PROJECT_ID }}" \
             --non-interactive
 
-      - name: Smoke test via Hosting (/health)
-        if: steps.chk.outputs.present == 'true'
+      - name: Authenticated smoke test via Cloud Run URL
         run: |
           set -e
-          CODE="$(curl -s -o /dev/null -w '%{http_code}' "${{ steps.host.outputs.url }}/health")"
-          echo "Hosting health: ${{ steps.host.outputs.url }}/health => $CODE"
-          test "$CODE" = "200"
+          SERVICE_URL="${{ needs.build-and-deploy-cloud-run.outputs.service_url }}"
+          echo "Testing service at: $SERVICE_URL"
+          TOKEN=$(gcloud auth print-identity-token --audiences="$SERVICE_URL" --impersonate-service-account="${{ env.DEPLOYER_SA }}")
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN" "$SERVICE_URL/health")
+          echo "Authenticated health check => $CODE"
+          if [ "$CODE" != "200" ]; then
+            echo "::error::Authenticated health check failed with code $CODE"
+            exit 1
+          fi
 
       - name: Print Hosting URL
-        if: steps.chk.outputs.present == 'true'
         run: |
           echo "Hosting URL: ${{ steps.host.outputs.url }}/admin"
