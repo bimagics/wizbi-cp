@@ -1,22 +1,19 @@
 import { Router } from 'express';
-import { db } from '../services/firebaseAdmin';
+import { getDb } from '../services/firebaseAdmin';
 
 const router = Router();
 
-router.get('/health', async (_req, res) => {
+router.get('/', async (_req, res) => {
   try {
-    const now = new Date().toISOString();
-    // כתיבת ping קטנה כדי לוודא הרשאות ל-Firestore
-    await db.collection('_health').doc('ping').set({ ts: now }, { merge: true });
-
+    // אתחול "לייט" — יוצר מופע אם צריך
+    getDb();
     res.json({
       ok: true,
-      ts: now,
+      ts: new Date().toISOString(),
       firestore: { ok: true, rt: 'firestore-admin' },
     });
-  } catch (err) {
-    console.error('health failed:', err);
-    res.status(500).json({ ok: false, error: 'health-failed' });
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: 'health-failed', detail: e?.message });
   }
 });
 
