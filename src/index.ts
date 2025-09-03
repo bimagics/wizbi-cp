@@ -6,14 +6,17 @@ import { registerOrgRoutes } from "./routes/orgs";
 import { registerFactoryRoutes } from "./routes/factory";
 // אופציונלי: רוטים לווצאפ – נרשמים רק אם מופעל
 import { registerWhatsappRoutes } from "./routes/whatsapp";
+import tenantsRouter from './routes/tenants';
+
+
 
 const app = express();
 const port = process.env.PORT || 8080;
 const WHATSAPP_ENABLED = (process.env.WHATSAPP_ENABLED || "false").toLowerCase() === "true";
-
+app.use(express.json({ limit: '1mb' }));
 app.use(bodyParser.json({ limit: "5mb" }));
 app.use(cors({ origin: process.env.CORS_ORIGIN || "*" }));
-
+app.use(tenantsRouter);
 // Health (אפשר למחוק את src/routes/health.ts הישן)
 app.get("/health", async (_req, res) => {
   try {
