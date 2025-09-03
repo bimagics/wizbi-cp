@@ -55,7 +55,7 @@ jobs:
               --description "WizBI images"
           fi
 
-      - name: Configure Docker to push to Artifact Registry
+      - name: Configure Docker to Artifact Registry
         run: gcloud auth configure-docker "${{ env.REGION }}-docker.pkg.dev" -q
 
       - name: Compute image tags
@@ -88,7 +88,7 @@ jobs:
         run: |
           FULL="${{ steps.meta.outputs.image_sha }}"
           DIGEST="$(gcloud artifacts docker images describe "$FULL" --format='value(image_summary.digest)')"
-          echo "digest=$DIGEST"                                   >> $GITHUB_OUTPUT
+          echo "digest=$DIGEST"                                      >> $GITHUB_OUTPUT
           echo "pinned=${{ steps.meta.outputs.image_base }}@$DIGEST" >> $GITHUB_OUTPUT
 
       - name: Decide target service (QA vs PROD)
@@ -119,13 +119,21 @@ jobs:
     needs: build-and-deploy-cloud-run
     runs-on: ubuntu-latest
     env:
-      PROJECT_ID:    ${{ secrets.GCP_PROJECT_ID }}
-      FIREBASE_TOKEN:${{ secrets.FIREBASE_TOKEN }}  # create via: firebase login:ci
-      HOSTING_SITE_PROD: wizbi-cp
-      HOSTING_SITE_QA:   wizbi-cp-qa
+      PROJECT_ID:     ${{ secrets.GCP_PROJECT_ID }}
+      REGION:         ${{ secrets.GCP_REGION }}
+      WIF_PROVIDER:   ${{ secrets.WIF_PROVIDER }}
+      DEPLOYER_SA:    ${{ secrets.DEPLOYER_SA }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # 🔐 חשוב: מאמתים גם את Job ה-Hosting עם WIF (במקום FIREBASE_TOKEN)
+      - name: Auth to GCP (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.DEPLOYER_SA }}
+          project_id: ${{ env.PROJECT_ID }}
 
       - name: Check if firebase.json exists
         id: chk
@@ -153,14 +161,14 @@ jobs:
             echo "url=https://${{ env.HOSTING_SITE_PROD }}.web.app" >> $GITHUB_OUTPUT
           fi
 
-      - name: Deploy Hosting
+      - name: Deploy Hosting (uses WIF credentials)
         if: steps.chk.outputs.present == 'true'
         run: |
+          # אין --token. ה-CLI מזהה את GOOGLE_APPLICATION_CREDENTIALS מהמקטע Auth
           firebase deploy \
             --only "hosting:${{ steps.host.outputs.site }}" \
             --project "${{ env.PROJECT_ID }}" \
-            --non-interactive \
-            --token "${{ env.FIREBASE_TOKEN }}"
+            --non-interactive
 
       - name: Smoke test via Hosting (/health)
         if: steps.chk.outputs.present == 'true'
@@ -172,4 +180,5 @@ jobs:
 
       - name: Print Hosting URL
         if: steps.chk.outputs.present == 'true'
-        run: echo "Hosting URL: ${{ steps.host.outputs.url }}/admin"
+        run: |
+          echo "Hosting URL: ${{ steps.host.outputs.url }}/admin"
