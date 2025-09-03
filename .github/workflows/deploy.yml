@@ -152,7 +152,7 @@ jobs:
           set -e
           SERVICE_URL="${{ needs.build-and-deploy-cloud-run.outputs.service_url }}"
           echo "Testing service at: $SERVICE_URL"
-          TOKEN=$(gcloud auth print-identity-token --audiences="$SERVICE_URL")
+          TOKEN=$(gcloud auth print-identity-token --audiences="$SERVICE_URL" --impersonate-service-account="${{ env.DEPLOYER_SA }}")
           CODE=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN" "$SERVICE_URL/health")
           echo "Authenticated health check => $CODE"
           if [ "$CODE" != "200" ]; then
