@@ -137,7 +137,21 @@ jobs:
       - name: Verify Cloud Run Deployment Status
         run: |
           set -e
-          echo "Verifying deployment status for service: ${{ steps.svc.outputs.service }}"
-          # Wait for the service to be ready and routing 100% of traffic. This command will fail if the deployment has issues.
-          gcloud run services wait "${{ steps.svc.outputs.service }}" --region "${{ env.REGION }}"
-          echo "Service ${{ steps.svc.outputs.service }} is active and ready."
+          SERVICE_NAME="${{ steps.svc.outputs.service }}"
+          echo "Verifying deployment status for service: $SERVICE_NAME"
+          
+          for i in {1..30}; do
+            LATEST_REVISION=$(gcloud run services describe "$SERVICE_NAME" --region "${{ env.REGION }}" --format 'value(status.latestReadyRevisionName)')
+            TRAFFIC_TARGET=$(gcloud run services describe "$SERVICE_NAME" --region "${{ env.REGION }}" --format 'value(status.traffic[0].revisionName)')
+            
+            if [[ "$LATEST_REVISION" == "$TRAFFIC_TARGET" ]]; then
+              echo "Success: Service $SERVICE_NAME is ready and serving traffic on revision $LATEST_REVISION."
+              exit 0
+            fi
+            
+            echo "Waiting for service to be ready... Attempt ($i/30)"
+            sleep 10
+          done
+          
+          echo "::error::Service $SERVICE_NAME did not become ready in time."
+          exit 1
