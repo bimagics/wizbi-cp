@@ -19,6 +19,7 @@ jobs:
       DEPLOYER_SA: ${{ secrets.DEPLOYER_SA }}
       AR_REPO: wizbi
       IMAGE_NAME: cp-unified
+      ADMINS: "omer.cohen@bimagics.com"
 
     steps:
       - uses: actions/checkout@v4
@@ -51,15 +52,9 @@ jobs:
         run: |
           BRANCH="${GITHUB_REF##*/}"
           if [[ "$BRANCH" == "dev" ]]; then
-            echo "service=cp-unified-qa"                          >> $GITHUB_OUTPUT
-            echo "verify=WHATSAPP_VERIFY_TOKEN_QA"                 >> $GITHUB_OUTPUT
-            echo "access=WHATSAPP_ACCESS_TOKEN_QA"                 >> $GITHUB_OUTPUT
-            echo "phone=WABA_PHONE_NUMBER_ID_QA"                   >> $GITHUB_OUTPUT
+            echo "service=cp-unified-qa"  >> $GITHUB_OUTPUT
           else
-            echo "service=cp-unified"                              >> $GITHUB_OUTPUT
-            echo "verify=WHATSAPP_VERIFY_TOKEN_PROD"               >> $GITHUB_OUTPUT
-            echo "access=WHATSAPP_ACCESS_TOKEN_PROD"               >> $GITHUB_OUTPUT
-            echo "phone=WABA_PHONE_NUMBER_ID_PROD"                 >> $GITHUB_OUTPUT
+            echo "service=cp-unified"    >> $GITHUB_OUTPUT
           fi
 
       - name: Deploy to Cloud Run
@@ -69,8 +64,7 @@ jobs:
             --region "${{ env.REGION }}" \
             --service-account "wizbi-runner@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
             --no-allow-unauthenticated \
-            --set-env-vars "NODE_ENV=production" \
-            --set-secrets="WHATSAPP_VERIFY_TOKEN=${{ steps.cfg.outputs.verify }}:latest,WHATSAPP_ACCESS_TOKEN=${{ steps.cfg.outputs.access }}:latest,WABA_PHONE_NUMBER_ID=${{ steps.cfg.outputs.phone }}:latest"
+            --set-env-vars "NODE_ENV=production,FIREBASE_PROJECT_ID=${{ env.PROJECT_ID }},CORS_ORIGIN=*,WHATSAPP_ENABLED=false,ADMINS=${{ env.ADMINS }}"
 
       - name: Print service URL
         run: |
