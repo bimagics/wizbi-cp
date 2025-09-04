@@ -1,15 +1,16 @@
-import { Router, Request, Response } from 'express';
-import { requireUser, log } from './tenants'; // Note we are importing from tenants
+import { Router, Response } from 'express';
+import { requireAuth } from './projects'; // UPDATED: Import the middleware from the new projects router
 
 const router = Router();
-const ALLOWED = (process.env.ALLOWED_ADMIN_EMAILS || '').split(',').map(s=>s.trim().toLowerCase()).filter(Boolean);
 
-router.get('/me', requireUser, async (req: Request, res: Response) => {
-  const u = (req as any).user as { email?: string; name?: string; uid?: string };
-  const email = (u.email || '').toLowerCase();
-  const isAdmin = !ALLOWED.length || ALLOWED.includes(email);
-  log('me', { email, isAdmin });
-  res.json({ email, isAdmin, name: u.name || null, uid: u.uid || null });
+// This endpoint now receives the user profile from the fetchUserProfile middleware
+// and simply returns it to the client.
+router.get('/me', requireAuth, async (req: any, res: Response) => {
+  // The userProfile is attached to the request by the middleware
+  if (!req.userProfile) {
+    return res.status(404).json({ error: 'User profile not found.' });
+  }
+  res.json(req.userProfile);
 });
 
 export default router;

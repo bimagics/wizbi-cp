@@ -1,3 +1,5 @@
+// --- REPLACE THE ENTIRE FILE CONTENT ---
+
 import express from "express";
 import cors from "cors";
 import bodyParser from "body-parser";
@@ -5,9 +7,8 @@ import bodyParser from "body-parser";
 // --- Import all routers using the unified pattern ---
 import healthRouter from './routes/health';
 import userRouter from './routes/user';
-import tenantsRouter from './routes/tenants';
+import projectsRouter from './routes/projects'; // UPDATED
 import orgsRouter from './routes/orgs';
-import factoryRouter from './routes/factory';
 import whatsappRouter from './routes/whatsapp';
 
 // --- App Initialization ---
@@ -25,13 +26,12 @@ console.log("[wizbi-cp] Middleware initialized.");
 console.log("[wizbi-cp] Registering routes...");
 app.use('/api', healthRouter);
 app.use('/api', userRouter);
-app.use('/api', tenantsRouter);
+app.use('/api', projectsRouter); // UPDATED
 app.use('/api', orgsRouter);
-app.use('/api', factoryRouter);
 console.log("   -> Core routers registered under /api.");
 
 if (WHATSAPP_ENABLED) {
-  app.use('/', whatsappRouter); // WhatsApp webhook needs to be at the root
+  app.use('/', whatsappRouter);
   console.log("   -> WhatsApp router registered at root.");
 } else {
   console.log("   -> WhatsApp router skipped (disabled).");
