@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import admin from 'firebase-admin';
 import { getDb } from '../services/firebaseAdmin';
+import * as GcpService from '../services/gcp';
 import * as GithubService from '../services/github';
 
 // --- Interfaces & Types ---
@@ -28,49 +29,42 @@ export function log(evt: string, meta: Record<string, any> = {}) {
 
 // --- Permissions-Aware Auth Middleware ---
 async function verifyFirebaseToken(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+  log('auth.middleware.verify_token.start');
   try {
     const token = req.headers['x-firebase-id-token'] as string || (req.headers.authorization || '').slice(7);
     if (!token) {
-      log('auth.missing_token', { path: req.path });
+      log('auth.middleware.verify_token.error', { reason: 'Missing token' });
       return res.status(401).json({ error: 'Missing authentication token' });
     }
     req.user = await admin.auth().verifyIdToken(token);
+    log('auth.middleware.verify_token.success', { uid: req.user.uid });
     next();
   } catch (e: any) {
-    log('auth.token_verify_failed', { path: req.path, error: e.message });
+    log('auth.middleware.verify_token.error', { error: e.message });
     res.status(401).json({ error: 'Unauthorized', detail: e.message });
   }
 }
 
 async function fetchUserProfile(req: AuthenticatedRequest, res: Response, next: NextFunction) {
-  if (!req.user) {
-    return res.status(401).json({ error: 'Authentication not performed' });
-  }
+  if (!req.user) return res.status(401).json({ error: 'Authentication not performed' });
 
   const { uid, email } = req.user;
-  log('[AUTH] Starting fetchUserProfile', { uid, email });
-
+  log('auth.middleware.fetch_profile.start', { uid, email });
   try {
-    log('[AUTH] Querying Firestore for user profile', { collection: 'users', docId: uid });
     const userDoc = await USERS_COLLECTION.doc(uid).get();
-
     if (!userDoc.exists) {
-      log('[AUTH] User document not found, creating new profile', { uid, email });
-      const newUserProfile: UserProfile = { 
-        uid, 
-        email: email || '', 
-        roles: {} // New users start with no roles
-      };
+      log('auth.middleware.fetch_profile.user_not_found', { uid });
+      const newUserProfile: UserProfile = { uid, email: email || '', roles: {} };
       await USERS_COLLECTION.doc(uid).set(newUserProfile);
       req.userProfile = newUserProfile;
-      log('[AUTH] New user profile created successfully', { uid });
+      log('auth.middleware.fetch_profile.user_created', { uid });
     } else {
       req.userProfile = userDoc.data() as UserProfile;
-      log('[AUTH] Successfully fetched user profile', { uid, roles: req.userProfile.roles });
+      log('auth.middleware.fetch_profile.success', { uid, roles: req.userProfile.roles });
     }
     next();
   } catch (e: any) {
-    log('[AUTH] CRITICAL ERROR in fetchUserProfile', { uid, error: e.message, stack: e.stack });
+    log('auth.middleware.fetch_profile.error', { uid, error: e.message, stack: e.stack });
     res.status(500).json({ error: 'Failed to fetch user profile' });
   }
 }
@@ -105,12 +99,18 @@ async function provisionProject(projectId: string, displayName: string, orgId: s
     }, { merge: true });
 
     try {
+        // Here we will orchestrate all the steps
+        // const gcpProjectId = await GcpService.createGcpProjectInFolder(projectId, displayName, orgData.gcpFolderId);
+        // await GcpService.linkBilling(gcpProjectId);
+        // await GcpService.enableApis(gcpProjectId);
+        
         const githubRepoUrl = await GithubService.createGithubRepo(projectId, orgData.githubTeamSlug);
         
         log('provision.simulation.success', { projectId, githubRepoUrl });
 
         await PROJECTS_COLLECTION.doc(projectId).update({
             state: 'ready',
+            // gcpProjectId,
             githubRepoUrl,
         });
 
@@ -138,7 +138,6 @@ router.post('/projects', requireAdminAuth, async (req: AuthenticatedRequest, res
         }
         const sanitizedId = String(projectId).toLowerCase().replace(/[^a-z0-9-]/g, '');
 
-        // Check if project already exists
         const existingProject = await PROJECTS_COLLECTION.doc(sanitizedId).get();
         if (existingProject.exists) {
             return res.status(409).json({ error: `Project with ID '${sanitizedId}' already exists.` });
@@ -147,7 +146,7 @@ router.post('/projects', requireAdminAuth, async (req: AuthenticatedRequest, res
         const result = await provisionProject(sanitizedId, displayName.trim(), orgId);
         res.status(201).json({ ok: true, ...result });
     } catch (e: any) {
-        const statusCode = e.statusCode || 500;
+        const statusCode = (e as any).statusCode || 500;
         res.status(statusCode).json({ ok: false, error: e.message });
     }
 });
