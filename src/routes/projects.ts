@@ -45,6 +45,11 @@ async function provisionProject(projectId: string, displayName: string, orgId: s
     if (!orgDoc.exists) throw new Error(`Organization with ID ${orgId} not found.`);
     const orgData = orgDoc.data()!;
 
+    // Ensure the org has the slug before proceeding
+    if (!orgData.githubTeamSlug) {
+        throw new Error(`Organization ${orgId} is missing the githubTeamSlug.`);
+    }
+
     await PROJECTS_COLLECTION.doc(projectId).set({
         displayName, orgId, state: 'starting', createdAt: new Date().toISOString()
     }, { merge: true });
@@ -54,15 +59,18 @@ async function provisionProject(projectId: string, displayName: string, orgId: s
         // const gcpProjectId = await GcpService.createGcpProjectInFolder(projectId, displayName, orgData.gcpFolderId);
         // await GcpService.linkBilling(gcpProjectId);
         // await GcpService.enableApis(gcpProjectId);
-        // const githubRepoUrl = await GithubService.createGithubRepo(projectId, orgData.githubTeamId);
+        
+        // --- שינוי קריטי כאן ---
+        // העברת ה-slug במקום ה-ID
+        const githubRepoUrl = await GithubService.createGithubRepo(projectId, orgData.githubTeamSlug);
         
         // For now, we simulate success
-        log('provision.simulation.success', { projectId });
+        log('provision.simulation.success', { projectId, githubRepoUrl });
 
         await PROJECTS_COLLECTION.doc(projectId).update({
             state: 'ready',
             // gcpProjectId,
-            // githubRepoUrl,
+            githubRepoUrl, // Save the repo URL
         });
 
         return { projectId, state: 'ready' };
