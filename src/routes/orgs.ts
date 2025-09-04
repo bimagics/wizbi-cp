@@ -1,6 +1,7 @@
+// src/routes/orgs.ts
 import { Router, Request, Response } from 'express';
 import { getDb } from '../services/firebaseAdmin';
-import { requireAdminAuth, log } from './projects';
+import { requireAuth, requireAdminAuth, log } from './projects'; // Use requireAuth for listing
 import * as GcpService from '../services/gcp';
 import * as GithubService from '../services/github';
 
@@ -8,17 +9,38 @@ const router = Router();
 const ORGS_COLLECTION = 'orgs';
 const PROJECTS_COLLECTION = 'projects';
 
-router.get('/orgs', requireAdminAuth, async (_req: Request, res: Response) => {
+router.get('/orgs', requireAuth, async (req: Request, res: Response) => {
     try {
-        const snap = await getDb().collection(ORGS_COLLECTION).orderBy('name').get();
-        const items = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const userProfile = (req as any).userProfile;
+        
+        // Super Admins see all organizations
+        if (userProfile?.roles?.superAdmin) {
+            const snap = await getDb().collection(ORGS_COLLECTION).orderBy('name').get();
+            const items = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            return res.json({ ok: true, items });
+        }
+        
+        // Org Admins see only their assigned organizations
+        const orgIds = userProfile?.roles?.orgAdmin || [];
+        if (orgIds.length === 0) {
+            return res.json({ ok: true, items: [] }); // No orgs assigned, return empty
+        }
+
+        const orgPromises = orgIds.map(id => getDb().collection(ORGS_COLLECTION).doc(id).get());
+        const orgDocs = await Promise.all(orgPromises);
+        const items = orgDocs
+            .filter(doc => doc.exists)
+            .map(doc => ({ id: doc.id, ...doc.data() }));
+
         res.json({ ok: true, items });
+
     } catch (e: any) {
         log('orgs.list.error', { error: e.message });
         res.status(500).json({ ok: false, error: 'list-failed' });
     }
 });
 
+// Creating an org still requires a super admin
 router.post('/orgs', requireAdminAuth, async (req: Request, res: Response) => {
   log('orgs.create.received', { body: req.body });
   try {
@@ -46,7 +68,7 @@ router.post('/orgs', requireAdminAuth, async (req: Request, res: Response) => {
   }
 });
 
-// --- NEW DELETE ROUTE FOR ORGS ---
+// Deleting an org still requires a super admin
 router.delete('/orgs/:id', requireAdminAuth, async (req: Request, res: Response) => {
     const { id } = req.params;
     log('org.delete.received', { orgId: id });
