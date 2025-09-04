@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>WizBI Control </title>
+  <title>WizBI Control</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -16,31 +16,31 @@
 <body>
 
   <div id="loginContainer" class="center-container">
-    <div class="auth-box">
-      <h1>WizBI Control </h1>
+    <div class="auth-box" role="dialog" aria-labelledby="loginTitle">
+      <h1 id="loginTitle">WizBI Control</h1>
       <p>Please log in to continue.</p>
-      <button id="btnLogin" class="login-button">
-        <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google icon">
+      <button id="btnLogin" class="login-button" aria-label="Sign in with Google">
+        <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" aria-hidden="true">
         <span>Sign in with Google</span>
       </button>
     </div>
   </div>
 
   <div id="unauthorizedContainer" class="center-container hidden">
-     <div class="auth-box">
-        <h2>Access Denied</h2>
-        <p>You are not authorized. This panel is for administrators only. Contact support if you believe this is an error.</p>
-        <button id="btnLogoutUnauthorized" class="btn-primary">Logout</button>
-      </div>
+    <div class="auth-box" role="alertdialog" aria-labelledby="unauthTitle">
+      <h2 id="unauthTitle">Access Denied</h2>
+      <p>You are not authorized. This panel is for administrators only. Contact support if you believe this is an error.</p>
+      <button id="btnLogoutUnauthorized" class="btn-primary">Logout</button>
+    </div>
   </div>
-  
+
   <div id="adminPanelContainer" class="layout-container hidden">
-    <aside class="sidebar">
+    <aside class="sidebar" aria-label="Sidebar navigation">
       <div class="sidebar-header">
         <h1>WizBI</h1>
+        <button id="btnToggleSidebar" class="mobile-nav-toggle" aria-label="Toggle menu">☰</button>
       </div>
-      <nav id="sidebarNav" class="sidebar-nav">
-        </nav>
+      <nav id="sidebarNav" class="sidebar-nav" role="navigation" aria-label="Primary"></nav>
       <div class="sidebar-footer">
         <div class="user-info">
           <span id="userEmail"></span>
@@ -50,71 +50,129 @@
     </aside>
 
     <main class="main-content">
+      <!-- Projects -->
       <div id="tabContentProjects" class="tab-content">
         <div class="page-header">
           <h2>Projects</h2>
           <button id="btnShowProvisionProject" class="btn-primary">Provision New Project</button>
         </div>
+
         <div id="formProvisionProjectCard" class="card hidden">
-            <h3>Provision New Project</h3>
-            <form id="formProvisionProject" class="form-grid">
-              <div class="form-group"><label for="projectOrgId">Organization</label><select id="projectOrgId" required></select></div>
-              <div class="form-group"><label for="projectDisplayName">Display Name</label><input type="text" id="projectDisplayName" placeholder="e.g., 'Acme Website'" required></div>
-              <div class="form-group"><label for="projectId">Project ID</label><input type="text" id="projectId" placeholder="Unique Project ID" required pattern="^[a-z0-9-]{6,}$" title="Must be at least 6 characters, and can only contain lowercase letters, numbers, and hyphens."></div>
-              <button type="submit" class="btn-primary">Provision</button>
-            </form>
+          <h3>Provision New Project</h3>
+          <form id="formProvisionProject" class="form-grid">
+            <div class="form-group">
+              <label for="projectOrgId">Organization</label>
+              <select id="projectOrgId" required></select>
+            </div>
+            <div class="form-group">
+              <label for="projectDisplayName">Display Name</label>
+              <input type="text" id="projectDisplayName" placeholder="e.g., 'Acme Website'" required>
+            </div>
+            <div class="form-group">
+              <label for="projectId">Project ID</label>
+              <input type="text" id="projectId" placeholder="Unique Project ID" required pattern="^[a-z0-9-]{6,}$" title="Must be at least 6 characters, and can only contain lowercase letters, numbers, and hyphens.">
+            </div>
+            <button type="submit" class="btn-primary">Provision</button>
+          </form>
         </div>
+
         <div class="card">
-          <div id="projectsSpinner" class="spinner"></div>
-          <div class="table-wrapper"><table id="projectsTable" class="data-table"><thead><tr><th>Display Name</th><th>Project ID</th><th>Org ID</th><th>State</th><th>Links</th><th>Created</th><th>Actions</th></tr></thead><tbody></tbody></table></div>
+          <div id="projectsSpinner" class="spinner" role="status" aria-label="Loading projects"></div>
+          <div class="table-wrapper">
+            <table id="projectsTable" class="data-table">
+              <thead>
+                <tr>
+                  <th>Display Name</th>
+                  <th>Project ID</th>
+                  <th>Org ID</th>
+                  <th>State</th>
+                  <th>Links</th>
+                  <th>Created</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </div>
       </div>
-      
+
+      <!-- Orgs -->
       <div id="tabContentOrgs" class="tab-content hidden">
         <div class="page-header">
           <h2>Organizations</h2>
           <button id="btnShowCreateOrg" class="btn-primary">Create New Organization</button>
         </div>
+
         <div id="formCreateOrgCard" class="card hidden">
-            <h3>Create New Organization</h3>
-            <form id="formCreateOrg" class="form-grid">
-                <div class="form-group"><label for="orgName">Organization Name</label><input type="text" id="orgName" placeholder="Organization Name" required></div>
-                <div class="form-group"><label for="orgPhone">Contact Phone</label><input type="tel" id="orgPhone" placeholder="Contact Phone (Optional)"></div>
-                <button type="submit" class="btn-primary">Create</button>
-            </form>
+          <h3>Create New Organization</h3>
+          <form id="formCreateOrg" class="form-grid">
+            <div class="form-group">
+              <label for="orgName">Organization Name</label>
+              <input type="text" id="orgName" placeholder="Organization Name" required>
+            </div>
+            <div class="form-group">
+              <label for="orgPhone">Contact Phone</label>
+              <input type="tel" id="orgPhone" placeholder="Contact Phone (Optional)">
+            </div>
+            <button type="submit" class="btn-primary">Create</button>
+          </form>
         </div>
+
         <div class="card">
-          <div id="orgsSpinner" class="spinner"></div>
-          <div class="table-wrapper"><table id="orgsTable" class="data-table"><thead><tr><th>Name</th><th>ID</th><th>Phone</th><th>Created</th><th>Actions</th></tr></thead><tbody></tbody></table></div>
+          <div id="orgsSpinner" class="spinner" role="status" aria-label="Loading organizations"></div>
+          <div class="table-wrapper">
+            <table id="orgsTable" class="data-table">
+              <thead>
+                <tr>
+                  <th>Name</th><th>ID</th><th>Phone</th><th>Created</th><th>Actions</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </div>
       </div>
 
+      <!-- Users -->
       <div id="tabContentUsers" class="tab-content hidden">
         <div class="page-header">
           <h2>User Management</h2>
         </div>
         <div class="card">
-          <div id="usersSpinner" class="spinner"></div>
-          <div class="table-wrapper"><table id="usersTable" class="data-table"><thead><tr><th>Email</th><th>Role</th><th>Organizations</th><th>Actions</th></tr></thead><tbody></tbody></table></div>
+          <div id="usersSpinner" class="spinner" role="status" aria-label="Loading users"></div>
+          <div class="table-wrapper">
+            <table id="usersTable" class="data-table">
+              <thead>
+                <tr>
+                  <th>Email</th><th>Role</th><th>Organizations</th><th>Actions</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </div>
       </div>
 
-      <pre id="statusLog" class="status-log">Welcome! System is ready.</pre>
+      <pre id="statusLog" class="status-log" aria-live="polite">Welcome! System is ready.</pre>
     </main>
   </div>
 
-  <div id="userEditModal" class="modal-overlay hidden">
+  <div id="userEditModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="userEditModalTitle">
     <div class="modal-content">
       <div class="modal-header">
         <h3 id="userEditModalTitle">Edit User</h3>
-        <button id="closeUserEditModal" class="close-button">&times;</button>
+        <button id="closeUserEditModal" class="close-button" aria-label="Close">&times;</button>
       </div>
       <div class="modal-body">
         <form id="userEditForm">
           <input type="hidden" id="userEditUid">
           <div class="form-group">
             <label>Role</label>
-            <div class="checkbox-item"><input type="checkbox" id="userEditSuperAdmin"><label for="userEditSuperAdmin">Super Admin</label></div>
+            <div class="checkbox-item">
+              <input type="checkbox" id="userEditSuperAdmin">
+              <label for="userEditSuperAdmin">Super Admin</label>
+            </div>
           </div>
           <div class="form-group">
             <label>Organization Admin</label>
@@ -129,6 +187,6 @@
     </div>
   </div>
 
-<script src="/admin/admin.js"></script>
+  <script src="/admin/admin.js"></script>
 </body>
 </html>
