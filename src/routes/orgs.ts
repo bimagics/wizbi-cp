@@ -26,7 +26,8 @@ router.get('/orgs', requireAuth, async (req: Request, res: Response) => {
             return res.json({ ok: true, items: [] }); // No orgs assigned, return empty
         }
 
-        const orgPromises = orgIds.map(id => getDb().collection(ORGS_COLLECTION).doc(id).get());
+        // --- FIX: Added (id: string) to explicitly type the parameter ---
+        const orgPromises = orgIds.map((id: string) => getDb().collection(ORGS_COLLECTION).doc(id).get());
         const orgDocs = await Promise.all(orgPromises);
         const items = orgDocs
             .filter(doc => doc.exists)
