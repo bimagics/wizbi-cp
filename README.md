@@ -62,6 +62,15 @@ To ensure maximum efficiency when collaborating:
 5.  **Test and Report Back:** After deploying a change, report the results. If there are errors, provide the full logs from Cloud Run. This creates a tight feedback loop.
 
 ---
+### A Note on TypeScript Strictness
+
+Our project uses TypeScript's strict mode (`"strict": true` in `tsconfig.json`) to write safer, more reliable code. This means the compiler is very picky about data types.
+
+A common issue arises when fetching data from external sources like Firestore. TypeScript often infers the data as a generic object, leading to build errors like `Property 'X' does not exist on type 'Y'`.
+
+**To solve this:**
+1.  **Define an `interface`:** Always create a TypeScript `interface` that describes the exact shape of the data you're working with.
+2.  **Be Explicit:** When mapping or handling this data, explicitly cast it to your new interface (e.g., `const items: MyItem[] = docs.map(...)`). This tells the compiler, "I guarantee the data looks like this," resolving the build error and preventing future bugs.
 
 ## 5. 🚀 Getting Started: Bootstrapping the Control Plane
 
