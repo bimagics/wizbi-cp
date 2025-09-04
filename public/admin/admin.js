@@ -12,7 +12,8 @@ document.addEventListener('DOMContentLoaded', () => {
         GITHUB: `<svg viewBox="0 0 16 16"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>`,
         GCP: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12.0001 2.00015C11.598 2.00015 11.2012 2.11265 10.8543 2.32523L3.14511 6.8249C2.45076 7.25143 2 8.02008 2 8.8471V15.1532C2 15.9802 2.45076 16.7489 3.14511 17.1754L10.8543 21.6751C11.2012 21.8876 11.598 22.0002 12.0001 22.0002C12.4022 22.0002 12.799 21.8876 13.1459 21.6751L20.8551 17.1754C21.5495 16.7489 22.0002 15.9802 22.0002 15.1532V8.8471C22.0002 8.02008 21.5495 7.25143 20.8551 6.8249L13.1459 2.32523C12.799 2.11265 12.4022 2.00015 12.0001 2.00015ZM12.0001 3.8643L19.071 8.00015L12.0001 12.1361L4.9292 8.00015L12.0001 3.8643ZM11.0001 13.2323V19.932L4.35411 15.8232L11.0001 13.2323ZM13.0001 13.2323L19.6461 15.8232L13.0001 19.932V13.2323Z"/></svg>`,
         DELETE: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>`,
-        EDIT: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>`
+        EDIT: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>`,
+        ERROR: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width: 18px; height: 18px; color: var(--error-color);"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>`
     };
 
     const DOM = {
@@ -25,13 +26,7 @@ document.addEventListener('DOMContentLoaded', () => {
         btnLogoutUnauthorized: document.getElementById('btnLogoutUnauthorized'),
         sidebarNav: document.getElementById('sidebarNav'),
         statusLog: document.getElementById('statusLog'),
-        // Dynamic content containers
         tabs: {},
-        spinners: {},
-        tables: {},
-        forms: {},
-        buttons: {},
-        // Modals
         userEditModal: document.getElementById('userEditModal'),
         userEditModalTitle: document.getElementById('userEditModalTitle'),
         closeUserEditModal: document.getElementById('closeUserEditModal'),
@@ -43,7 +38,6 @@ document.addEventListener('DOMContentLoaded', () => {
         saveUserEdit: document.getElementById('saveUserEdit'),
     };
     
-    // --- Helper Functions ---
     const log = (message, isError = false) => {
         DOM.statusLog.textContent = typeof message === 'string' ? message : JSON.stringify(message, null, 2);
         DOM.statusLog.classList.toggle('error', isError);
@@ -71,7 +65,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
     
-    // --- Auth State ---
     firebaseAuth.onAuthStateChanged(async (user) => {
         clearInterval(projectsRefreshInterval);
         projectsRefreshInterval = null;
@@ -97,7 +90,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     
-    // --- Dynamic Dashboard Setup ---
     const setupDashboard = () => {
         const navItems = [
             { id: 'Projects', icon: ICONS.PROJECTS, load: loadProjects, adminOnly: false },
@@ -119,15 +111,13 @@ document.addEventListener('DOMContentLoaded', () => {
             DOM.tabs[`tabContent${item.id}`] = document.getElementById(`tabContent${item.id}`);
         });
         
-        // Initial load
         switchTab('Projects');
-        loadOrgs(); // Always load orgs for the dropdown
+        loadOrgs();
         loadProjects();
         if (userProfile.roles?.superAdmin) {
             loadUsers();
         }
         
-        // Hide admin-only UI elements
         document.getElementById('btnShowCreateOrg').classList.toggle('hidden', !userProfile.roles?.superAdmin);
     };
     
@@ -139,7 +129,6 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById(`btnTab${tabId}`).classList.add('active');
     };
     
-    // --- Data Loading & Rendering ---
     let orgsCache = [];
     const loadOrgs = async () => {
         const spinner = document.getElementById('orgsSpinner');
@@ -189,7 +178,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const renderProjectsTable = (projects) => {
         const tbody = document.getElementById('projectsTable').querySelector('tbody');
-        tbody.innerHTML = projects.length === 0 ? `<tr><td colspan="7">No projects found.</td></tr>` : projects.map(p => `
+        tbody.innerHTML = projects.length === 0 ? `<tr><td colspan="7">No projects found.</td></tr>` : projects.map(p => {
+            const isFailed = ['failed', 'delete_failed'].includes(p.state);
+            return `
             <tr>
                 <td>${p.displayName}</td>
                 <td>${p.id}</td>
@@ -197,6 +188,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <td class="state-cell">
                     <div class="state-cell-text ${p.state}">${p.state || 'N/A'}</div>
                     ${['starting', 'provisioning', 'deleting'].includes(p.state) ? '<div class="spinner spinner-inline" style="display: block;"></div>' : ''}
+                    ${isFailed ? `<span class="error-tooltip" title="${p.error || 'Unknown error'}">${ICONS.ERROR}</span>` : ''}
                 </td>
                 <td class="links-cell">
                     ${p.gcpProjectId ? `<a href="https://console.cloud.google.com/home/dashboard?project=${p.gcpProjectId}" target="_blank" class="icon-button" title="Open in GCP Console">${ICONS.GCP}</a>` : ''}
@@ -207,7 +199,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     ${userProfile.roles?.superAdmin ? `<button class="icon-button delete" data-type="project" data-id="${p.id}" title="Delete Project">${ICONS.DELETE}</button>` : ''}
                 </td>
             </tr>
-        `).join('');
+        `}).join('');
     };
     
     const renderOrgsTable = (orgs) => {
@@ -252,7 +244,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (currentVal) select.value = currentVal;
     };
     
-    // --- Event Listeners ---
     DOM.btnLogin.addEventListener('click', () => firebaseAuth.signInWithPopup(googleProvider));
     [DOM.btnLogoutAdmin, DOM.btnLogoutUnauthorized].forEach(btn => btn.addEventListener('click', () => firebaseAuth.signOut()));
 
@@ -314,7 +305,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // --- User Edit Modal Logic ---
     const openUserEditModal = (user) => {
         DOM.userEditModalTitle.textContent = `Edit: ${user.email}`;
         DOM.userEditUid.value = user.uid;
@@ -351,7 +341,7 @@ document.addEventListener('DOMContentLoaded', () => {
             await callApi(`/users/${uid}`, { method: 'PUT', body: JSON.stringify({ roles: updatedRoles }) });
             log('User updated successfully!');
             closeUserEditModal();
-            await loadUsers(); // Refresh the users table
+            await loadUsers();
         } catch (error) {}
     });
 });
