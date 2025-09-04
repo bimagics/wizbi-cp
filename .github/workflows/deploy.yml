@@ -12,25 +12,29 @@ concurrency:
 permissions:
   id-token: write
   contents: read
-  actions: write
+  actions: write # Required for the GHA cache backend
 
 env:
-  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-  REGION: ${{ secrets.GCP_REGION }}
   AR_REPO: wizbi
   IMAGE_NAME: cp-unified
-  WIF_PROVIDER: ${{ secrets.WIF_PROVIDER }}
-  DEPLOYER_SA: ${{ secrets.DEPLOYER_SA }}
+  HOSTING_SITE_PROD: wizbi-cp
+  HOSTING_SITE_QA: wizbi-cp-qa
+  ADMINS: "omer.cohen@bimagics.com"
+  BILLING_ACCOUNT_ID: ${{ secrets.BILLING_ACCOUNT_ID }}
 
 jobs:
-  # Job 1: Build the image and prepare deployment variables
-  build:
-    name: Build Image and Set Variables
+  # Job 1: Build and START the Cloud Run deployment (without waiting)
+  build-and-deploy-cloud-run:
+    name: Build & Start Cloud Run Deploy
     runs-on: ubuntu-latest
     outputs:
-      image_tag: ${{ steps.build-image.outputs.image_tag }}
-      service_name: ${{ steps.set-vars.outputs.service }}
-      site_name: ${{ steps.set-vars.outputs.site }}
+      service_name: ${{ steps.svc.outputs.service }}
+      site_name: ${{ steps.svc.outputs.site }}
+    env:
+      PROJECT_ID:   ${{ secrets.GCP_PROJECT_ID }}
+      REGION:       ${{ secrets.GCP_REGION }}
+      WIF_PROVIDER: ${{ secrets.WIF_PROVIDER }}
+      DEPLOYER_SA:  ${{ secrets.DEPLOYER_SA }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -44,38 +48,56 @@ jobs:
       - name: Setup gcloud
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Configure Docker
+      - name: Configure Docker to Artifact Registry
         run: gcloud auth configure-docker "${{ env.REGION }}-docker.pkg.dev" -q
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and Push Image
-        id: build-image
-        run: |
-          IMAGE_TAG="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}:branch-${{ github.ref_name }}"
-          docker buildx build --push \
-            --tag $IMAGE_TAG \
-            --cache-from type=gha \
-            --cache-to type=gha,mode=max .
-          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+      - name: Build and Push Image (with GHA Cache)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}:branch-${{ github.ref_name }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Decide target service and site
-        id: set-vars
+        id: svc
         run: |
           if [[ "${GITHUB_REF_NAME}" == "dev" ]]; then
             echo "service=cp-unified-qa" >> $GITHUB_OUTPUT
-            echo "site=${{ secrets.HOSTING_SITE_QA || 'wizbi-cp-qa' }}" >> $GITHUB_OUTPUT
+            echo "site=${{ env.HOSTING_SITE_QA }}" >> $GITHUB_OUTPUT
           else
             echo "service=cp-unified" >> $GITHUB_OUTPUT
-            echo "site=${{ secrets.HOSTING_SITE_PROD || 'wizbi-cp' }}" >> $GITHUB_OUTPUT
+            echo "site=${{ env.HOSTING_SITE_PROD }}" >> $GITHUB_OUTPUT
           fi
 
-  # Job 2: Deploy to both services and verify Cloud Run
-  deploy-and-verify:
-    name: Deploy and Verify
+      - name: Deploy to Cloud Run (Asynchronously)
+        run: |
+          IMAGE_TAG="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}:branch-${{ github.ref_name }}"
+          SERVICE_NAME="${{ steps.svc.outputs.service }}"
+          echo ">>> Starting deployment of Image: ${IMAGE_TAG}"
+          echo ">>> To Cloud Run Service: ${SERVICE_NAME}"
+          gcloud run deploy "${SERVICE_NAME}" \
+            --image "$IMAGE_TAG" \
+            --region "${{ env.REGION }}" \
+            --service-account "wizbi-runner@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
+            --allow-unauthenticated \
+            --update-env-vars "NODE_ENV=production,FIREBASE_PROJECT_ID=${{ env.PROJECT_ID }},GCP_PROJECT_ID=${{ env.PROJECT_ID }},BILLING_ACCOUNT_ID=${{ env.BILLING_ACCOUNT_ID }},CORS_ORIGIN=*,WHATSAPP_ENABLED=false,ADMINS=${{ env.ADMINS }}" \
+            --no-wait
+
+  # Job 2: Deploy Hosting, and then verify the Cloud Run deployment
+  deploy-hosting-and-verify:
+    name: Deploy Hosting & Verify Service
+    needs: build-and-deploy-cloud-run
     runs-on: ubuntu-latest
-    needs: build
+    env:
+      PROJECT_ID:   ${{ secrets.GCP_PROJECT_ID }}
+      REGION:       ${{ secrets.GCP_REGION }}
+      WIF_PROVIDER: ${{ secrets.WIF_PROVIDER }}
+      DEPLOYER_SA:  ${{ secrets.DEPLOYER_SA }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -86,41 +108,33 @@ jobs:
           workload_identity_provider: ${{ env.WIF_PROVIDER }}
           service_account: ${{ env.DEPLOYER_SA }}
 
-      - name: Setup gcloud and Firebase
-        run: |
-          gcloud --quiet components install gke-gcloud-auth-plugin
-          npm i -g firebase-tools@latest
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
 
-      - name: Deploy to Cloud Run (Async)
-        id: deploy-run
+      - name: Install Firebase CLI
+        run: npm i -g firebase-tools@latest
+
+      - name: Deploy Hosting
         run: |
-          gcloud run deploy "${{ needs.build.outputs.service_name }}" \
-            --image "${{ needs.build.outputs.image_tag }}" \
-            --region "${{ env.REGION }}" \
-            --service-account "wizbi-runner@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
-            --allow-unauthenticated \
-            --update-env-vars "NODE_ENV=production,FIREBASE_PROJECT_ID=${{ env.PROJECT_ID }},GCP_PROJECT_ID=${{ env.PROJECT_ID }},BILLING_ACCOUNT_ID=${{ secrets.BILLING_ACCOUNT_ID }},CORS_ORIGIN=*,WHATSAPP_ENABLED=false,ADMINS=${{ secrets.ADMINS }}" \
-            --no-wait
-      
-      - name: Deploy to Firebase Hosting
-        id: deploy-hosting
-        run: |
+          SITE_NAME="${{ needs.build-and-deploy-cloud-run.outputs.site_name }}"
+          echo ">>> Deploying to Firebase Hosting site: ${SITE_NAME}"
           firebase deploy \
-            --only "hosting:${{ needs.build.outputs.site_name }}" \
+            --only "hosting:${SITE_NAME}" \
             --project "${{ env.PROJECT_ID }}" \
             --non-interactive
-      
+
       - name: Verify Cloud Run Deployment Status
         run: |
           set -e
-          SERVICE_NAME="${{ needs.build.outputs.service_name }}"
+          SERVICE_NAME="${{ needs.build-and-deploy-cloud-run.outputs.service_name }}"
           echo "Verifying deployment status for service: $SERVICE_NAME"
+          # This is the exact verification script from your original file
           for i in {1..30}; do
             LATEST_REVISION=$(gcloud run services describe "$SERVICE_NAME" --region "${{ env.REGION }}" --format 'value(status.latestReadyRevisionName)')
             TRAFFIC_TARGET=$(gcloud run services describe "$SERVICE_NAME" --region "${{ env.REGION }}" --format 'value(status.traffic[0].revisionName)')
             echo "--> Attempt ($i/30): Latest Ready Revision=[${LATEST_REVISION}], Traffic Target=[${TRAFFIC_TARGET}]"
             if [[ -n "$LATEST_REVISION" && "$LATEST_REVISION" == "$TRAFFIC_TARGET" ]]; then
-              echo "✅ Success: Service $SERVICE_NAME is ready."
+              echo "✅ Success: Service $SERVICE_NAME is ready and serving traffic on revision $LATEST_REVISION."
               exit 0
             fi
             echo "Waiting for service to be ready..."
