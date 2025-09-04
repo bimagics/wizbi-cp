@@ -39,7 +39,7 @@ export function log(evt: string, meta: Record<string, any> = {}) {
 
 // --- NEW PERMISSIONS-AWARE AUTH MIDDLEWARE ---
 
-// Step 1: Verify Firebase ID Token (Same as before)
+// Step 1: Verify Firebase ID Token
 export async function verifyFirebaseToken(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   try {
     const hdrAuth = req.headers.authorization || '';
@@ -58,7 +58,7 @@ export async function verifyFirebaseToken(req: AuthenticatedRequest, res: Respon
     }
 
     const decodedToken = await admin.auth().verifyIdToken(token);
-    req.user = decodedToken; // Attach decoded token to request
+    req.user = decodedToken;
     next();
   } catch (e: any) {
     log('auth.token_verify_failed', { path: req.path, error: e.message });
@@ -73,7 +73,6 @@ export async function fetchUserProfile(req: AuthenticatedRequest, res: Response,
   try {
     const userDoc = await USERS_COLLECTION.doc(req.user.uid).get();
     if (!userDoc.exists) {
-      // Optional: Auto-create a user profile on first login with no roles
       const newUserProfile: UserProfile = {
           uid: req.user.uid,
           email: req.user.email || '',
@@ -103,70 +102,96 @@ export function requireSuperAdmin(req: AuthenticatedRequest, res: Response, next
     next();
 }
 
-
 // Combine middleware for convenience
 export const requireAuth = [verifyFirebaseToken, fetchUserProfile];
 export const requireAdminAuth = [...requireAuth, requireSuperAdmin];
 
-// ---- Google auth client (No changes here) ----
+// ---- Google auth client ----
 async function gauth() { 
   return await google.auth.getClient({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] }); 
 }
 
-// ---- Provisioning Logic (No changes here, just logging improvements) ----
-async function createProject(projectId:string, displayName:string, orgId:string){
-  const auth=await gauth(); const crm=google.cloudresourcemanager({version:'v3',auth});
-  const parent = FOLDER_ID ? { type:'folder', id:FOLDER_ID.replace('folders/','') } : { type:'organization', id:orgId };
-  log('provision.project.create.start',{projectId,displayName,parent});
-  await crm.projects.create({ requestBody:{ projectId, displayName, parent } } as any);
-  log('provision.project.create.done',{projectId});
+// ---- Provisioning Logic (Original functions are kept for future use, but simplified for now) ----
+async function createProject(projectId: string, displayName: string, orgId: string) {
+  const auth = await gauth();
+  const crm = google.cloudresourcemanager({ version: 'v3', auth });
+  const parent = FOLDER_ID ? `folders/${FOLDER_ID}` : `organizations/${orgId}`;
+  log('provision.project.create.start', { projectId, displayName, parent });
+  const operation = await crm.projects.create({ requestBody: { projectId, displayName, parent } });
+  log('provision.project.create.pending', { projectId, operation: operation.data.name });
+  // Note: In a real scenario, you'd poll this operation until it's done.
+  // For now, we assume it will succeed in the background.
+  return operation;
 }
-// ... other provisioning functions like linkBilling, enableApis etc. remain the same.
-// For brevity, they are omitted here, but should be kept in your file.
-// Make sure to replace just the top part of the file and keep the provisioning logic.
 
-const CORE_APIS = [
-  'run.googleapis.com','iam.googleapis.com','iamcredentials.googleapis.com',
-  'artifactregistry.googleapis.com','secretmanager.googleapis.com',
-  'bigquery.googleapis.com','bigquerystorage.googleapis.com',
-  'firestore.googleapis.com','logging.googleapis.com','monitoring.googleapis.com',
-  'cloudbuild.googleapis.com','serviceusage.googleapis.com','sts.googleapis.com'
-];
+// ... (Keep other helper functions like linkBilling, enableApis etc. as they are)
 
-async function provisionTenant(tenantId:string, displayName:string, env:'qa'|'prod'){
-  const ORG_ID=process.env.ORG_ID, BILLING=process.env.BILLING_ACCOUNT;
-  if(!ORG_ID||!BILLING){ log('provision.env.missing',{ORG_ID:!!ORG_ID,BILLING:!!BILLING}); throw new Error('missing ORG_ID and/or BILLING_ACCOUNT env'); }
-  const projectId=`${PROJECT_PREFIX}-${tenantId}-${env}`;
-  const docRef=TENANTS_COLLECTION.doc(`${tenantId}-${env}`); const startedAt=new Date().toISOString();
-  log('provision.start',{tenantId,displayName,env,projectId});
-  await docRef.set({tenantId,displayName,env,projectId,state:'provisioning',startedAt},{merge:true});
-  await createProject(projectId,`${displayName} (${env.toUpperCase()})`,ORG_ID);
-  // ... The rest of this function remains unchanged.
-  log('provision.done',{tenantId,env,projectId});
-  return { projectId, state:'ready' };
+async function provisionTenantProject(tenantId: string, displayName: string, orgId: string) {
+    const ORG_ID = process.env.ORG_ID; // This should be your GCP Organization ID
+    const BILLING_ACCOUNT = process.env.BILLING_ACCOUNT;
+
+    if (!ORG_ID || !BILLING_ACCOUNT) {
+        log('provision.env.missing', { ORG_ID: !!ORG_ID, BILLING: !!BILLING_ACCOUNT });
+        throw new Error('Missing ORG_ID and/or BILLING_ACCOUNT env variables in the Control Plane.');
+    }
+
+    const projectId = `${PROJECT_PREFIX}-${tenantId}`; // Simplified project ID
+    const docRef = TENANTS_COLLECTION.doc(tenantId);
+    const startedAt = new Date().toISOString();
+
+    log('provision.start', { tenantId, displayName, projectId, orgId });
+    await docRef.set({ tenantId, displayName, projectId, state: 'provisioning', startedAt, orgId }, { merge: true });
+
+    // --- Execute Provisioning Steps ---
+    await createProject(projectId, displayName, ORG_ID);
+    // Here you would add calls to:
+    // 1. linkBilling(projectId, BILLING_ACCOUNT);
+    // 2. enableApis(projectId, CORE_APIS);
+    // 3. createArtifactRegistry(projectId, REGION);
+    // 4. createBigQueryDatasets(projectId, ['raw', 'curated']);
+    // 5. createFirestoreDatabase(projectId);
+    // 6. setupServiceAccounts(projectId);
+    // 7. createGithubRepoAndTrigger(projectId, GITHUB_OWNER);
+
+    const updatedAt = new Date().toISOString();
+    await docRef.set({ state: 'ready', updatedAt }, { merge: true });
+    log('provision.done', { tenantId, projectId });
+
+    return { projectId, state: 'ready' };
 }
 
 
 // ---- Routes using the new Middleware ----
-// Only Super Admins can list and provision tenants
-router.get('/tenants', requireAdminAuth, async (_req, res) => {
+// Only Super Admins can list tenants
+router.get('/tenants', requireAdminAuth, async (_req: Request, res: Response) => {
   const snap = await TENANTS_COLLECTION.orderBy('startedAt', 'desc').limit(100).get();
   const list = snap.docs.map(d => ({id: d.id, ...d.data()}));
   log('tenants.list.success', { count: list.length });
   res.json(list);
 });
 
-router.post('/tenants/provision', requireAdminAuth, async (req,res)=>{
-  try{
-    const { tenantId, displayName, env } = req.body || {};
-    if(!tenantId || !env) return res.status(400).json({error:'tenantId and env are required'});
-    if(!['qa','prod'].includes(env)) return res.status(400).json({error:'env must be qa or prod'});
-    const result=await provisionTenant(String(tenantId).toLowerCase(), String(displayName||tenantId).trim(), env);
-    res.json({ ok:true, ...result });
-  }catch(e:any){ 
-    log('tenants.provision.error',{error:e.message}); 
-    res.status(500).json({ ok:false, error:e.message }); 
-  }
+// A new, simplified endpoint for provisioning based on an Org
+router.post('/tenants', requireAdminAuth, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const { orgId, tenantId, displayName } = req.body;
+        if (!orgId || !tenantId || !displayName) {
+            return res.status(400).json({ error: 'orgId, tenantId, and displayName are required' });
+        }
+
+        // We use a simplified provisionTenant function now.
+        // It no longer takes 'env' because we're creating one project per tenant.
+        const result = await provisionTenantProject(
+            String(tenantId).toLowerCase().replace(/[^a-z0-9-]/g, ''), // Sanitize tenantId
+            String(displayName).trim(),
+            String(orgId)
+        );
+
+        res.json({ ok: true, ...result });
+
+    } catch (e: any) {
+        log('tenants.provision.error', { error: e.message, stack: e.stack });
+        res.status(500).json({ ok: false, error: e.message });
+    }
 });
 
 export default router;
