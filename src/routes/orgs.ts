@@ -19,31 +19,28 @@ router.get('/orgs', requireAdminAuth, async (_req: Request, res: Response) => {
 });
 
 router.post('/orgs', requireAdminAuth, async (req: Request, res: Response) => {
+  log('orgs.create.received', { body: req.body });
   try {
     const { name, phone } = req.body || {};
     if (!name) return res.status(400).json({ ok: false, error: 'missing-name' });
 
-    // Step 1: Create GCP Folder
-    const gcpFolderName = await createGcpFolderForOrg(name);
-    const gcpFolderId = gcpFolderName.split('/')[1];
-
-    // Step 2: Create GitHub Team and get back ID and slug
+    const gcpFolderId = await createGcpFolderForOrg(name);
     const { id: githubTeamId, slug: githubTeamSlug } = await createGithubTeam(name);
 
-    // Step 3: Create Firestore record with the new githubTeamSlug field
+    log('orgs.create.firestore.start', { name });
     const docRef = await getDb().collection(ORGS_COLLECTION).add({
       name,
       phone,
       gcpFolderId,
       githubTeamId,
-      githubTeamSlug, // <-- שומרים את השדה החדש
+      githubTeamSlug,
       createdAt: new Date().toISOString(),
     });
+    log('orgs.create.firestore.success', { orgId: docRef.id });
 
-    log('org.create.success', { orgId: docRef.id, gcpFolderId, githubTeamId });
     res.status(201).json({ ok: true, id: docRef.id });
   } catch (e: any) {
-    log('org.create.error', { error: e.message });
+    log('orgs.create.error', { error: e.message, stack: e.stack });
     res.status(500).json({ ok: false, error: 'create-failed', detail: e.message });
   }
 });

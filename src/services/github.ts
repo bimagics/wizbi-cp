@@ -11,7 +11,7 @@ async function getAuthenticatedClient(): Promise<Octokit> {
     const appId = await getSecret('GITHUB_APP_ID');
     const privateKey = await getSecret('GITHUB_PRIVATE_KEY');
     const installationId = await getSecret('GITHUB_INSTALLATION_ID');
-
+    
     const auth = createAppAuth({ appId, privateKey, installationId: Number(installationId) });
     const { token } = await auth({ type: "installation" });
 
@@ -30,16 +30,16 @@ export async function createGithubTeam(orgName: string): Promise<{ id: number; s
 
 export async function createGithubRepo(projectName: string, teamSlug: string): Promise<string> {
     const client = await getAuthenticatedClient();
-
+    
     const { data: repo } = await client.repos.createInOrg({
         org: GITHUB_OWNER,
         name: projectName,
         private: true,
     });
-
+    
     await client.teams.addOrUpdateRepoPermissionsInOrg({
         org: GITHUB_OWNER,
-        owner: GITHUB_OWNER, // Required parameter, even if it's the same as org
+        owner: GITHUB_OWNER, // THIS WAS THE MISSING PARAMETER
         team_slug: teamSlug,
         repo: repo.name,
         permission: 'admin',

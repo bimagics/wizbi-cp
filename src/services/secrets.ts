@@ -1,21 +1,17 @@
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
+import { log } from '../routes/projects'; // Reuse the main logger
 
 const client = new SecretManagerServiceClient();
 const project = process.env.GCP_PROJECT_ID || process.env.PROJECT_ID;
-
-// A cache to avoid fetching the same secret multiple times
 const secretCache = new Map<string, string>();
 
-/**
- * Fetches a secret from Google Secret Manager.
- * @param secretName The name of the secret.
- * @returns The secret value as a string.
- */
 export async function getSecret(secretName: string): Promise<string> {
   if (secretCache.has(secretName)) {
+    log('secret.cache.hit', { secretName });
     return secretCache.get(secretName)!;
   }
 
+  log('secret.cache.miss', { secretName });
   try {
     const [version] = await client.accessSecretVersion({
       name: `projects/${project}/secrets/${secretName}/versions/latest`,
@@ -26,10 +22,11 @@ export async function getSecret(secretName: string): Promise<string> {
       throw new Error(`Secret ${secretName} has an empty payload.`);
     }
     
+    log('secret.fetch.success', { secretName });
     secretCache.set(secretName, payload);
     return payload;
-  } catch (error) {
-    console.error(`Failed to fetch secret: ${secretName}`, error);
+  } catch (error: any) {
+    log('secret.fetch.error', { secretName, error: error.message });
     throw new Error(`Could not access secret: ${secretName}`);
   }
 }
