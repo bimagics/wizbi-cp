@@ -117,7 +117,6 @@ async function provisionProject(projectId: string, displayName: string, orgId: s
     } catch (error: any) {
         log('provision.error.fatal', { projectId, error: error.message });
         await PROJECTS_COLLECTION.doc(projectId).update({ state: 'failed', error: error.message });
-        // חשוב לזרוק את השגיאה הלאה כדי שה-catch בנקודת הקריאה יתפוס אותה
         throw error;
     }
 }
@@ -135,30 +134,61 @@ router.post('/projects', requireAdminAuth, async (req: AuthenticatedRequest, res
         if (!orgId || !projectId || !displayName) {
             return res.status(400).json({ error: 'orgId, projectId, and displayName are required' });
         }
-        const sanitizedId = String(projectId).toLowerCase().replace(/[^a-z0-9-]/g, '');
-
-        const existingProject = await PROJECTS_COLLECTION.doc(sanitizedId).get();
+        
+        const existingProject = await PROJECTS_COLLECTION.doc(projectId).get();
         if (existingProject.exists) {
-            return res.status(409).json({ error: `Project with ID '${sanitizedId}' already exists.` });
+            return res.status(409).json({ error: `Project with ID '${projectId}' already exists.` });
         }
         
-        // מחזירים תגובה מיידית למשתמש שהתהליך התחיל
-        res.status(202).json({ ok: true, message: 'Project provisioning started.', projectId: sanitizedId });
+        res.status(202).json({ ok: true, message: 'Project provisioning started.', projectId });
         
-        // --- שיפור: מריצים את התהליך הארוך ברקע ומוסיפים טיפול בשגיאות למניעת קריסה ---
-        provisionProject(sanitizedId, displayName.trim(), orgId)
+        provisionProject(projectId, displayName.trim(), orgId)
             .catch(error => {
-                // הלוג על השגיאה כבר נרשם בתוך הפונקציה
-                // אין צורך לשלוח תגובה נוספת למשתמש כי כבר שלחנו 202
-                // המטרה של ה-catch הזה היא רק למנוע מהשגיאה להפיל את השרת
-                console.error(`[FATAL] Unhandled error during async provisioning for project '${sanitizedId}':`, error.message);
+                console.error(`[FATAL] Unhandled error during async provisioning for project '${projectId}':`, error.message);
             });
 
     } catch (e: any) {
-        // ה-catch החיצוני הזה מיועד לשגיאות שקורות *לפני* שהתהליך האסינכרוני מתחיל
         const statusCode = (e as any).statusCode || 500;
         res.status(statusCode).json({ ok: false, error: e.message });
     }
 });
+
+// --- NEW DELETE ROUTE ---
+router.delete('/projects/:id', requireAdminAuth, async (req: Request, res: Response) => {
+    const { id } = req.params;
+    log('project.delete.received', { projectId: id });
+
+    try {
+        const projectDoc = await PROJECTS_COLLECTION.doc(id).get();
+        if (!projectDoc.exists) {
+            return res.status(404).json({ error: 'Project not found' });
+        }
+
+        await PROJECTS_COLLECTION.doc(id).update({ state: 'deleting' });
+
+        // Fire and forget the actual deletion process
+        (async () => {
+            try {
+                // The GCP Project ID is the document ID
+                await GcpService.deleteGcpProject(id);
+                // The GitHub Repo name is also the document ID
+                await GithubService.deleteGithubRepo(id);
+
+                await PROJECTS_COLLECTION.doc(id).delete();
+                log('project.delete.success', { projectId: id });
+            } catch (error: any) {
+                log('project.delete.error.fatal', { projectId: id, error: error.message });
+                await PROJECTS_COLLECTION.doc(id).update({ state: 'delete_failed', error: error.message });
+            }
+        })();
+
+        res.status(202).json({ ok: true, message: 'Project deletion started.' });
+
+    } catch (e: any) {
+        log('project.delete.error.initial', { projectId: id, error: e.message });
+        res.status(500).json({ ok: false, error: 'Failed to start project deletion.' });
+    }
+});
+
 
 export default router;
