@@ -1,33 +1,219 @@
-<!doctype html><html lang="he" dir="rtl"><head>
-<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>WizBI Control — ניהול</title>
-<script src="/__/firebase/9.6.1/firebase-app-compat.js"></script>
-<script src="/__/firebase/9.6.1/firebase-auth-compat.js"></script>
-<script src="/__/firebase/init.js"></script>
-</head><body>
-<div>
-  <span id="userEmail">לא מחובר</span>
-  <button id="btnLogin">כניסה עם Google</button>
-  <button id="btnLogout" style="display:none">התנתק</button>
-  <button id="btnHealth">/api/health</button>
-  <button id="btnMe">/api/me</button>
-  <pre id="out"></pre>
-</div>
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>WizBI Control — ניהול</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <script src="/__/firebase/9.6.1/firebase-app-compat.js"></script>
+  <script src="/__/firebase/9.6.1/firebase-auth-compat.js"></script>
+  <script src="/__/firebase/init.js"></script>
+  <style>
+    /* Basic Tab Styling */
+    .tabs { display: flex; border-bottom: 2px solid #203040; margin-bottom: 24px; }
+    .tab-button { padding: 12px 20px; cursor: pointer; background: transparent; border: none; color: #b8c2cc; font-size: 16px; }
+    .tab-button.active { color: #9ad0ff; border-bottom: 2px solid #9ad0ff; font-weight: bold; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { border: 1px solid #203040; padding: 10px; text-align: right; }
+    th { background-color: #0f141a; }
+    form { display: flex; flex-direction: column; gap: 15px; background: #0f141a; padding: 20px; border-radius: 10px; border: 1px solid #203040; margin-bottom: 20px; }
+    form input, form select { padding: 10px; border-radius: 5px; border: 1px solid #334; background: #1a2027; color: #e6ebef; }
+    .loading-spinner {
+      border: 4px solid #f3f3f3; border-top: 4px solid #2d6cdf;
+      border-radius: 50%; width: 20px; height: 20px; animation: spin 1s linear infinite;
+      display: none; /* Hidden by default */
+    }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <header style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+      <h1>WIZBI.AI — Control Plane</h1>
+      <div>
+        <span id="userEmail">לא מחובר</span>
+        <button id="btnLogin">כניסה עם Google</button>
+        <button id="btnLogout" style="display:none">התנתק</button>
+      </div>
+    </header>
+
+    <div id="admin-panel" style="display: none;">
+      <div class="tabs">
+        <button class="tab-button active" onclick="openTab('tenants')">Tenants</button>
+        <button class="tab-button" onclick="openTab('orgs')">Orgs</button>
+      </div>
+
+      <div id="tenants" class="tab-content active">
+        <h2>ניהול Tenants</h2>
+        <form id="formProvisionTenant">
+            <input type="text" id="tenantId" placeholder="מזהה ייחודי (באנגלית, קטן)" required>
+            <input type="text" id="tenantDisplayName" placeholder="שם תצוגה" required>
+            <select id="tenantEnv" required>
+                <option value="qa">QA</option>
+                <option value="prod">Production</option>
+            </select>
+            <button type="submit">הקם Tenant חדש</button>
+        </form>
+        <div id="tenantsSpinner" class="loading-spinner" style="display: block;"></div>
+        <table id="tenantsTable">
+          <thead><tr><th>ID</th><th>Project ID</th><th>Display Name</th><th>Env</th><th>State</th><th>Created At</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div id="orgs" class="tab-content">
+        <h2>ניהול ארגונים (Orgs)</h2>
+         <form id="formCreateOrg">
+            <input type="text" id="orgName" placeholder="שם הארגון" required>
+            <input type="tel" id="orgPhone" placeholder="טלפון (אופציונלי)">
+            <button type="submit">צור ארגון חדש</button>
+        </form>
+        <div id="orgsSpinner" class="loading-spinner" style="display: block;"></div>
+        <table id="orgsTable">
+            <thead><tr><th>ID</th><th>Name</th><th>Phone</th><th>Created At</th></tr></thead>
+            <tbody></tbody>
+        </table>
+      </div>
+    </div>
+     <pre id="out">נא להתחבר כדי לראות את פאנל הניהול.</pre>
+  </main>
+
 <script>
 const auth=firebase.auth(); const provider=new firebase.auth.GoogleAuthProvider();
-const $=id=>document.getElementById(id), out=$('out');
-function log(x){ out.textContent= typeof x==='string' ? x : JSON.stringify(x,null,2); }
-auth.onAuthStateChanged(u=>{ $('userEmail').textContent=u?u.email:'לא מחובר'; $('btnLogin').style.display=u?'none':'inline-block'; $('btnLogout').style.display=u?'inline-block':'none'; });
-$('btnLogin').onclick=()=>auth.signInWithPopup(provider);
-$('btnLogout').onclick=()=>auth.signOut();
+const $=id=>document.getElementById(id); const out=$('out');
+let idToken = null; // Store user token globally
 
-async function callApi(path, opts={}){
-  const u=auth.currentUser; if(!u){ log('נא להתחבר'); return; }
-  const t=await u.getIdToken();
-  const r=await fetch(path,{...opts, headers:{'Content-Type':'application/json','X-Firebase-ID-Token':t,...(opts.headers||{})}});
-  const txt=await r.text(); try{ log(JSON.parse(txt)); }catch{ log(txt); }
+function log(x, isError=false) {
+  const message = typeof x === 'string' ? x : JSON.stringify(x, null, 2);
+  out.textContent = message;
+  out.style.color = isError ? '#ff8a8a' : '#9ad0ff';
 }
-$('btnHealth').onclick=()=>callApi('/api/health');
-$('btnMe').onclick =()=>callApi('/api/me');
+
+function openTab(tabName) {
+  document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+  document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+  $(`${tabName}`).classList.add('active');
+  event.currentTarget.classList.add('active');
+}
+
+async function callApi(path, opts={}) {
+  if (!idToken) { log('User token not available. Please log in.', true); throw new Error('Not authenticated'); }
+  const r = await fetch(`/api${path}`, {
+    ...opts,
+    headers: { 'Content-Type': 'application/json', 'X-Firebase-ID-Token': idToken, ...(opts.headers || {}) }
+  });
+  const txt = await r.text();
+  try {
+    const data = JSON.parse(txt);
+    if (!r.ok) throw data;
+    return data;
+  } catch (e) {
+    log(`API Error on ${path}: ${txt}`, true);
+    throw new Error(txt);
+  }
+}
+
+auth.onAuthStateChanged(async user => {
+  $('userEmail').textContent = user ? user.email : 'לא מחובר';
+  $('btnLogin').style.display = user ? 'none' : 'inline-block';
+  $('btnLogout').style.display = user ? 'inline-block' : 'none';
+  $('admin-panel').style.display = user ? 'block' : 'none';
+  if (user) {
+    idToken = await user.getIdToken();
+    log('מחובר. טוען נתונים...');
+    await Promise.all([loadOrgs(), loadTenants()]);
+    log('נתונים נטענו.');
+  } else {
+    idToken = null;
+    log('נא להתחבר כדי לראות את פאנל הניהול.');
+  }
+});
+
+$('btnLogin').onclick = () => auth.signInWithPopup(provider);
+$('btnLogout').onclick = () => auth.signOut();
+
+// --- Orgs Logic ---
+async function loadOrgs() {
+  $('orgsSpinner').style.display = 'block';
+  const tableBody = $('orgsTable').querySelector('tbody');
+  tableBody.innerHTML = ''; // Clear table
+  try {
+    const { items } = await callApi('/orgs');
+    if (!items || items.length === 0) {
+      tableBody.innerHTML = '<tr><td colspan="4">לא נמצאו ארגונים.</td></tr>';
+      return;
+    }
+    items.forEach(org => {
+      const row = tableBody.insertRow();
+      row.innerHTML = `<td>${org.id}</td><td>${org.name}</td><td>${org.phone || ''}</td><td>${new Date(org.createdAt).toLocaleString()}</td>`;
+    });
+  } catch (e) {
+    log('Failed to load orgs.', true);
+  } finally {
+     $('orgsSpinner').style.display = 'none';
+  }
+}
+
+$('formCreateOrg').onsubmit = async (e) => {
+  e.preventDefault();
+  const name = $('orgName').value;
+  const phone = $('orgPhone').value;
+  try {
+    log('יוצר ארגון חדש...');
+    await callApi('/orgs', { method: 'POST', body: JSON.stringify({ name, phone }) });
+    log('ארגון נוצר בהצלחה!');
+    $('formCreateOrg').reset();
+    await loadOrgs();
+  } catch (e) {
+    log('שגיאה ביצירת ארגון.', true);
+  }
+};
+
+// --- Tenants Logic ---
+async function loadTenants() {
+  $('tenantsSpinner').style.display = 'block';
+  const tableBody = $('tenantsTable').querySelector('tbody');
+  tableBody.innerHTML = '';
+  try {
+    const items = await callApi('/tenants'); // The tenants API returns an array directly
+     if (!items || items.length === 0) {
+      tableBody.innerHTML = '<tr><td colspan="6">לא נמצאו tenants.</td></tr>';
+      return;
+    }
+    items.forEach(t => {
+      const row = tableBody.insertRow();
+      row.innerHTML = `<td>${t.id}</td><td>${t.projectId || ''}</td><td>${t.displayName}</td><td>${t.env}</td><td>${t.state}</td><td>${new Date(t.startedAt).toLocaleString()}</td>`;
+    });
+  } catch (e) {
+    log('Failed to load tenants.', true);
+  } finally {
+    $('tenantsSpinner').style.display = 'none';
+  }
+}
+
+$('formProvisionTenant').onsubmit = async (e) => {
+    e.preventDefault();
+    const tenantId = $('tenantId').value;
+    const displayName = $('tenantDisplayName').value;
+    const env = $('tenantEnv').value;
+    if (!confirm(`האם אתה בטוח שברצונך להקים tenant חדש בשם '${displayName}' בסביבת ${env}?`)) return;
+
+    try {
+        log(`מתחיל תהליך הקמה עבור ${tenantId}...`);
+        await callApi('/tenants/provision', {
+            method: 'POST',
+            body: JSON.stringify({ tenantId, displayName, env })
+        });
+        log('הקמת Tenant החלה בהצלחה! התהליך רץ ברקע. הטבלה תתעדכן בקרוב.');
+        $('formProvisionTenant').reset();
+        setTimeout(loadTenants, 5000); // Refresh after a few seconds
+    } catch (e) {
+        log('שגיאה בהקמת ה-Tenant.', true);
+    }
+};
+
 </script>
-</body></html>
+</body>
+</html>
