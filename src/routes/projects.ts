@@ -89,7 +89,11 @@ export const requireAdminAuth = [...requireAuth, requireSuperAdmin];
 // --- Provisioning Engine ---
 async function provisionProject(projectId: string, displayName: string, orgId: string) {
     const orgDoc = await ORGS_COLLECTION.doc(orgId).get();
-    if (!orgDoc.exists) throw new Error(`Organization with ID ${orgId} not found.`);
+    if (!orgDoc.exists) {
+        const err = new Error(`Organization with ID ${orgId} not found.`);
+        (err as any).statusCode = 404;
+        throw err;
+    }
     const orgData = orgDoc.data()!;
 
     if (!orgData.githubTeamSlug) {
@@ -133,10 +137,18 @@ router.post('/projects', requireAdminAuth, async (req: AuthenticatedRequest, res
             return res.status(400).json({ error: 'orgId, projectId, and displayName are required' });
         }
         const sanitizedId = String(projectId).toLowerCase().replace(/[^a-z0-9-]/g, '');
+
+        // Check if project already exists
+        const existingProject = await PROJECTS_COLLECTION.doc(sanitizedId).get();
+        if (existingProject.exists) {
+            return res.status(409).json({ error: `Project with ID '${sanitizedId}' already exists.` });
+        }
+        
         const result = await provisionProject(sanitizedId, displayName.trim(), orgId);
         res.status(201).json({ ok: true, ...result });
     } catch (e: any) {
-        res.status(500).json({ ok: false, error: e.message });
+        const statusCode = e.statusCode || 500;
+        res.status(statusCode).json({ ok: false, error: e.message });
     }
 });
 
