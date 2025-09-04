@@ -80,7 +80,6 @@ export async function createGcpProjectInFolder(projectId: string, displayName: s
     return projectId;
 }
 
-// --- NEW DELETE FUNCTION ---
 export async function deleteGcpProject(projectId: string): Promise<void> {
     const auth = await getAuth();
     const crm = google.cloudresourcemanager({ version: 'v3', auth });
@@ -90,13 +89,30 @@ export async function deleteGcpProject(projectId: string): Promise<void> {
         await crm.projects.delete({ name: `projects/${projectId}` });
         log('gcp.project.delete.success', { projectId });
     } catch (error: any) {
-        // It's possible the project is already marked for deletion or doesn't exist.
-        // We can treat a 404 (Not Found) or 403 (Permission Denied, often if project is already being deleted) as a success for our workflow.
         if (error.code === 404 || error.code === 403) {
             log('gcp.project.delete.already_gone', { projectId, code: error.code });
             return;
         }
         log('gcp.project.delete.error', { projectId, error: error.message });
         throw new Error(`Failed to delete GCP project '${projectId}': ${error.message}`);
+    }
+}
+
+// --- NEW FOLDER DELETE FUNCTION ---
+export async function deleteGcpFolder(folderId: string): Promise<void> {
+    const auth = await getAuth();
+    const crm = google.cloudresourcemanager({ version: 'v3', auth });
+
+    log('gcp.folder.delete.start', { folderId });
+    try {
+        await crm.folders.delete({ name: `folders/${folderId}` });
+        log('gcp.folder.delete.success', { folderId });
+    } catch (error: any) {
+        if (error.code === 404) {
+            log('gcp.folder.delete.already_gone', { folderId });
+            return;
+        }
+        log('gcp.folder.delete.error', { folderId, error: error.message });
+        throw new Error(`Failed to delete GCP folder '${folderId}': ${error.message}`);
     }
 }

@@ -7,7 +7,7 @@ import bodyParser from "body-parser";
 // --- Import all routers using the unified pattern ---
 import healthRouter from './routes/health';
 import userRouter from './routes/user';
-import projectsRouter from './routes/projects'; // UPDATED
+import projectsRouter from './routes/projects';
 import orgsRouter from './routes/orgs';
 import whatsappRouter from './routes/whatsapp';
 
@@ -25,8 +25,8 @@ console.log("[wizbi-cp] Middleware initialized.");
 // --- Register all API routes ---
 console.log("[wizbi-cp] Registering routes...");
 app.use('/api', healthRouter);
-app.use('/api', userRouter);
-app.use('/api', projectsRouter); // UPDATED
+app.use('/api', userRouter); // Now includes all user-related endpoints
+app.use('/api', projectsRouter);
 app.use('/api', orgsRouter);
 console.log("   -> Core routers registered under /api.");
 
