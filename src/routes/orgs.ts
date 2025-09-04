@@ -2,13 +2,14 @@
 
 import { Router, Request, Response } from 'express';
 import { getDb } from '../services/firebaseAdmin';
-import { requireAuth, requireAdminAuth } from './projects'; // Import from our new projects router
+// We now require Super Admin for ALL org operations
+import { requireAdminAuth } from './projects';
 
 const router = Router();
 const ORGS_COLLECTION = 'orgs';
 
-// Any authenticated user can list orgs (to populate dropdowns)
-router.get('/orgs', requireAuth, async (_req: Request, res: Response) => {
+// Only a Super Admin can list orgs
+router.get('/orgs', requireAdminAuth, async (_req: Request, res: Response) => {
   try {
     const snap = await getDb().collection(ORGS_COLLECTION).orderBy('name').get();
     const items = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
