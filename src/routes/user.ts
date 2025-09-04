@@ -1,10 +1,20 @@
 // src/routes/user.ts
 import { Router, Request, Response } from 'express';
 import { getDb } from '../services/firebaseAdmin';
-import { requireAdminAuth, log } from './projects'; // Re-using the auth middleware
+import { requireAuth, requireAdminAuth, log } from './projects'; // Re-using auth middleware
 
 const router = Router();
 const USERS_COLLECTION = 'users';
+
+// --- THIS IS THE MISSING ROUTE ---
+// Fetches the profile of the currently logged-in user.
+router.get('/me', requireAuth, async (req: any, res: Response) => {
+  if (!req.userProfile) {
+    return res.status(404).json({ error: 'User profile not found.' });
+  }
+  res.json(req.userProfile);
+});
+// ---------------------------------
 
 // GET all users (for superAdmin)
 router.get('/users', requireAdminAuth, async (_req: Request, res: Response) => {
@@ -12,7 +22,6 @@ router.get('/users', requireAdminAuth, async (_req: Request, res: Response) => {
         const snap = await getDb().collection(USERS_COLLECTION).get();
         const users = snap.docs.map(doc => {
             const data = doc.data();
-            // Ensure roles field exists and is structured correctly
             if (!data.roles) {
                 data.roles = {};
             }
@@ -20,7 +29,6 @@ router.get('/users', requireAdminAuth, async (_req: Request, res: Response) => {
                 uid: doc.id,
                 email: data.email,
                 roles: data.roles,
-                lastLoginAt: data.lastLoginAt // Assuming you might add this field later
             };
         });
         res.json(users);
@@ -33,7 +41,7 @@ router.get('/users', requireAdminAuth, async (_req: Request, res: Response) => {
 // UPDATE a user's roles/orgs (for superAdmin)
 router.put('/users/:uid', requireAdminAuth, async (req: Request, res: Response) => {
     const { uid } = req.params;
-    const { roles } = req.body; // Expecting a body like { "roles": { "superAdmin": false, "orgAdmin": ["orgId1", "orgId2"] } }
+    const { roles } = req.body;
 
     if (!roles) {
         return res.status(400).json({ error: 'Missing roles object in request body.' });
