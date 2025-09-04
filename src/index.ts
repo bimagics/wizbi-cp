@@ -9,7 +9,6 @@ import healthRouter from './routes/health';
 import userRouter from './routes/user';
 import projectsRouter from './routes/projects'; // UPDATED
 import orgsRouter from './routes/orgs';
-import factoryRouter from './routes/factory';
 import whatsappRouter from './routes/whatsapp';
 
 // --- App Initialization ---
