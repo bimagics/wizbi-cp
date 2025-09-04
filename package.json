@@ -9,6 +9,8 @@
   },
   "dependencies": {
     "@google-cloud/bigquery": "^7.9.0",
+    "@google-cloud/secret-manager": "^5.9.0",
+    "@octokit/rest": "^21.0.1",
     "body-parser": "^1.20.2",
     "cors": "^2.8.5",
     "express": "^4.19.2",
