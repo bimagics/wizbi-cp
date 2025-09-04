@@ -10,8 +10,20 @@ import * as GithubService from '../services/github';
 interface UserProfile {
   uid: string;
   email: string;
-  roles: { superAdmin?: boolean; orgAdmin?: string[] }
+  roles: {
+    superAdmin?: boolean;
+    orgAdmin?: string[]; // Array of organization IDs they administer
+  }
 }
+
+// --- NEW: Define a type for our project data ---
+interface Project {
+    id: string;
+    createdAt: string; // Ensure createdAt is recognized as a string
+    // Add other known project fields here if needed for type safety
+    [key: string]: any; // Allow other fields
+}
+
 
 interface AuthenticatedRequest extends Request {
   user?: admin.auth.DecodedIdToken;
@@ -56,7 +68,7 @@ async function fetchUserProfile(req: AuthenticatedRequest, res: Response, next: 
     const userDoc = await USERS_COLLECTION.doc(uid).get();
     if (!userDoc.exists) {
       log('auth.middleware.fetch_profile.user_not_found', { uid });
-      const newUserProfile: UserProfile = { uid, email: email || '', roles: {} };
+      const newUserProfile: UserProfile = { uid, email: email || '', roles: {} }; // Default empty roles
       await USERS_COLLECTION.doc(uid).set(newUserProfile);
       req.userProfile = newUserProfile;
       log('auth.middleware.fetch_profile.user_created', { uid });
@@ -115,17 +127,44 @@ async function provisionProject(projectId: string, displayName: string, orgId: s
         return { projectId, state: 'ready' };
 
     } catch (error: any) {
-        log('provision.error.fatal', { projectId, error: error.message });
-        await PROJECTS_COLLECTION.doc(projectId).update({ state: 'failed', error: error.message });
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        log('provision.error.fatal', { projectId, error: errorMessage });
+        await PROJECTS_COLLECTION.doc(projectId).update({ state: 'failed', error: errorMessage });
         throw error;
     }
 }
 
 // --- Routes ---
-router.get('/projects', requireAdminAuth, async (req: Request, res: Response) => {
-    const snap = await PROJECTS_COLLECTION.orderBy('createdAt', 'desc').limit(100).get();
-    const list = snap.docs.map(d => ({id: d.id, ...d.data()}));
-    res.json(list);
+router.get('/projects', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        let query: admin.firestore.Query | admin.firestore.CollectionReference = PROJECTS_COLLECTION;
+
+        const userProfile = req.userProfile;
+        if (!userProfile?.roles?.superAdmin) {
+            const orgIds = userProfile?.roles?.orgAdmin || [];
+            if (orgIds.length > 0) {
+                query = query.where('orgId', 'in', orgIds);
+            } else {
+                return res.json([]);
+            }
+        } else {
+            query = query.orderBy('createdAt', 'desc');
+        }
+
+        const snap = await query.limit(100).get();
+        // --- FIX: Cast the mapped data to our new Project type ---
+        const list: Project[] = snap.docs.map(d => ({ id: d.id, ...d.data() } as Project));
+        
+        if (!userProfile?.roles?.superAdmin) {
+            // --- FIX: Explicitly type a and b as Project ---
+            list.sort((a: Project, b: Project) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        }
+
+        res.json(list);
+    } catch(e: any) {
+        log('projects.list.error', { error: e.message });
+        res.status(500).json({ error: "Failed to list projects" });
+    }
 });
 
 router.post('/projects', requireAdminAuth, async (req: AuthenticatedRequest, res: Response) => {
@@ -144,7 +183,7 @@ router.post('/projects', requireAdminAuth, async (req: AuthenticatedRequest, res
         
         provisionProject(projectId, displayName.trim(), orgId)
             .catch(error => {
-                console.error(`[FATAL] Unhandled error during async provisioning for project '${projectId}':`, error.message);
+                console.error(`[FATAL] Unhandled error during async provisioning for project '${projectId}':`, error instanceof Error ? error.message : String(error));
             });
 
     } catch (e: any) {
@@ -153,7 +192,7 @@ router.post('/projects', requireAdminAuth, async (req: AuthenticatedRequest, res
     }
 });
 
-// --- NEW DELETE ROUTE ---
+
 router.delete('/projects/:id', requireAdminAuth, async (req: Request, res: Response) => {
     const { id } = req.params;
     log('project.delete.received', { projectId: id });
@@ -166,19 +205,16 @@ router.delete('/projects/:id', requireAdminAuth, async (req: Request, res: Respo
 
         await PROJECTS_COLLECTION.doc(id).update({ state: 'deleting' });
 
-        // Fire and forget the actual deletion process
         (async () => {
             try {
-                // The GCP Project ID is the document ID
                 await GcpService.deleteGcpProject(id);
-                // The GitHub Repo name is also the document ID
                 await GithubService.deleteGithubRepo(id);
-
                 await PROJECTS_COLLECTION.doc(id).delete();
                 log('project.delete.success', { projectId: id });
             } catch (error: any) {
-                log('project.delete.error.fatal', { projectId: id, error: error.message });
-                await PROJECTS_COLLECTION.doc(id).update({ state: 'delete_failed', error: error.message });
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                log('project.delete.error.fatal', { projectId: id, error: errorMessage });
+                await PROJECTS_COLLECTION.doc(id).update({ state: 'delete_failed', error: errorMessage });
             }
         })();
 
