@@ -3,6 +3,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const googleProvider = new firebase.auth.GoogleAuthProvider();
     let idToken = null;
     let projectsRefreshInterval = null;
+    let orgsRefreshInterval = null;
 
     const DOM = {
         loginContainer: document.getElementById('loginContainer'),
@@ -43,15 +44,9 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const response = await fetch(`/api${path}`, {
                 ...options,
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Firebase-ID-Token': idToken,
-                    ...(options.headers || {})
-                }
+                headers: { 'Content-Type': 'application/json', 'X-Firebase-ID-Token': idToken, ...(options.headers || {}) }
             });
-            const responseData = await response.json().catch(() => ({
-                error: 'Failed to parse JSON response'
-            }));
+            const responseData = await response.json().catch(() => ({ error: 'Failed to parse JSON response' }));
             if (!response.ok) {
                 throw new Error(responseData.error || `HTTP error! status: ${response.status}`);
             }
@@ -93,6 +88,7 @@ document.addEventListener('DOMContentLoaded', () => {
             idToken = null;
             showView('loginContainer');
             if (projectsRefreshInterval) clearInterval(projectsRefreshInterval);
+            if (orgsRefreshInterval) clearInterval(orgsRefreshInterval);
         }
     });
 
@@ -109,7 +105,6 @@ document.addEventListener('DOMContentLoaded', () => {
     DOM.btnTabProjects.addEventListener('click', () => switchTab('projects'));
     DOM.btnTabOrgs.addEventListener('click', () => switchTab('orgs'));
 
-    // --- RENDER FUNCTIONS ---
     const renderProjectsTable = (projects) => {
         const tbody = DOM.projectsTableBody;
         tbody.innerHTML = '';
@@ -130,8 +125,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 <td>${p.orgId}</td>
                 <td class="state-cell">
                     <div class="state-cell-text ${p.state}">${p.state}</div>
-                    ${(p.state === 'starting' || p.state === 'provisioning' || p.state === 'deleting') ? '<div class="spinner spinner-inline" style="display: block;"></div>' : ''}
-                    ${p.state === 'failed' || p.state === 'delete_failed' ? `<div class="state-cell-error" title="${p.error}">⚠️</div>` : ''}
+                    ${['starting', 'provisioning', 'deleting'].includes(p.state) ? '<div class="spinner spinner-inline" style="display: block;"></div>' : ''}
+                    ${['failed', 'delete_failed'].includes(p.state) ? `<div class="state-cell-error" title="${p.error}">⚠️</div>` : ''}
                 </td>
                 <td class="links-cell">
                     ${p.gcpProjectId ? `<a href="https://console.cloud.google.com/home/dashboard?project=${p.gcpProjectId}" target="_blank" class="icon-button" title="Open in GCP Console">${GCP_ICON}</a>` : ''}
@@ -162,13 +157,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 <td>${org.phone || 'N/A'}</td>
                 <td>${new Date(org.createdAt).toLocaleString()}</td>
                 <td class="actions-cell">
-                    <button class="icon-button delete" data-type="org" data-id="${org.id}" title="Delete Organization (not implemented yet)" disabled>${DELETE_ICON}</button>
+                    <button class="icon-button delete" data-type="org" data-id="${org.id}" data-name="${org.name}" title="Delete Organization">${DELETE_ICON}</button>
                 </td>
             `;
         });
     };
 
-    // --- DATA LOADING ---
     let orgsCache = [];
     const loadOrgs = async () => {
         DOM.orgsSpinner.style.display = 'block';
@@ -212,25 +206,18 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // --- EVENT LISTENERS ---
     DOM.formCreateOrg.addEventListener('submit', async (e) => {
         e.preventDefault();
         const name = e.target.elements.orgName.value.trim();
         const phone = e.target.elements.orgPhone.value.trim();
-        if(!name) {
-            log('Organization name is required.', true);
-            return;
-        }
+        if(!name) { log('Organization name is required.', true); return; }
         log(`Creating new organization: ${name}...`);
         try {
-            await callApi('/orgs', {
-                method: 'POST',
-                body: JSON.stringify({ name, phone })
-            });
+            await callApi('/orgs', { method: 'POST', body: JSON.stringify({ name, phone }) });
             log('Organization created successfully!');
             DOM.formCreateOrg.reset();
             await loadOrgs();
-        } catch (error) { /* error is already logged by callApi */ }
+        } catch (error) {}
     });
 
     DOM.projectOrgIdSelect.addEventListener('change', (e) => {
@@ -249,50 +236,48 @@ document.addEventListener('DOMContentLoaded', () => {
         const projectId = e.target.elements.projectId.value.trim();
         const displayName = e.target.elements.projectDisplayName.value.trim();
 
-        if (!orgId || !projectId || !displayName) {
-           log('All fields are required to provision a project.', true);
-           return;
-        }
-        if (projectId.length < 6) {
-            log('Project ID must be at least 6 characters long.', true);
-            return;
-        }
-        if (!/^[a-z0-9-]+$/.test(projectId)) {
-            log('Project ID can only contain lowercase letters, numbers, and hyphens.', true);
-            return;
-        }
+        if (!orgId || !projectId || !displayName) { log('All fields are required.', true); return; }
+        if (projectId.length < 6) { log('Project ID must be at least 6 characters.', true); return; }
+        if (!/^[a-z0-9-]+$/.test(projectId)) { log('Project ID can only contain lowercase letters, numbers, and hyphens.', true); return; }
 
         if (!confirm(`Provision new project '${displayName}' with ID '${projectId}'?`)) return;
         
         log(`Starting provisioning for '${projectId}'...`);
         try {
-            await callApi('/projects', {
-                method: 'POST',
-                body: JSON.stringify({ orgId, projectId, displayName })
-            });
+            await callApi('/projects', { method: 'POST', body: JSON.stringify({ orgId, projectId, displayName }) });
             log('Project provisioning accepted. The table will update automatically.');
             DOM.formProvisionProject.reset();
             await loadProjects();
-        } catch (error) { /* error is already logged by callApi */ }
+        } catch (error) {}
     });
 
-    // --- DELEGATED EVENT LISTENER FOR DELETE BUTTONS ---
     document.getElementById('adminPanelContainer').addEventListener('click', async (e) => {
         const target = e.target.closest('.icon-button.delete');
         if (!target) return;
 
         const type = target.dataset.type;
         const id = target.dataset.id;
+        const name = target.dataset.name || id;
 
         if (type === 'project') {
-            if (confirm(`Are you sure you want to delete project '${id}'? This will delete the GCP project and the GitHub repo.`) &&
-                confirm(`FINAL CONFIRMATION: This action is irreversible. Delete project '${id}'?`)) {
-                log(`Starting deletion for project '${id}'...`);
+            if (confirm(`Are you sure you want to delete project '${name}'? This will delete the GCP project and the GitHub repo.`) &&
+                confirm(`FINAL CONFIRMATION: This action is irreversible. Delete project '${name}'?`)) {
+                log(`Starting deletion for project '${name}'...`);
                 try {
                     await callApi(`/projects/${id}`, { method: 'DELETE' });
-                    log(`Deletion process for project '${id}' has been initiated.`);
+                    log(`Deletion process for project '${name}' has been initiated.`);
                     await loadProjects();
-                } catch (error) { /* error is already logged by callApi */ }
+                } catch (error) {}
+            }
+        } else if (type === 'org') {
+            if (confirm(`Are you sure you want to delete organization '${name}'? You can only delete an org if it has no projects.`) &&
+                confirm(`FINAL CONFIRMATION: This action is irreversible. Delete organization '${name}'?`)) {
+                log(`Starting deletion for organization '${name}'...`);
+                try {
+                    await callApi(`/orgs/${id}`, { method: 'DELETE' });
+                    log(`Deletion process for organization '${name}' has been initiated.`);
+                    await loadOrgs();
+                } catch (error) {}
             }
         }
     });
