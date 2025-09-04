@@ -28,7 +28,6 @@ app.use('/api', healthRouter);
 app.use('/api', userRouter);
 app.use('/api', projectsRouter); // UPDATED
 app.use('/api', orgsRouter);
-app.use('/api', factoryRouter);
 console.log("   -> Core routers registered under /api.");
 
 if (WHATSAPP_ENABLED) {
