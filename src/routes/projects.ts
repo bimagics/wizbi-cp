@@ -90,8 +90,8 @@ async function provisionProject(projectId: string, displayName: string, orgId: s
     }
     const orgData = orgDoc.data()!;
 
-    if (!orgData.githubTeamSlug) {
-        throw new Error(`Organization ${orgId} is missing the githubTeamSlug.`);
+    if (!orgData.githubTeamSlug || !orgData.gcpFolderId) {
+        throw new Error(`Organization ${orgId} is missing critical data (githubTeamSlug or gcpFolderId).`);
     }
 
     await PROJECTS_COLLECTION.doc(projectId).set({
@@ -99,18 +99,15 @@ async function provisionProject(projectId: string, displayName: string, orgId: s
     }, { merge: true });
 
     try {
-        // Here we will orchestrate all the steps
-        // const gcpProjectId = await GcpService.createGcpProjectInFolder(projectId, displayName, orgData.gcpFolderId);
-        // await GcpService.linkBilling(gcpProjectId);
-        // await GcpService.enableApis(gcpProjectId);
-        
+        // --- THIS IS NOW LIVE ---
+        const gcpProjectId = await GcpService.createGcpProjectInFolder(projectId, displayName, orgData.gcpFolderId);
         const githubRepoUrl = await GithubService.createGithubRepo(projectId, orgData.githubTeamSlug);
         
-        log('provision.simulation.success', { projectId, githubRepoUrl });
+        log('provision.success', { projectId, gcpProjectId, githubRepoUrl });
 
         await PROJECTS_COLLECTION.doc(projectId).update({
             state: 'ready',
-            // gcpProjectId,
+            gcpProjectId,
             githubRepoUrl,
         });
 
@@ -143,8 +140,12 @@ router.post('/projects', requireAdminAuth, async (req: AuthenticatedRequest, res
             return res.status(409).json({ error: `Project with ID '${sanitizedId}' already exists.` });
         }
         
-        const result = await provisionProject(sanitizedId, displayName.trim(), orgId);
-        res.status(201).json({ ok: true, ...result });
+        // Run provisioning asynchronously (fire and forget from the client's perspective)
+        provisionProject(sanitizedId, displayName.trim(), orgId);
+        
+        // Return an immediate response to the client
+        res.status(202).json({ ok: true, message: 'Project provisioning started.', projectId: sanitizedId });
+
     } catch (e: any) {
         const statusCode = (e as any).statusCode || 500;
         res.status(statusCode).json({ ok: false, error: e.message });
