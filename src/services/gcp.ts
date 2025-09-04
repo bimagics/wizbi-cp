@@ -1,14 +1,15 @@
 // src/services/gcp.ts
 import { google } from 'googleapis';
-import { log } from '../routes/projects'; // We can reuse the logger
+import { log } from '../routes/projects';
 
 const GCP_FOLDER_ID = process.env.GCP_FOLDER_ID || '';
 const BILLING_ACCOUNT = process.env.BILLING_ACCOUNT || '';
+const PROJECT_PREFIX = process.env.PROJECT_PREFIX || 'wizbi';
 
 /**
  * Creates a new Folder in GCP for an organization.
  * @param orgName The name of the organization.
- * @returns The full name of the created folder (e.g., "folders/12345").
+ * @returns The ID of the created folder (e.g., "123456789").
  */
 export async function createGcpFolderForOrg(orgName: string): Promise<string> {
     if (!GCP_FOLDER_ID) throw new Error('GCP_FOLDER_ID environment variable is not set.');
@@ -24,11 +25,21 @@ export async function createGcpFolderForOrg(orgName: string): Promise<string> {
         },
     });
     
-    // In a production system, you would poll the operation until completion.
-    // For now, we assume it completes quickly.
-    const folder = await crm.folders.get({ name: operation.data.name });
-    log('gcp.folder.create.success', { folderName: folder.data.name });
-    return folder.data.name!;
+    // Polling the operation until it's done is the robust way.
+    let done = false;
+    let response;
+    while (!done) {
+        [response] = await crm.operations.get({ name: operation.data.name! });
+        done = response.data.done || false;
+        if (!done) await new Promise(resolve => setTimeout(resolve, 5000)); // wait 5 seconds
+    }
+
+    const folderName = response.data.response?.name;
+    if (!folderName) throw new Error('Folder creation did not return a folder name.');
+
+    const folderId = folderName.split('/')[1];
+    log('gcp.folder.create.success', { folderName, folderId });
+    return folderId;
 }
 
-// TODO: Add functions for createGcpProjectInFolder, linkBillingToProject, enableApisForProject, etc.
+// TODO: Add functions for createGcpProjectInFolder, linkBillingToProject, etc.
