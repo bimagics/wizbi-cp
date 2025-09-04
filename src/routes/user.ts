@@ -1,7 +1,5 @@
-// --- REPLACE THE ENTIRE FILE CONTENT ---
-
 import { Router, Response } from 'express';
-import { requireAuth } from './tenants'; // Import the new combined middleware
+import { requireAuth } from './projects'; // UPDATED: Import the middleware from the new projects router
 
 const router = Router();
 
