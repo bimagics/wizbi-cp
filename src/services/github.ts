@@ -15,7 +15,7 @@ async function getAuthenticatedClient(): Promise<Octokit> {
     const auth = createAppAuth({ appId, privateKey, installationId: Number(installationId) });
     const { token } = await auth({ type: "installation" });
 
-    octokit = new Octokit({ auth: token });
+    octokit = new new Octokit({ auth: token });
     return octokit;
 }
 
@@ -31,19 +31,42 @@ export async function createGithubTeam(orgName: string): Promise<{ id: number; s
 export async function createGithubRepo(projectName: string, teamSlug: string): Promise<string> {
     const client = await getAuthenticatedClient();
     
+    log('github.repo.create.start', { repoName: projectName });
     const { data: repo } = await client.repos.createInOrg({
         org: GITHUB_OWNER,
         name: projectName,
         private: true,
     });
-    
+    log('github.repo.create.success', { repoName: repo.name });
+
+    log('github.repo.permission.start', { repoName: repo.name, teamSlug });
     await client.teams.addOrUpdateRepoPermissionsInOrg({
         org: GITHUB_OWNER,
-        owner: GITHUB_OWNER, // THIS WAS THE MISSING PARAMETER
         team_slug: teamSlug,
         repo: repo.name,
         permission: 'admin',
     });
+    log('github.repo.permission.success', { repoName: repo.name, teamSlug });
 
     return repo.html_url;
+}
+
+// --- NEW DELETE FUNCTION ---
+export async function deleteGithubRepo(repoName: string): Promise<void> {
+    const client = await getAuthenticatedClient();
+    log('github.repo.delete.start', { repoName });
+    try {
+        await client.repos.delete({
+            owner: GITHUB_OWNER,
+            repo: repoName,
+        });
+        log('github.repo.delete.success', { repoName });
+    } catch (error: any) {
+        if (error.status === 404) {
+            log('github.repo.delete.already_gone', { repoName });
+            return; // Repo doesn't exist, consider it a success
+        }
+        log('github.repo.delete.error', { repoName, error: error.message });
+        throw new Error(`Failed to delete GitHub repo '${repoName}': ${error.message}`);
+    }
 }
