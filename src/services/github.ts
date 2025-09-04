@@ -11,7 +11,7 @@ async function getAuthenticatedClient(): Promise<Octokit> {
     const appId = await getSecret('GITHUB_APP_ID');
     const privateKey = await getSecret('GITHUB_PRIVATE_KEY');
     const installationId = await getSecret('GITHUB_INSTALLATION_ID');
-    
+
     const auth = createAppAuth({ appId, privateKey, installationId: Number(installationId) });
     const { token } = await auth({ type: "installation" });
 
@@ -19,27 +19,31 @@ async function getAuthenticatedClient(): Promise<Octokit> {
     return octokit;
 }
 
-export async function createGithubTeam(orgName: string): Promise<{ id: number; slug: string }> {
+export async function createGithubTeam(orgName: string): Promise<number> {
     const client = await getAuthenticatedClient();
     const slug = orgName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
     log('github.team.create.start', { orgName, slug });
     const { data: team } = await client.teams.create({ org: GITHUB_OWNER, name: `${orgName} Admins`, privacy: 'closed' });
-    log('github.team.create.success', { teamId: team.id, teamSlug: team.slug });
-    return { id: team.id, slug: team.slug };
+    log('github.team.create.success', { teamId: team.id });
+    return team.id;
 }
 
-export async function createGithubRepo(projectName: string, teamSlug: string): Promise<string> {
+export async function createGithubRepo(projectName: string, teamId: number): Promise<string> {
     const client = await getAuthenticatedClient();
-    
+
     const { data: repo } = await client.repos.createInOrg({
         org: GITHUB_OWNER,
         name: projectName,
         private: true,
     });
-    
+
+    // To get the team_slug, we first need to get the team details by its ID
+    const { data: team } = await client.teams.getLegacy({ team_id: teamId });
+
     await client.teams.addOrUpdateRepoPermissionsInOrg({
         org: GITHUB_OWNER,
-        team_slug: teamSlug,
+        owner: GITHUB_OWNER,
+        team_slug: team.slug,
         repo: repo.name,
         permission: 'admin',
     });
