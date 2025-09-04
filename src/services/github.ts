@@ -13,9 +13,9 @@ async function getAuthenticatedClient(): Promise<Octokit> {
     const installationId = await getSecret('GITHUB_INSTALLATION_ID');
     
     const auth = createAppAuth({ appId, privateKey, installationId: Number(installationId) });
-    const installationAuthentication = await auth({ type: "installation" });
+    const { token } = await auth({ type: "installation" });
 
-    octokit = new Octokit({ auth: installationAuthentication.token });
+    octokit = new Octokit({ auth: token });
     return octokit;
 }
 
@@ -29,7 +29,7 @@ export async function createGithubTeam(orgName: string): Promise<number> {
 }
 
 export async function createGithubRepo(projectName: string, teamId: number): Promise<string> {
-    const client = await getAuthenticatedClient(); // Corrected function name
+    const client = await getAuthenticatedClient();
     
     const { data: repo } = await client.repos.createInOrg({
         org: GITHUB_OWNER,
@@ -37,12 +37,12 @@ export async function createGithubRepo(projectName: string, teamId: number): Pro
         private: true,
     });
     
-    const team = await client.teams.getById({ team_id: teamId });
+    // To get the team_slug, we first need to get the team details by its ID
+    const { data: team } = await client.teams.getById({ team_id: teamId });
 
     await client.teams.addOrUpdateRepoPermissionsInOrg({
-        owner: GITHUB_OWNER,
         org: GITHUB_OWNER,
-        team_slug: team.data.slug,
+        team_slug: team.slug,
         repo: repo.name,
         permission: 'admin',
     });
