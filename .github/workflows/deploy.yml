@@ -50,8 +50,6 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # This step uses a more reliable, built-in caching mechanism (gha)
-      # to speed up builds without using stale layers.
       - name: Build and Push Image (with GHA Cache)
         uses: docker/build-push-action@v5
         with:
@@ -78,7 +76,7 @@ jobs:
             --region "${{ env.REGION }}" \
             --service-account "wizbi-runner@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
             --allow-unauthenticated \
-            --update-env-vars "NODE_ENV=production,FIREBASE_PROJECT_ID=${{ env.PROJECT_ID }},CORS_ORIGIN=*,WHATSAPP_ENABLED=false,ADMINS=${{ env.ADMINS }}"
+            --update-env-vars "NODE_ENV=production,FIREBASE_PROJECT_ID=${{ env.PROJECT_ID }},GCP_PROJECT_ID=${{ env.PROJECT_ID }},CORS_ORIGIN=*,WHATSAPP_ENABLED=false,ADMINS=${{ env.ADMINS }}"
 
   deploy-hosting-and-test:
     name: Deploy Hosting + Verify Service
@@ -145,4 +143,3 @@ jobs:
 
           echo "::error::Service $SERVICE_NAME did not become ready in time."
           exit 1
-

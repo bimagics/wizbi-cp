@@ -5,6 +5,7 @@ WORKDIR /app
 # ---- deps (prod) ----
 FROM base AS deps
 COPY package*.json ./
+# Use npm install instead of ci because we don't use a lock file
 RUN npm install --omit=dev
 
 # ---- build (dev deps) ----
