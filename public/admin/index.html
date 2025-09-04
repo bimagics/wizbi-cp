@@ -3,11 +3,11 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>WizBI Control </title>
+  <title>WizBI Control</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/admin/admin.css" />
   <script src="/__/firebase/9.6.1/firebase-app-compat.js"></script>
   <script src="/__/firebase/9.6.1/firebase-auth-compat.js"></script>
@@ -17,8 +17,8 @@
 
   <div id="loginContainer" class="center-container">
     <div class="auth-box">
-      <h1>WizBI Control </h1>
-      <p>Please log in to continue.</p>
+      <h1>WizBI Control</h1>
+      <p>Please log in to manage your infrastructure.</p>
       <button id="btnLogin" class="login-button">
         <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google icon">
         <span>Sign in with Google</span>
@@ -29,8 +29,8 @@
   <div id="unauthorizedContainer" class="center-container hidden">
      <div class="auth-box">
         <h2>Access Denied</h2>
-        <p>You are not authorized. This panel is for administrators only. Contact support if you believe this is an error.</p>
-        <button id="btnLogoutUnauthorized" class="btn-primary">Logout</button>
+        <p>You are not authorized to view this page. Please contact support if you believe this is an error.</p>
+        <button id="btnLogoutUnauthorized" class="btn btn-primary">Logout</button>
       </div>
   </div>
   
@@ -39,8 +39,7 @@
       <div class="sidebar-header">
         <h1>WizBI</h1>
       </div>
-      <nav id="sidebarNav" class="sidebar-nav">
-        </nav>
+      <nav id="sidebarNav" class="sidebar-nav"></nav>
       <div class="sidebar-footer">
         <div class="user-info">
           <span id="userEmail"></span>
@@ -53,7 +52,7 @@
       <div id="tabContentProjects" class="tab-content">
         <div class="page-header">
           <h2>Projects</h2>
-          <button id="btnShowProvisionProject" class="btn-primary">Provision New Project</button>
+          <button id="btnShowProvisionProject" class="btn btn-primary">Provision New Project</button>
         </div>
         <div id="formProvisionProjectCard" class="card hidden">
             <h3>Provision New Project</h3>
@@ -61,31 +60,41 @@
               <div class="form-group"><label for="projectOrgId">Organization</label><select id="projectOrgId" required></select></div>
               <div class="form-group"><label for="projectDisplayName">Display Name</label><input type="text" id="projectDisplayName" placeholder="e.g., 'Acme Website'" required></div>
               <div class="form-group"><label for="projectId">Project ID</label><input type="text" id="projectId" placeholder="Unique Project ID" required pattern="^[a-z0-9-]{6,}$" title="Must be at least 6 characters, and can only contain lowercase letters, numbers, and hyphens."></div>
-              <button type="submit" class="btn-primary">Provision</button>
+              <button type="submit" class="btn btn-primary">Provision</button>
             </form>
         </div>
         <div class="card">
           <div id="projectsSpinner" class="spinner"></div>
-          <div class="table-wrapper"><table id="projectsTable" class="data-table"><thead><tr><th>Display Name</th><th>Project ID</th><th>Org ID</th><th>State</th><th>Links</th><th>Created</th><th>Actions</th></tr></thead><tbody></tbody></table></div>
+          <div class="table-wrapper">
+            <table id="projectsTable" class="data-table">
+              <thead><tr><th>Display Name</th><th>Project ID</th><th>Org ID</th><th>State</th><th>Links</th><th>Created</th><th>Actions</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </div>
       </div>
       
       <div id="tabContentOrgs" class="tab-content hidden">
         <div class="page-header">
           <h2>Organizations</h2>
-          <button id="btnShowCreateOrg" class="btn-primary">Create New Organization</button>
+          <button id="btnShowCreateOrg" class="btn btn-primary">Create New Organization</button>
         </div>
         <div id="formCreateOrgCard" class="card hidden">
             <h3>Create New Organization</h3>
             <form id="formCreateOrg" class="form-grid">
                 <div class="form-group"><label for="orgName">Organization Name</label><input type="text" id="orgName" placeholder="Organization Name" required></div>
                 <div class="form-group"><label for="orgPhone">Contact Phone</label><input type="tel" id="orgPhone" placeholder="Contact Phone (Optional)"></div>
-                <button type="submit" class="btn-primary">Create</button>
+                <button type="submit" class="btn btn-primary">Create</button>
             </form>
         </div>
         <div class="card">
           <div id="orgsSpinner" class="spinner"></div>
-          <div class="table-wrapper"><table id="orgsTable" class="data-table"><thead><tr><th>Name</th><th>ID</th><th>Phone</th><th>Created</th><th>Actions</th></tr></thead><tbody></tbody></table></div>
+          <div class="table-wrapper">
+            <table id="orgsTable" class="data-table">
+              <thead><tr><th>Name</th><th>ID</th><th>Phone</th><th>Created</th><th>Actions</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </div>
       </div>
 
@@ -95,7 +104,12 @@
         </div>
         <div class="card">
           <div id="usersSpinner" class="spinner"></div>
-          <div class="table-wrapper"><table id="usersTable" class="data-table"><thead><tr><th>Email</th><th>Role</th><th>Organizations</th><th>Actions</th></tr></thead><tbody></tbody></table></div>
+          <div class="table-wrapper">
+            <table id="usersTable" class="data-table">
+              <thead><tr><th>Email</th><th>Role</th><th>Organizations</th><th>Actions</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </div>
       </div>
 
@@ -123,8 +137,8 @@
         </form>
       </div>
       <div class="modal-footer">
-        <button id="cancelUserEdit" type="button" class="btn-primary btn-secondary">Cancel</button>
-        <button id="saveUserEdit" type="submit" form="userEditForm" class="btn-primary">Save Changes</button>
+        <button id="cancelUserEdit" type="button" class="btn btn-secondary">Cancel</button>
+        <button id="saveUserEdit" type="submit" form="userEditForm" class="btn btn-primary">Save Changes</button>
       </div>
     </div>
   </div>
