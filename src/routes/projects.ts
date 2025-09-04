@@ -1,3 +1,5 @@
+// src/routes/projects.ts
+
 import { Router, Request, Response, NextFunction } from 'express';
 import admin from 'firebase-admin';
 import { getDb } from '../services/firebaseAdmin';
@@ -99,7 +101,6 @@ async function provisionProject(projectId: string, displayName: string, orgId: s
     }, { merge: true });
 
     try {
-        // --- THIS IS NOW LIVE ---
         const gcpProjectId = await GcpService.createGcpProjectInFolder(projectId, displayName, orgData.gcpFolderId);
         const githubRepoUrl = await GithubService.createGithubRepo(projectId, orgData.githubTeamSlug);
         
@@ -116,6 +117,7 @@ async function provisionProject(projectId: string, displayName: string, orgId: s
     } catch (error: any) {
         log('provision.error.fatal', { projectId, error: error.message });
         await PROJECTS_COLLECTION.doc(projectId).update({ state: 'failed', error: error.message });
+        // חשוב לזרוק את השגיאה הלאה כדי שה-catch בנקודת הקריאה יתפוס אותה
         throw error;
     }
 }
@@ -140,13 +142,20 @@ router.post('/projects', requireAdminAuth, async (req: AuthenticatedRequest, res
             return res.status(409).json({ error: `Project with ID '${sanitizedId}' already exists.` });
         }
         
-        // Run provisioning asynchronously (fire and forget from the client's perspective)
-        provisionProject(sanitizedId, displayName.trim(), orgId);
-        
-        // Return an immediate response to the client
+        // מחזירים תגובה מיידית למשתמש שהתהליך התחיל
         res.status(202).json({ ok: true, message: 'Project provisioning started.', projectId: sanitizedId });
+        
+        // --- שיפור: מריצים את התהליך הארוך ברקע ומוסיפים טיפול בשגיאות למניעת קריסה ---
+        provisionProject(sanitizedId, displayName.trim(), orgId)
+            .catch(error => {
+                // הלוג על השגיאה כבר נרשם בתוך הפונקציה
+                // אין צורך לשלוח תגובה נוספת למשתמש כי כבר שלחנו 202
+                // המטרה של ה-catch הזה היא רק למנוע מהשגיאה להפיל את השרת
+                console.error(`[FATAL] Unhandled error during async provisioning for project '${sanitizedId}':`, error.message);
+            });
 
     } catch (e: any) {
+        // ה-catch החיצוני הזה מיועד לשגיאות שקורות *לפני* שהתהליך האסינכרוני מתחיל
         const statusCode = (e as any).statusCode || 500;
         res.status(statusCode).json({ ok: false, error: e.message });
     }
