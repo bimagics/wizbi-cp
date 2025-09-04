@@ -4,7 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>WizBI Control Plane</title>
-  <link rel="stylesheet" href="/styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/admin/admin.css" />
   <script src="/__/firebase/9.6.1/firebase-app-compat.js"></script>
   <script src="/__/firebase/9.6.1/firebase-auth-compat.js"></script>
@@ -12,9 +14,8 @@
 </head>
 <body>
 
-  <div class="page-container">
-
-    <div id="loginContainer" class="login-container">
+  <div id="loginContainer" class="center-container">
+    <div class="auth-box">
       <h1>WizBI Control Plane</h1>
       <p>Please log in to continue.</p>
       <button id="btnLogin" class="login-button">
@@ -22,66 +23,108 @@
         <span>Sign in with Google</span>
       </button>
     </div>
+  </div>
 
-    <div id="unauthorizedContainer" class="unauthorized-container hidden">
-      <h2>Access Denied</h2>
-      <p>You are not authorized to view this page. This panel is for administrators only.</p>
-      <p>If you believe this is an error, please contact support at:<br><a href="mailto:omer.cohen@bimagics.com">omer.cohen@bimagics.com</a></p>
-      <button id="btnLogoutUnauthorized">Logout</button>
-    </div>
-    
-    <div id="adminPanelContainer" class="admin-panel-container hidden">
-      <header class="header">
-        <h1>WizBI Control Plane</h1>
-        <div class="user-auth">
+  <div id="unauthorizedContainer" class="center-container hidden">
+     <div class="auth-box">
+        <h2>Access Denied</h2>
+        <p>You are not authorized. This panel is for administrators only. Contact support if you believe this is an error.</p>
+        <button id="btnLogoutUnauthorized" class="btn-primary">Logout</button>
+      </div>
+  </div>
+  
+  <div id="adminPanelContainer" class="layout-container hidden">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h1>WizBI</h1>
+      </div>
+      <nav id="sidebarNav" class="sidebar-nav">
+        </nav>
+      <div class="sidebar-footer">
+        <div class="user-info">
           <span id="userEmail"></span>
           <button id="btnLogoutAdmin">Logout</button>
         </div>
-      </header>
-      <main>
-        <div class="tabs">
-          <button id="btnTabProjects" class="tab-button active">Projects</button>
-          <button id="btnTabOrgs" class="tab-button">Organizations</button>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <div id="tabContentProjects" class="tab-content">
+        <div class="page-header">
+          <h2>Projects</h2>
+          <button id="btnShowProvisionProject" class="btn-primary">Provision New Project</button>
         </div>
-        <div id="tabContentProjects" class="tab-content active">
-          <div class="card">
-              <h2>Provision New Project</h2>
-              <form id="formProvisionProject" class="form-grid">
-                  <select id="projectOrgId" class="full-width" required><option value="" disabled selected>Select an Organization</option></select>
-                  <input type="text" id="projectId" placeholder="Unique Project ID" required minlength="6" pattern="[a-z0-9-]+" title="Must be at least 6 characters, and can only contain lowercase letters, numbers, and hyphens.">
-                  <input type="text" id="projectDisplayName" placeholder="Display Name (e.g., 'Acme Website')" required>
-                  <button type="submit">Provision Project</button>
-              </form>
-          </div>
-          <h2>Existing Projects</h2>
+        <div id="formProvisionProjectCard" class="card hidden">
+            <h3>Provision New Project</h3>
+            <form id="formProvisionProject" class="form-grid">
+              <div class="form-group"><label for="projectOrgId">Organization</label><select id="projectOrgId" required></select></div>
+              <div class="form-group"><label for="projectDisplayName">Display Name</label><input type="text" id="projectDisplayName" placeholder="e.g., 'Acme Website'" required></div>
+              <div class="form-group"><label for="projectId">Project ID</label><input type="text" id="projectId" placeholder="Unique Project ID" required minlength="6" pattern="[a-z0-9-]+" title="Lowercase letters, numbers, hyphens."></div>
+              <button type="submit" class="btn-primary">Provision</button>
+            </form>
+        </div>
+        <div class="card">
           <div id="projectsSpinner" class="spinner"></div>
-          <div class="table-wrapper">
-            <table id="projectsTable" class="data-table">
-              <thead><tr><th>Project ID</th><th>Display Name</th><th>Org ID</th><th>State</th><th>Links</th><th>Created At</th><th>Actions</th></tr></thead>
-              <tbody></tbody>
-            </table>
-          </div>
+          <div class="table-wrapper"><table id="projectsTable" class="data-table"><thead><tr><th>Display Name</th><th>Project ID</th><th>Org ID</th><th>State</th><th>Links</th><th>Created</th><th>Actions</th></tr></thead><tbody></tbody></table></div>
         </div>
-        <div id="tabContentOrgs" class="tab-content">
-          <div class="card">
-              <h2>Create New Organization</h2>
-              <form id="formCreateOrg" class="form-grid">
-                  <input type="text" id="orgName" placeholder="Organization Name" required>
-                  <input type="tel" id="orgPhone" placeholder="Contact Phone (Optional)">
-                  <button type="submit">Create Org</button>
-              </form>
-          </div>
-          <h2>Existing Organizations</h2>
+      </div>
+      
+      <div id="tabContentOrgs" class="tab-content hidden">
+        <div class="page-header">
+          <h2>Organizations</h2>
+          <button id="btnShowCreateOrg" class="btn-primary">Create New Organization</button>
+        </div>
+        <div id="formCreateOrgCard" class="card hidden">
+            <h3>Create New Organization</h3>
+            <form id="formCreateOrg" class="form-grid">
+                <div class="form-group"><label for="orgName">Organization Name</label><input type="text" id="orgName" placeholder="Organization Name" required></div>
+                <div class="form-group"><label for="orgPhone">Contact Phone</label><input type="tel" id="orgPhone" placeholder="Contact Phone (Optional)"></div>
+                <button type="submit" class="btn-primary">Create</button>
+            </form>
+        </div>
+        <div class="card">
           <div id="orgsSpinner" class="spinner"></div>
-          <div class="table-wrapper">
-              <table id="orgsTable" class="data-table">
-                  <thead><tr><th>ID</th><th>Name</th><th>Phone</th><th>Created At</th><th>Actions</th></tr></thead>
-                  <tbody></tbody>
-              </table>
-          </div>
+          <div class="table-wrapper"><table id="orgsTable" class="data-table"><thead><tr><th>Name</th><th>ID</th><th>Phone</th><th>Created</th><th>Actions</th></tr></thead><tbody></tbody></table></div>
         </div>
-        <pre id="statusLog" class="status-log">Welcome! System is ready.</pre>
-      </main>
+      </div>
+
+      <div id="tabContentUsers" class="tab-content hidden">
+        <div class="page-header">
+          <h2>User Management</h2>
+        </div>
+        <div class="card">
+          <div id="usersSpinner" class="spinner"></div>
+          <div class="table-wrapper"><table id="usersTable" class="data-table"><thead><tr><th>Email</th><th>Role</th><th>Organizations</th><th>Actions</th></tr></thead><tbody></tbody></table></div>
+        </div>
+      </div>
+
+      <pre id="statusLog" class="status-log">Welcome! System is ready.</pre>
+    </main>
+  </div>
+
+  <div id="userEditModal" class="modal-overlay hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="userEditModalTitle">Edit User</h3>
+        <button id="closeUserEditModal" class="close-button">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="userEditForm">
+          <input type="hidden" id="userEditUid">
+          <div class="form-group">
+            <label>Role</label>
+            <div class="checkbox-item"><input type="checkbox" id="userEditSuperAdmin"><label for="userEditSuperAdmin">Super Admin</label></div>
+          </div>
+          <div class="form-group">
+            <label>Organization Admin</label>
+            <div id="userEditOrgs" class="checkbox-group"></div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button id="cancelUserEdit" type="button" class="btn-secondary">Cancel</button>
+        <button id="saveUserEdit" type="submit" form="userEditForm" class="btn-primary">Save Changes</button>
+      </div>
     </div>
   </div>
 
