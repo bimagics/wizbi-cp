@@ -27,15 +27,16 @@ router.post('/orgs', requireAdminAuth, async (req: Request, res: Response) => {
     const gcpFolderName = await createGcpFolderForOrg(name);
     const gcpFolderId = gcpFolderName.split('/')[1];
 
-    // Step 2: Create GitHub Team
-    const githubTeamId = await createGithubTeam(name);
+    // Step 2: Create GitHub Team and get back ID and slug
+    const { id: githubTeamId, slug: githubTeamSlug } = await createGithubTeam(name);
 
-    // Step 3: Create Firestore record
+    // Step 3: Create Firestore record with the new githubTeamSlug field
     const docRef = await getDb().collection(ORGS_COLLECTION).add({
       name,
       phone,
       gcpFolderId,
       githubTeamId,
+      githubTeamSlug, // <-- שומרים את השדה החדש
       createdAt: new Date().toISOString(),
     });
 
