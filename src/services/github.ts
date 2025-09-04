@@ -15,7 +15,8 @@ async function getAuthenticatedClient(): Promise<Octokit> {
     const auth = createAppAuth({ appId, privateKey, installationId: Number(installationId) });
     const { token } = await auth({ type: "installation" });
 
-    octokit = new new Octokit({ auth: token });
+    // --- FIX: Corrected the "new new" typo ---
+    octokit = new Octokit({ auth: token });
     return octokit;
 }
 
@@ -40,8 +41,10 @@ export async function createGithubRepo(projectName: string, teamSlug: string): P
     log('github.repo.create.success', { repoName: repo.name });
 
     log('github.repo.permission.start', { repoName: repo.name, teamSlug });
+    // --- FIX: Re-added the mandatory 'owner' property ---
     await client.teams.addOrUpdateRepoPermissionsInOrg({
         org: GITHUB_OWNER,
+        owner: GITHUB_OWNER, 
         team_slug: teamSlug,
         repo: repo.name,
         permission: 'admin',
@@ -51,7 +54,6 @@ export async function createGithubRepo(projectName: string, teamSlug: string): P
     return repo.html_url;
 }
 
-// --- NEW DELETE FUNCTION ---
 export async function deleteGithubRepo(repoName: string): Promise<void> {
     const client = await getAuthenticatedClient();
     log('github.repo.delete.start', { repoName });
