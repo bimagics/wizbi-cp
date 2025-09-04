@@ -28,4 +28,24 @@ export async function createGithubTeam(orgName: string): Promise<number> {
     return team.id;
 }
 
-// ... Placeholder for createGithubRepo
+export async function createGithubRepo(projectName: string, teamId: number): Promise<string> {
+    const client = await getAuthenticatedClient(); // Corrected function name
+    
+    const { data: repo } = await client.repos.createInOrg({
+        org: GITHUB_OWNER,
+        name: projectName,
+        private: true,
+    });
+    
+    const team = await client.teams.getById({ team_id: teamId });
+
+    await client.teams.addOrUpdateRepoPermissionsInOrg({
+        owner: GITHUB_OWNER,
+        org: GITHUB_OWNER,
+        team_slug: team.data.slug,
+        repo: repo.name,
+        permission: 'admin',
+    });
+
+    return repo.html_url;
+}
