@@ -88,56 +88,54 @@ BILLING_ACCOUNT="XXXXXX-XXXXXX-XXXXXX" \
 GITHUB_OWNER="YOUR_GH_ORG_OR_USER" \
 GITHUB_REPO="wizbi-cp" \
 bash -c 'git clone [https://github.com/$](https://github.com/$){GITHUB_OWNER}/${GITHUB_REPO}.git && cd ${GITHUB_REPO} && chmod +x tools/bootstrap_cp.sh && ./tools/bootstrap_cp.sh'
+````
 
-Step 2: Configure GitHub Secrets
-The bootstrap script will output a list of secrets. Add them to your GitHub repository under Settings -> Secrets and variables -> Actions:
+### Step 2: Configure GitHub Secrets
 
-GCP_PROJECT_ID: The ID of your control plane project (e.g., wizbi-cp).
+The bootstrap script will output a list of secrets. Add them to your GitHub repository under `Settings` -\> `Secrets and variables` -\> `Actions`:
 
-GCP_REGION: The region for Cloud Run deployments (e.g., europe-west1).
+  - `GCP_PROJECT_ID`: The ID of your control plane project (e.g., `wizbi-cp`).
+  - `GCP_REGION`: The region for Cloud Run deployments (e.g., `europe-west1`).
+  - `WIF_PROVIDER`: The full path of the Workload Identity Provider.
+  - `DEPLOYER_SA`: The email of the `wizbi-deployer` service account.
+  - `BILLING_ACCOUNT_ID`: The ID of your GCP Billing Account.
 
-WIF_PROVIDER: The full path of the Workload Identity Provider.
+### Step 3: Push to Deploy
 
-DEPLOYER_SA: The email of the wizbi-deployer service account.
+Commit and push any changes to the `dev` branch to deploy to the QA environment, or to the `main` branch to deploy to production. The GitHub Actions workflow will handle the rest.
 
-BILLING_ACCOUNT_ID: The ID of your GCP Billing Account.
+-----
 
-Step 3: Push to Deploy
-Commit and push any changes to the dev branch to deploy to the QA environment, or to the main branch to deploy to production. The GitHub Actions workflow will handle the rest.
+## 6\. Project Roadmap
 
-6. Project Roadmap
 This section outlines the planned development for the WIZBI platform.
 
-[x] Phase 1: Core Provisioning:
+  - [x] **Phase 1: Core Provisioning:**
 
-[x] Create Organizations (GCP Folder, GitHub Team).
+      - [x] Create Organizations (GCP Folder, GitHub Team).
+      - [x] Provision Projects (GCP Project, GitHub Repo).
+      - [x] Link to billing and assign permissions.
+      - [x] Basic Admin UI for creation.
 
-[x] Provision Projects (GCP Project, GitHub Repo).
+  - [x] **Phase 2: UI/UX Enhancements:**
 
-[x] Link to billing and assign permissions.
+      - [x] Smart Project ID generation.
+      - [x] Direct links to GCP and GitHub resources.
+      - [x] In-UI error display and status polling.
 
-[x] Basic Admin UI for creation.
+  - [ ] **Phase 3: Lifecycle Management:**
 
-[x] Phase 2: UI/UX Enhancements:
+      - [ ] Implement secure deletion for Projects.
+      - [ ] Implement secure deletion for Organizations.
+      - [ ] Live progress updates during provisioning.
 
-[x] Smart Project ID generation.
+  - [ ] **Phase 4: The "Perfect Repo" Template:**
 
-[x] Direct links to GCP and GitHub resources.
+      - [ ] Define a starter template for new projects.
+      - [ ] Include pre-configured Firebase, CI/CD, Logging, and basic auth.
+      - [ ] Integrate template cloning into the provisioning process.
 
-[x] In-UI error display and status polling.
+<!-- end list -->
 
-[ ] Phase 3: Lifecycle Management:
-
-[ ] Implement secure deletion for Projects.
-
-[ ] Implement secure deletion for Organizations.
-
-[ ] Live progress updates during provisioning.
-
-[ ] Phase 4: The "Perfect Repo" Template:
-
-[ ] Define a starter template for new projects.
-
-[ ] Include pre-configured Firebase, CI/CD, Logging, and basic auth.
-
-[ ] Integrate template cloning into the provisioning process.
+```
+```
