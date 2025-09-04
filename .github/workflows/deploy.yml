@@ -12,25 +12,27 @@ concurrency:
 permissions:
   id-token: write
   contents: read
-  actions: write # Required for the GHA cache backend
+  actions: write
 
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   REGION: ${{ secrets.GCP_REGION }}
   AR_REPO: wizbi
   IMAGE_NAME: cp-unified
+  WIF_PROVIDER: ${{ secrets.WIF_PROVIDER }}
+  DEPLOYER_SA: ${{ secrets.DEPLOYER_SA }}
 
 jobs:
-  # Job #1: קובע את המשתנים פעם אחת עבור כל הריצה
-  set-env:
-    name: Set Environment
+  # Job 1: קובע את המשתנים הספציפיים לסביבה (QA/Prod)
+  set-vars:
+    name: Set Environment Variables
     runs-on: ubuntu-latest
     outputs:
       service: ${{ steps.vars.outputs.service }}
       site: ${{ steps.vars.outputs.site }}
       image_tag: ${{ steps.vars.outputs.image_tag }}
     steps:
-      - name: Decide target variables (QA vs PROD)
+      - name: Decide target variables
         id: vars
         run: |
           IMAGE_TAG="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}:branch-${{ github.ref_name }}"
@@ -44,11 +46,11 @@ jobs:
             echo "site=${{ secrets.HOSTING_SITE_PROD || 'wizbi-cp' }}" >> $GITHUB_OUTPUT
           fi
 
-  # Job #2: בונה את האימג' ודוחף אותו ל-Registry
-  build-and-push:
+  # Job 2: בונה ודוחף את האימג'
+  build:
     name: Build & Push Image
     runs-on: ubuntu-latest
-    needs: set-env
+    needs: set-vars
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -56,112 +58,96 @@ jobs:
       - name: Auth to GCP (WIF)
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
-          service_account: ${{ secrets.DEPLOYER_SA }}
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.DEPLOYER_SA }}
 
       - name: Setup gcloud
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Configure Docker to Artifact Registry
+      - name: Configure Docker
         run: gcloud auth configure-docker "${{ env.REGION }}-docker.pkg.dev" -q
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and Push Image (with GHA Cache)
+      - name: Build and Push Image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
-          # --- FIX: Pass the tag directly from the 'needs' context ---
-          tags: ${{ needs.set-env.outputs.image_tag }}
+          tags: ${{ needs.set-vars.outputs.image_tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # Job #3: מריץ את הדיפלוי ל-Cloud Run (במקביל ל-Hosting)
-  deploy-cloud-run:
-    name: Deploy to Cloud Run
+  # Job 3: מריץ דיפלוי ל-Cloud Run ו-Hosting במקביל
+  deploy:
+    name: Deploy Services
     runs-on: ubuntu-latest
-    needs: [set-env, build-and-push]
+    needs: [set-vars, build]
+    strategy:
+      matrix:
+        service: ['cloud-run', 'hosting']
     steps:
       - name: Auth to GCP (WIF)
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
-          service_account: ${{ secrets.DEPLOYER_SA }}
-      
-      - name: Setup gcloud
-        uses: google-github-actions/setup-gcloud@v2
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.DEPLOYER_SA }}
 
       - name: Deploy to Cloud Run (Async)
-        run: |
-          echo ">>> Deploying Image: ${{ needs.set-env.outputs.image_tag }}"
-          echo ">>> To Cloud Run Service: ${{ needs.set-env.outputs.service }} in region ${{ env.REGION }}"
-          gcloud run deploy "${{ needs.set-env.outputs.service }}" \
-            --image "${{ needs.set-env.outputs.image_tag }}" \
-            --region "${{ env.REGION }}" \
-            --service-account "wizbi-runner@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
-            --allow-unauthenticated \
-            --update-env-vars "NODE_ENV=production,FIREBASE_PROJECT_ID=${{ env.PROJECT_ID }},GCP_PROJECT_ID=${{ env.PROJECT_ID }},BILLING_ACCOUNT_ID=${{ secrets.BILLING_ACCOUNT_ID }},CORS_ORIGIN=*,WHATSAPP_ENABLED=false,ADMINS=${{ secrets.ADMINS }}" \
-            --no-wait # Deploy asynchronously
-
-  # Job #4: מריץ את הדיפלוי ל-Hosting (במקביל ל-Cloud Run)
-  deploy-hosting:
-    name: Deploy to Firebase Hosting
-    runs-on: ubuntu-latest
-    needs: set-env
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Auth to GCP (WIF)
-        uses: google-github-actions/auth@v2
+        if: matrix.service == 'cloud-run'
+        uses: google-github-actions/deploy-cloudrun@v2
         with:
-          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
-          service_account: ${{ secrets.DEPLOYER_SA }}
-          
-      - name: Install Firebase CLI
-        run: npm i -g firebase-tools@latest
+          service: ${{ needs.set-vars.outputs.service }}
+          image: ${{ needs.set-vars.outputs.image_tag }}
+          region: ${{ env.REGION }}
+          flags: >-
+            --service-account="wizbi-runner@${{ env.PROJECT_ID }}.iam.gserviceaccount.com"
+            --allow-unauthenticated
+            --update-env-vars="NODE_ENV=production,FIREBASE_PROJECT_ID=${{ env.PROJECT_ID }},GCP_PROJECT_ID=${{ env.PROJECT_ID }},BILLING_ACCOUNT_ID=${{ secrets.BILLING_ACCOUNT_ID }},CORS_ORIGIN=*,WHATSAPP_ENABLED=false,ADMINS=${{ secrets.ADMINS }}"
+            --no-wait
 
-      - name: Deploy Hosting
-        run: |
-          # --- FIX: Pass the site name directly from the 'needs' context ---
-          SITE_NAME="${{ needs.set-env.outputs.site }}"
-          echo ">>> Deploying to Firebase Hosting site: ${SITE_NAME}"
+      - name: Deploy to Firebase Hosting
+        if: matrix.service == 'hosting'
+        uses: actions/checkout@v4
+      - run: npm i -g firebase-tools@latest
+        if: matrix.service == 'hosting'
+      - run: |
           firebase deploy \
-            --only "hosting:${SITE_NAME}" \
+            --only "hosting:${{ needs.set-vars.outputs.site }}" \
             --project "${{ env.PROJECT_ID }}" \
             --non-interactive
+        if: matrix.service == 'hosting'
 
-  # Job #5: ממתין לסיום הכל ומבצע בדיקה
-  verify-and-conclude:
-    name: Verify Deployment
+  # Job 4: מוודא שהדיפלוי ל-Cloud Run הסתיים בהצלחה
+  verify:
+    name: Verify Cloud Run Deployment
     runs-on: ubuntu-latest
-    needs: [deploy-cloud-run, deploy-hosting]
+    needs: deploy
     steps:
       - name: Auth to GCP (WIF)
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
-          service_account: ${{ secrets.DEPLOYER_SA }}
-          
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.DEPLOYER_SA }}
+
       - name: Setup gcloud
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Verify Cloud Run Deployment Status
+      - name: Verify Service Status
         run: |
           set -e
-          SERVICE_NAME="${{ needs.set-env.outputs.service }}"
+          SERVICE_NAME="${{ needs.set-vars.outputs.service }}"
           echo "Verifying deployment status for service: $SERVICE_NAME"
 
           for i in {1..30}; do
             LATEST_REVISION=$(gcloud run services describe "$SERVICE_NAME" --region "${{ env.REGION }}" --format 'value(status.latestReadyRevisionName)')
             TRAFFIC_TARGET=$(gcloud run services describe "$SERVICE_NAME" --region "${{ env.REGION }}" --format 'value(status.traffic[0].revisionName)')
 
-            echo "--> Attempt ($i/30): Latest Ready Revision = [${LATEST_REVISION}], Traffic Target = [${TRAFFIC_TARGET}]"
+            echo "--> Attempt ($i/30): Latest Ready Revision=[${LATEST_REVISION}], Traffic Target=[${TRAFFIC_TARGET}]"
 
             if [[ -n "$LATEST_REVISION" && "$LATEST_REVISION" == "$TRAFFIC_TARGET" ]]; then
-              echo "✅ Success: Service $SERVICE_NAME is ready and serving traffic on revision $LATEST_REVISION."
+              echo "✅ Success: Service $SERVICE_NAME is ready."
               exit 0
             fi
 
