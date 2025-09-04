@@ -18,7 +18,7 @@ export async function createGcpFolderForOrg(orgName: string): Promise<string> {
     const auth = await google.auth.getClient({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
     const crm = google.cloudresourcemanager({ version: 'v3', auth });
 
-    const operation = await crm.folders.create({
+    const operationResponse = await crm.folders.create({
         requestBody: {
             displayName: orgName,
             parent: `folders/${GCP_FOLDER_ID}`,
@@ -29,7 +29,7 @@ export async function createGcpFolderForOrg(orgName: string): Promise<string> {
     let done = false;
     let response;
     while (!done) {
-        [response] = await crm.operations.get({ name: operation.data.name! });
+        response = await crm.operations.get({ name: operationResponse.data.name! });
         done = response.data.done || false;
         if (!done) await new Promise(resolve => setTimeout(resolve, 5000)); // wait 5 seconds
     }
