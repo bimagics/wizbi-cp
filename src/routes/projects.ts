@@ -16,6 +16,15 @@ interface UserProfile {
   }
 }
 
+// --- NEW: Define a type for our project data ---
+interface Project {
+    id: string;
+    createdAt: string; // Ensure createdAt is recognized as a string
+    // Add other known project fields here if needed for type safety
+    [key: string]: any; // Allow other fields
+}
+
+
 interface AuthenticatedRequest extends Request {
   user?: admin.auth.DecodedIdToken;
   userProfile?: UserProfile;
@@ -131,27 +140,24 @@ router.get('/projects', requireAuth, async (req: AuthenticatedRequest, res: Resp
         let query: admin.firestore.Query | admin.firestore.CollectionReference = PROJECTS_COLLECTION;
 
         const userProfile = req.userProfile;
-        // If not a superAdmin, filter by their assigned organizations
         if (!userProfile?.roles?.superAdmin) {
             const orgIds = userProfile?.roles?.orgAdmin || [];
             if (orgIds.length > 0) {
-                // Firestore limitation: Cannot have an inequality filter on a different field when using 'in'.
-                // So, we remove the orderBy for non-admins to prevent the query from crashing.
                 query = query.where('orgId', 'in', orgIds);
             } else {
                 return res.json([]);
             }
         } else {
-             // SuperAdmins can get the ordered list
             query = query.orderBy('createdAt', 'desc');
         }
 
         const snap = await query.limit(100).get();
-        const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        // --- FIX: Cast the mapped data to our new Project type ---
+        const list: Project[] = snap.docs.map(d => ({ id: d.id, ...d.data() } as Project));
         
-        // If we couldn't sort in the query (for non-admins), sort in memory.
         if (!userProfile?.roles?.superAdmin) {
-            list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+            // --- FIX: Explicitly type a and b as Project ---
+            list.sort((a: Project, b: Project) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         }
 
         res.json(list);
@@ -199,14 +205,10 @@ router.delete('/projects/:id', requireAdminAuth, async (req: Request, res: Respo
 
         await PROJECTS_COLLECTION.doc(id).update({ state: 'deleting' });
 
-        // Fire and forget the actual deletion process
         (async () => {
             try {
-                // The GCP Project ID is the document ID
                 await GcpService.deleteGcpProject(id);
-                // The GitHub Repo name is also the document ID
                 await GithubService.deleteGithubRepo(id);
-
                 await PROJECTS_COLLECTION.doc(id).delete();
                 log('project.delete.success', { projectId: id });
             } catch (error: any) {
