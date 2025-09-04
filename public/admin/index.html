@@ -48,7 +48,7 @@
               <h2>Provision New Project</h2>
               <form id="formProvisionProject" class="form-grid">
                   <select id="projectOrgId" class="full-width" required><option value="" disabled selected>Select an Organization</option></select>
-                  <input type="text" id="projectId" placeholder="Unique ID (e.g., 'acme-website')" required>
+                  <input type="text" id="projectId" placeholder="Unique Project ID" required minlength="6" pattern="[a-z0-9-]+" title="Must be at least 6 characters, and can only contain lowercase letters, numbers, and hyphens.">
                   <input type="text" id="projectDisplayName" placeholder="Display Name (e.g., 'Acme Website')" required>
                   <button type="submit">Provision Project</button>
               </form>
@@ -57,7 +57,7 @@
           <div id="projectsSpinner" class="spinner"></div>
           <div class="table-wrapper">
             <table id="projectsTable" class="data-table">
-              <thead><tr><th>ID</th><th>GCP Project ID</th><th>Display Name</th><th>Org ID</th><th>State</th><th>Created At</th></tr></thead>
+              <thead><tr><th>Project ID</th><th>Display Name</th><th>Org ID</th><th>State</th><th>Links</th><th>Created At</th><th>Actions</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -75,12 +75,12 @@
           <div id="orgsSpinner" class="spinner"></div>
           <div class="table-wrapper">
               <table id="orgsTable" class="data-table">
-                  <thead><tr><th>ID</th><th>Name</th><th>Phone</th><th>Created At</th></tr></thead>
+                  <thead><tr><th>ID</th><th>Name</th><th>Phone</th><th>Created At</th><th>Actions</th></tr></thead>
                   <tbody></tbody>
               </table>
           </div>
         </div>
-        <pre id="statusLog" class="status-log"></pre>
+        <pre id="statusLog" class="status-log">Welcome! System is ready.</pre>
       </main>
     </div>
   </div>
