@@ -130,8 +130,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 <td>${p.orgId}</td>
                 <td class="state-cell">
                     <div class="state-cell-text ${p.state}">${p.state}</div>
-                    ${(p.state === 'starting' || p.state === 'provisioning') ? '<div class="spinner spinner-inline" style="display: block;"></div>' : ''}
-                    ${p.state === 'failed' ? `<div class="state-cell-error" title="${p.error}">⚠️</div>` : ''}
+                    ${(p.state === 'starting' || p.state === 'provisioning' || p.state === 'deleting') ? '<div class="spinner spinner-inline" style="display: block;"></div>' : ''}
+                    ${p.state === 'failed' || p.state === 'delete_failed' ? `<div class="state-cell-error" title="${p.error}">⚠️</div>` : ''}
                 </td>
                 <td class="links-cell">
                     ${p.gcpProjectId ? `<a href="https://console.cloud.google.com/home/dashboard?project=${p.gcpProjectId}" target="_blank" class="icon-button" title="Open in GCP Console">${GCP_ICON}</a>` : ''}
@@ -139,7 +139,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 </td>
                 <td>${new Date(p.createdAt).toLocaleString()}</td>
                 <td class="actions-cell">
-                    <button class="icon-button delete" data-id="${p.id}" title="Delete Project (not implemented yet)" disabled>${DELETE_ICON}</button>
+                    <button class="icon-button delete" data-type="project" data-id="${p.id}" title="Delete Project">${DELETE_ICON}</button>
                 </td>
             `;
         });
@@ -162,12 +162,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 <td>${org.phone || 'N/A'}</td>
                 <td>${new Date(org.createdAt).toLocaleString()}</td>
                 <td class="actions-cell">
-                    <button class="icon-button delete" data-id="${org.id}" title="Delete Organization (not implemented yet)" disabled>${DELETE_ICON}</button>
+                    <button class="icon-button delete" data-type="org" data-id="${org.id}" title="Delete Organization (not implemented yet)" disabled>${DELETE_ICON}</button>
                 </td>
             `;
         });
     };
-
 
     // --- DATA LOADING ---
     let orgsCache = [];
@@ -200,11 +199,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const items = await callApi('/projects');
             renderProjectsTable(items);
 
-            // Check if any project is still provisioning, if so, keep polling
-            const isProvisioning = items.some(p => p.state === 'starting' || p.state === 'provisioning');
-            if (isProvisioning && !projectsRefreshInterval) {
-                projectsRefreshInterval = setInterval(loadProjects, 10000); // Poll every 10 seconds
-            } else if (!isProvisioning && projectsRefreshInterval) {
+            const isProcessing = items.some(p => ['starting', 'provisioning', 'deleting'].includes(p.state));
+            if (isProcessing && !projectsRefreshInterval) {
+                projectsRefreshInterval = setInterval(loadProjects, 10000);
+            } else if (!isProcessing && projectsRefreshInterval) {
                 clearInterval(projectsRefreshInterval);
                 projectsRefreshInterval = null;
             }
@@ -240,7 +238,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const orgName = selectedOption.dataset.name;
         if (orgName) {
             const sanitizedOrgName = orgName.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-');
-            const randomSuffix = Math.floor(100 + Math.random() * 900); // 3-digit random number
+            const randomSuffix = Math.floor(100 + Math.random() * 900);
             DOM.projectIdInput.value = `${sanitizedOrgName}-${randomSuffix}`;
         }
     });
@@ -274,7 +272,28 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             log('Project provisioning accepted. The table will update automatically.');
             DOM.formProvisionProject.reset();
-            await loadProjects(); // Immediate refresh to show 'starting' state
+            await loadProjects();
         } catch (error) { /* error is already logged by callApi */ }
+    });
+
+    // --- DELEGATED EVENT LISTENER FOR DELETE BUTTONS ---
+    document.getElementById('adminPanelContainer').addEventListener('click', async (e) => {
+        const target = e.target.closest('.icon-button.delete');
+        if (!target) return;
+
+        const type = target.dataset.type;
+        const id = target.dataset.id;
+
+        if (type === 'project') {
+            if (confirm(`Are you sure you want to delete project '${id}'? This will delete the GCP project and the GitHub repo.`) &&
+                confirm(`FINAL CONFIRMATION: This action is irreversible. Delete project '${id}'?`)) {
+                log(`Starting deletion for project '${id}'...`);
+                try {
+                    await callApi(`/projects/${id}`, { method: 'DELETE' });
+                    log(`Deletion process for project '${id}' has been initiated.`);
+                    await loadProjects();
+                } catch (error) { /* error is already logged by callApi */ }
+            }
+        }
     });
 });
