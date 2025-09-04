@@ -9,3 +9,34 @@ pre { background: #0f141a; border: 1px solid #203040; padding: 12px; border-radi
 .links { margin-top: 16px; }
 a { color: #9ad0ff; text-decoration: none; }
 a:hover { text-decoration: underline; }
+/* הוסף את הקוד הבא בסוף הקובץ הקיים */
+header {
+  border-bottom: 1px solid #203040;
+  padding-bottom: 20px;
+}
+
+#admin-panel {
+  margin-top: 24px;
+}
+
+form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: center;
+}
+
+form input, form select {
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid #203040;
+  background: #0f141a;
+  color: #e6ebef;
+  font-size: 14px;
+}
+
+form button {
+  grid-column: span 2; /* Make button span both columns */
+  justify-self: end;
+  width: fit-content;
+}
