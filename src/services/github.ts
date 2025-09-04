@@ -19,16 +19,16 @@ async function getAuthenticatedClient(): Promise<Octokit> {
     return octokit;
 }
 
-export async function createGithubTeam(orgName: string): Promise<number> {
+export async function createGithubTeam(orgName: string): Promise<{ id: number; slug: string }> {
     const client = await getAuthenticatedClient();
     const slug = orgName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
     log('github.team.create.start', { orgName, slug });
     const { data: team } = await client.teams.create({ org: GITHUB_OWNER, name: `${orgName} Admins`, privacy: 'closed' });
-    log('github.team.create.success', { teamId: team.id });
-    return team.id;
+    log('github.team.create.success', { teamId: team.id, teamSlug: team.slug });
+    return { id: team.id, slug: team.slug };
 }
 
-export async function createGithubRepo(projectName: string, teamId: number): Promise<string> {
+export async function createGithubRepo(projectName: string, teamSlug: string): Promise<string> {
     const client = await getAuthenticatedClient();
 
     const { data: repo } = await client.repos.createInOrg({
@@ -37,13 +37,10 @@ export async function createGithubRepo(projectName: string, teamId: number): Pro
         private: true,
     });
 
-    // To get the team_slug, we first need to get the team details by its ID
-    const { data: team } = await client.teams.getLegacy({ team_id: teamId });
-
     await client.teams.addOrUpdateRepoPermissionsInOrg({
         org: GITHUB_OWNER,
-        owner: GITHUB_OWNER,
-        team_slug: team.slug,
+        owner: GITHUB_OWNER, // Required parameter, even if it's the same as org
+        team_slug: teamSlug,
         repo: repo.name,
         permission: 'admin',
     });
