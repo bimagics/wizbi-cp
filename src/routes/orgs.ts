@@ -1,41 +1,50 @@
-// --- REPLACE THE ENTIRE FILE CONTENT ---
-
 import { Router, Request, Response } from 'express';
 import { getDb } from '../services/firebaseAdmin';
-// We now require Super Admin for ALL org operations
-import { requireAdminAuth } from './projects';
+import { requireAdminAuth, log } from './projects';
+import { createGcpFolderForOrg } from '../services/gcp';
+import { createGithubTeam } from '../services/github';
 
 const router = Router();
 const ORGS_COLLECTION = 'orgs';
 
-// Only a Super Admin can list orgs
 router.get('/orgs', requireAdminAuth, async (_req: Request, res: Response) => {
-  try {
-    const snap = await getDb().collection(ORGS_COLLECTION).orderBy('name').get();
-    const items = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    res.json({ ok: true, items });
-  } catch (e: any) {
-    console.error('[orgs:list]', e.message);
-    res.status(500).json({ ok: false, error: 'list-failed' });
-  }
+    try {
+        const snap = await getDb().collection(ORGS_COLLECTION).orderBy('name').get();
+        const items = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        res.json({ ok: true, items });
+    } catch (e: any) {
+        log('orgs.list.error', { error: e.message });
+        res.status(500).json({ ok: false, error: 'list-failed' });
+    }
 });
 
-// Only a Super Admin can create a new org
 router.post('/orgs', requireAdminAuth, async (req: Request, res: Response) => {
   try {
     const { name, phone } = req.body || {};
     if (!name) return res.status(400).json({ ok: false, error: 'missing-name' });
 
+    // Step 1: Create GCP Folder
+    const gcpFolderName = await createGcpFolderForOrg(name);
+    const gcpFolderId = gcpFolderName.split('/')[1];
+
+    // Step 2: Create GitHub Team and get back ID and slug
+    const { id: githubTeamId, slug: githubTeamSlug } = await createGithubTeam(name);
+
+    // Step 3: Create Firestore record with the new githubTeamSlug field
     const docRef = await getDb().collection(ORGS_COLLECTION).add({
       name,
       phone,
+      gcpFolderId,
+      githubTeamId,
+      githubTeamSlug, // <-- שומרים את השדה החדש
       createdAt: new Date().toISOString(),
     });
 
+    log('org.create.success', { orgId: docRef.id, gcpFolderId, githubTeamId });
     res.status(201).json({ ok: true, id: docRef.id });
   } catch (e: any) {
-    console.error('[orgs:create]', e.message);
-    res.status(500).json({ ok: false, error: 'create-failed' });
+    log('org.create.error', { error: e.message });
+    res.status(500).json({ ok: false, error: 'create-failed', detail: e.message });
   }
 });
 

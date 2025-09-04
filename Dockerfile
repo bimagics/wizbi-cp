@@ -5,12 +5,12 @@ WORKDIR /app
 # ---- deps (prod) ----
 FROM base AS deps
 COPY package*.json ./
-RUN if [ -f package-lock.json ]; then npm ci --omit=dev; else npm install --omit=dev; fi
+RUN npm install --omit=dev
 
 # ---- build (dev deps) ----
 FROM base AS build
 COPY package*.json ./
-RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
+RUN npm install
 COPY tsconfig.json ./
 COPY src ./src
 COPY public ./public
