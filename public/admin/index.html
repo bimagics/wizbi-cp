@@ -1,219 +1,345 @@
-<!doctype html>
-<html lang="he" dir="rtl">
+<!DOCTYPE html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>WizBI Control — ניהול</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WizBI Control Plane</title>
   <link rel="stylesheet" href="/styles.css" />
   <script src="/__/firebase/9.6.1/firebase-app-compat.js"></script>
   <script src="/__/firebase/9.6.1/firebase-auth-compat.js"></script>
   <script src="/__/firebase/init.js"></script>
   <style>
-    /* Basic Tab Styling */
-    .tabs { display: flex; border-bottom: 2px solid #203040; margin-bottom: 24px; }
-    .tab-button { padding: 12px 20px; cursor: pointer; background: transparent; border: none; color: #b8c2cc; font-size: 16px; }
-    .tab-button.active { color: #9ad0ff; border-bottom: 2px solid #9ad0ff; font-weight: bold; }
+    /* This internal stylesheet contains all specific styles for the admin panel for modularity. */
+    :root {
+      --primary-color: #2d6cdf;
+      --background-dark: #0b0e11;
+      --background-light: #0f141a;
+      --border-color: #203040;
+      --text-primary: #e6ebef;
+      --text-secondary: #b8c2cc;
+      --accent-color: #9ad0ff;
+      --error-color: #ff8a8a;
+    }
+
+    /* --- Layout & Structure --- */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--border-color);
+    }
+    .user-auth button { margin-left: 10px; }
+    .tabs { display: flex; border-bottom: 2px solid var(--border-color); margin-bottom: 1.5rem; }
+    .tab-button {
+      padding: 0.75rem 1.25rem; cursor: pointer; background: transparent;
+      border: none; color: var(--text-secondary); font-size: 1rem;
+      border-bottom: 2px solid transparent;
+    }
+    .tab-button.active { color: var(--accent-color); border-bottom-color: var(--accent-color); font-weight: bold; }
     .tab-content { display: none; }
     .tab-content.active { display: block; }
-    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-    th, td { border: 1px solid #203040; padding: 10px; text-align: right; }
-    th { background-color: #0f141a; }
-    form { display: flex; flex-direction: column; gap: 15px; background: #0f141a; padding: 20px; border-radius: 10px; border: 1px solid #203040; margin-bottom: 20px; }
-    form input, form select { padding: 10px; border-radius: 5px; border: 1px solid #334; background: #1a2027; color: #e6ebef; }
-    .loading-spinner {
-      border: 4px solid #f3f3f3; border-top: 4px solid #2d6cdf;
-      border-radius: 50%; width: 20px; height: 20px; animation: spin 1s linear infinite;
-      display: none; /* Hidden by default */
+    .card {
+        background: var(--background-light); padding: 1.5rem;
+        border-radius: 10px; border: 1px solid var(--border-color);
+        margin-bottom: 1.5rem;
     }
+    
+    /* --- Forms & Tables --- */
+    .data-table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+    .data-table th, .data-table td {
+        border: 1px solid var(--border-color); padding: 0.75rem;
+        text-align: left;
+    }
+    .data-table th { background-color: #1a2027; }
+    .form-grid { display: grid; grid-template-columns: 1fr; gap: 1rem; }
+    .form-grid input, .form-grid select {
+        width: 100%; padding: 0.75rem; border-radius: 5px;
+        border: 1px solid var(--border-color); background: #1a2027; color: var(--text-primary);
+    }
+    .form-grid button { justify-self: start; }
+    
+    /* --- Utility & State --- */
+    .status-log {
+        background-color: var(--background-light); color: var(--accent-color);
+        border: 1px solid var(--border-color); border-radius: 10px; padding: 1rem;
+        font-family: monospace; white-space: pre-wrap; word-break: break-all;
+    }
+    .status-log.error { color: var(--error-color); }
+    .spinner {
+        border: 4px solid #f3f3f3; border-top: 4px solid var(--primary-color);
+        border-radius: 50%; width: 24px; height: 24px;
+        animation: spin 1s linear infinite; display: none; margin: 1rem auto;
+    }
+    .hidden { display: none !important; }
+
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    
+    /* --- Responsive Design --- */
+    @media (min-width: 768px) {
+        .form-grid { grid-template-columns: repeat(2, 1fr); }
+        .form-grid .full-width { grid-column: 1 / -1; }
+        .form-grid button { grid-column: -2 / -1; justify-self: end; }
+    }
+    .table-wrapper { overflow-x: auto; } /* Ensure tables don't break layout on small screens */
+
   </style>
 </head>
 <body>
   <main class="container">
-    <header style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-      <h1>WIZBI.AI — Control Plane</h1>
-      <div>
-        <span id="userEmail">לא מחובר</span>
-        <button id="btnLogin">כניסה עם Google</button>
-        <button id="btnLogout" style="display:none">התנתק</button>
+    <header class="header">
+      <h1>WIZBI Control Plane</h1>
+      <div class="user-auth">
+        <span id="userEmail">Not logged in</span>
+        <button id="btnLogin">Login with Google</button>
+        <button id="btnLogout" class="hidden">Logout</button>
       </div>
     </header>
 
-    <div id="admin-panel" style="display: none;">
+    <div id="admin-panel" class="hidden">
       <div class="tabs">
-        <button class="tab-button active" onclick="openTab('tenants')">Tenants</button>
-        <button class="tab-button" onclick="openTab('orgs')">Orgs</button>
+        <button id="btnTabTenants" class="tab-button active">Tenants</button>
+        <button id="btnTabOrgs" class="tab-button">Orgs</button>
       </div>
 
-      <div id="tenants" class="tab-content active">
-        <h2>ניהול Tenants</h2>
-        <form id="formProvisionTenant">
-            <input type="text" id="tenantId" placeholder="מזהה ייחודי (באנגלית, קטן)" required>
-            <input type="text" id="tenantDisplayName" placeholder="שם תצוגה" required>
-            <select id="tenantEnv" required>
-                <option value="qa">QA</option>
-                <option value="prod">Production</option>
-            </select>
-            <button type="submit">הקם Tenant חדש</button>
-        </form>
-        <div id="tenantsSpinner" class="loading-spinner" style="display: block;"></div>
-        <table id="tenantsTable">
-          <thead><tr><th>ID</th><th>Project ID</th><th>Display Name</th><th>Env</th><th>State</th><th>Created At</th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-
-      <div id="orgs" class="tab-content">
-        <h2>ניהול ארגונים (Orgs)</h2>
-         <form id="formCreateOrg">
-            <input type="text" id="orgName" placeholder="שם הארגון" required>
-            <input type="tel" id="orgPhone" placeholder="טלפון (אופציונלי)">
-            <button type="submit">צור ארגון חדש</button>
-        </form>
-        <div id="orgsSpinner" class="loading-spinner" style="display: block;"></div>
-        <table id="orgsTable">
-            <thead><tr><th>ID</th><th>Name</th><th>Phone</th><th>Created At</th></tr></thead>
+      <div id="tabContentTenants" class="tab-content active">
+        <div class="card">
+            <h2>Provision New Tenant</h2>
+            <form id="formProvisionTenant" class="form-grid">
+                <input type="text" id="tenantId" placeholder="Unique ID (e.g., 'acme-corp')" required>
+                <input type="text" id="tenantDisplayName" placeholder="Display Name (e.g., 'Acme Corporation')" required>
+                <select id="tenantEnv" class="full-width" required>
+                    <option value="" disabled selected>Select Environment</option>
+                    <option value="qa">QA</option>
+                    <option value="prod">Production</option>
+                </select>
+                <button type="submit">Provision Tenant</button>
+            </form>
+        </div>
+        <h2>Existing Tenants</h2>
+        <div id="tenantsSpinner" class="spinner"></div>
+        <div class="table-wrapper">
+          <table id="tenantsTable" class="data-table">
+            <thead><tr><th>ID</th><th>Project ID</th><th>Display Name</th><th>Env</th><th>State</th><th>Created At</th></tr></thead>
             <tbody></tbody>
-        </table>
+          </table>
+        </div>
+      </div>
+
+      <div id="tabContentOrgs" class="tab-content">
+        <div class="card">
+            <h2>Create New Organization</h2>
+            <form id="formCreateOrg" class="form-grid">
+                <input type="text" id="orgName" placeholder="Organization Name" required>
+                <input type="tel" id="orgPhone" placeholder="Contact Phone (Optional)">
+                <button type="submit">Create Org</button>
+            </form>
+        </div>
+        <h2>Existing Organizations</h2>
+        <div id="orgsSpinner" class="spinner"></div>
+        <div class="table-wrapper">
+            <table id="orgsTable" class="data-table">
+                <thead><tr><th>ID</th><th>Name</th><th>Phone</th><th>Created At</th></tr></thead>
+                <tbody></tbody>
+            </table>
+        </div>
       </div>
     </div>
-     <pre id="out">נא להתחבר כדי לראות את פאנל הניהול.</pre>
+     <pre id="statusLog" class="status-log">Please log in to access the admin panel.</pre>
   </main>
 
 <script>
-const auth=firebase.auth(); const provider=new firebase.auth.GoogleAuthProvider();
-const $=id=>document.getElementById(id); const out=$('out');
-let idToken = null; // Store user token globally
+/*************************************************************************************************/
+/********************************** UI & APP LOGIC (SINGLE FILE) ********************************/
+/*************************************************************************************************/
 
-function log(x, isError=false) {
-  const message = typeof x === 'string' ? x : JSON.stringify(x, null, 2);
-  out.textContent = message;
-  out.style.color = isError ? '#ff8a8a' : '#9ad0ff';
-}
+document.addEventListener('DOMContentLoaded', () => {
 
-function openTab(tabName) {
-  document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
-  document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
-  $(`${tabName}`).classList.add('active');
-  event.currentTarget.classList.add('active');
-}
+  // --- Global State & Configuration ---
+  const firebaseAuth = firebase.auth();
+  const googleProvider = new firebase.auth.GoogleAuthProvider();
+  let idToken = null;
 
-async function callApi(path, opts={}) {
-  if (!idToken) { log('User token not available. Please log in.', true); throw new Error('Not authenticated'); }
-  const r = await fetch(`/api${path}`, {
-    ...opts,
-    headers: { 'Content-Type': 'application/json', 'X-Firebase-ID-Token': idToken, ...(opts.headers || {}) }
-  });
-  const txt = await r.text();
-  try {
-    const data = JSON.parse(txt);
-    if (!r.ok) throw data;
-    return data;
-  } catch (e) {
-    log(`API Error on ${path}: ${txt}`, true);
-    throw new Error(txt);
-  }
-}
+  // --- DOM Element Cache ---
+  const DOM = {
+    // Auth
+    userEmail: document.getElementById('userEmail'),
+    btnLogin: document.getElementById('btnLogin'),
+    btnLogout: document.getElementById('btnLogout'),
+    // Panels & Tabs
+    adminPanel: document.getElementById('admin-panel'),
+    btnTabTenants: document.getElementById('btnTabTenants'),
+    btnTabOrgs: document.getElementById('btnTabOrgs'),
+    tabContentTenants: document.getElementById('tabContentTenants'),
+    tabContentOrgs: document.getElementById('tabContentOrgs'),
+    // Orgs
+    formCreateOrg: document.getElementById('formCreateOrg'),
+    orgsSpinner: document.getElementById('orgsSpinner'),
+    orgsTableBody: document.getElementById('orgsTable').querySelector('tbody'),
+    // Tenants
+    formProvisionTenant: document.getElementById('formProvisionTenant'),
+    tenantsSpinner: document.getElementById('tenantsSpinner'),
+    tenantsTableBody: document.getElementById('tenantsTable').querySelector('tbody'),
+    // General
+    statusLog: document.getElementById('statusLog'),
+  };
 
-auth.onAuthStateChanged(async user => {
-  $('userEmail').textContent = user ? user.email : 'לא מחובר';
-  $('btnLogin').style.display = user ? 'none' : 'inline-block';
-  $('btnLogout').style.display = user ? 'inline-block' : 'none';
-  $('admin-panel').style.display = user ? 'block' : 'none';
-  if (user) {
-    idToken = await user.getIdToken();
-    log('מחובר. טוען נתונים...');
-    await Promise.all([loadOrgs(), loadTenants()]);
-    log('נתונים נטענו.');
-  } else {
-    idToken = null;
-    log('נא להתחבר כדי לראות את פאנל הניהול.');
-  }
-});
+  // --- Utility Functions ---
+  const log = (message, isError = false) => {
+    DOM.statusLog.textContent = typeof message === 'string' ? message : JSON.stringify(message, null, 2);
+    DOM.statusLog.classList.toggle('error', isError);
+  };
 
-$('btnLogin').onclick = () => auth.signInWithPopup(provider);
-$('btnLogout').onclick = () => auth.signOut();
-
-// --- Orgs Logic ---
-async function loadOrgs() {
-  $('orgsSpinner').style.display = 'block';
-  const tableBody = $('orgsTable').querySelector('tbody');
-  tableBody.innerHTML = ''; // Clear table
-  try {
-    const { items } = await callApi('/orgs');
-    if (!items || items.length === 0) {
-      tableBody.innerHTML = '<tr><td colspan="4">לא נמצאו ארגונים.</td></tr>';
-      return;
+  const showSpinner = (spinner, show) => {
+    spinner.style.display = show ? 'block' : 'none';
+  };
+  
+  const switchTab = (activeTab) => {
+      const isTenants = activeTab === 'tenants';
+      DOM.btnTabTenants.classList.toggle('active', isTenants);
+      DOM.tabContentTenants.classList.toggle('active', isTenants);
+      DOM.btnTabOrgs.classList.toggle('active', !isTenants);
+      DOM.tabContentOrgs.classList.toggle('active', !isTenants);
+  };
+  
+  // --- API Abstraction ---
+  const callApi = async (path, options = {}) => {
+    if (!idToken) {
+      log('Authentication token is missing. Please log in.', true);
+      throw new Error('Not authenticated');
     }
-    items.forEach(org => {
-      const row = tableBody.insertRow();
-      row.innerHTML = `<td>${org.id}</td><td>${org.name}</td><td>${org.phone || ''}</td><td>${new Date(org.createdAt).toLocaleString()}</td>`;
-    });
-  } catch (e) {
-    log('Failed to load orgs.', true);
-  } finally {
-     $('orgsSpinner').style.display = 'none';
-  }
-}
-
-$('formCreateOrg').onsubmit = async (e) => {
-  e.preventDefault();
-  const name = $('orgName').value;
-  const phone = $('orgPhone').value;
-  try {
-    log('יוצר ארגון חדש...');
-    await callApi('/orgs', { method: 'POST', body: JSON.stringify({ name, phone }) });
-    log('ארגון נוצר בהצלחה!');
-    $('formCreateOrg').reset();
-    await loadOrgs();
-  } catch (e) {
-    log('שגיאה ביצירת ארגון.', true);
-  }
-};
-
-// --- Tenants Logic ---
-async function loadTenants() {
-  $('tenantsSpinner').style.display = 'block';
-  const tableBody = $('tenantsTable').querySelector('tbody');
-  tableBody.innerHTML = '';
-  try {
-    const items = await callApi('/tenants'); // The tenants API returns an array directly
-     if (!items || items.length === 0) {
-      tableBody.innerHTML = '<tr><td colspan="6">לא נמצאו tenants.</td></tr>';
-      return;
-    }
-    items.forEach(t => {
-      const row = tableBody.insertRow();
-      row.innerHTML = `<td>${t.id}</td><td>${t.projectId || ''}</td><td>${t.displayName}</td><td>${t.env}</td><td>${t.state}</td><td>${new Date(t.startedAt).toLocaleString()}</td>`;
-    });
-  } catch (e) {
-    log('Failed to load tenants.', true);
-  } finally {
-    $('tenantsSpinner').style.display = 'none';
-  }
-}
-
-$('formProvisionTenant').onsubmit = async (e) => {
-    e.preventDefault();
-    const tenantId = $('tenantId').value;
-    const displayName = $('tenantDisplayName').value;
-    const env = $('tenantEnv').value;
-    if (!confirm(`האם אתה בטוח שברצונך להקים tenant חדש בשם '${displayName}' בסביבת ${env}?`)) return;
-
     try {
-        log(`מתחיל תהליך הקמה עבור ${tenantId}...`);
-        await callApi('/tenants/provision', {
-            method: 'POST',
-            body: JSON.stringify({ tenantId, displayName, env })
-        });
-        log('הקמת Tenant החלה בהצלחה! התהליך רץ ברקע. הטבלה תתעדכן בקרוב.');
-        $('formProvisionTenant').reset();
-        setTimeout(loadTenants, 5000); // Refresh after a few seconds
-    } catch (e) {
-        log('שגיאה בהקמת ה-Tenant.', true);
+      const response = await fetch(`/api${path}`, {
+        ...options,
+        headers: { 'Content-Type': 'application/json', 'X-Firebase-ID-Token': idToken, ...(options.headers || {}) },
+      });
+      const responseText = await response.text();
+      const data = responseText ? JSON.parse(responseText) : {};
+      if (!response.ok) {
+        throw new Error(data.error || `HTTP error! status: ${response.status}`);
+      }
+      return data;
+    } catch (error) {
+      log(`API Error on ${path}: ${error.message}`, true);
+      throw error;
     }
-};
+  };
 
+  // --- Data Loading & Rendering ---
+  const renderTable = (tbody, data, columns, emptyMessage) => {
+    tbody.innerHTML = '';
+    if (!data || data.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="${columns.length}">${emptyMessage}</td></tr>`;
+      return;
+    }
+    data.forEach(item => {
+      const row = tbody.insertRow();
+      columns.forEach(col => {
+          const cell = row.insertCell();
+          let value = item[col.key] || '';
+          if (col.formatter) value = col.formatter(value);
+          cell.textContent = value;
+      });
+    });
+  };
+
+  const loadOrgs = async () => {
+    showSpinner(DOM.orgsSpinner, true);
+    try {
+      const { items } = await callApi('/orgs');
+      renderTable(DOM.orgsTableBody, items,
+        [
+            { key: 'id' }, { key: 'name' }, { key: 'phone' },
+            { key: 'createdAt', formatter: (val) => new Date(val).toLocaleString() }
+        ],
+        'No organizations found.'
+      );
+    } finally {
+      showSpinner(DOM.orgsSpinner, false);
+    }
+  };
+
+  const loadTenants = async () => {
+    showSpinner(DOM.tenantsSpinner, true);
+    try {
+      const items = await callApi('/tenants');
+      renderTable(DOM.tenantsTableBody, items,
+        [
+            { key: 'id' }, { key: 'projectId' }, { key: 'displayName' },
+            { key: 'env' }, { key: 'state' },
+            { key: 'startedAt', formatter: (val) => new Date(val).toLocaleString() }
+        ],
+        'No tenants found.'
+      );
+    } finally {
+      showSpinner(DOM.tenantsSpinner, false);
+    }
+  };
+
+  // --- Authentication Handler ---
+  firebaseAuth.onAuthStateChanged(async (user) => {
+    const isLoggedIn = !!user;
+    DOM.btnLogin.classList.toggle('hidden', isLoggedIn);
+    DOM.btnLogout.classList.toggle('hidden', !isLoggedIn);
+    DOM.adminPanel.classList.toggle('hidden', !isLoggedIn);
+    DOM.userEmail.textContent = isLoggedIn ? user.email : 'Not logged in';
+
+    if (isLoggedIn) {
+      idToken = await user.getIdToken();
+      log('Login successful. Loading data...');
+      await Promise.all([loadOrgs(), loadTenants()]).catch(() => {});
+      log('Data loaded.');
+    } else {
+      idToken = null;
+      log('Please log in to access the admin panel.');
+    }
+  });
+
+  // --- Event Listeners ---
+  DOM.btnLogin.addEventListener('click', () => firebaseAuth.signInWithPopup(googleProvider));
+  DOM.btnLogout.addEventListener('click', () => firebaseAuth.signOut());
+  
+  DOM.btnTabTenants.addEventListener('click', () => switchTab('tenants'));
+  DOM.btnTabOrgs.addEventListener('click', () => switchTab('orgs'));
+
+  DOM.formCreateOrg.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name = e.target.elements.orgName.value;
+    const phone = e.target.elements.orgPhone.value;
+    log('Creating new organization...');
+    try {
+      await callApi('/orgs', { method: 'POST', body: JSON.stringify({ name, phone }) });
+      log('Organization created successfully!');
+      DOM.formCreateOrg.reset();
+      await loadOrgs();
+    } catch (error) {
+      // Error is already logged by callApi
+    }
+  });
+
+  DOM.formProvisionTenant.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const tenantId = e.target.elements.tenantId.value;
+    const displayName = e.target.elements.tenantDisplayName.value;
+    const env = e.target.elements.tenantEnv.value;
+
+    if (!confirm(`Provision new tenant '${displayName}' in ${env.toUpperCase()}? This will create a new GCP project.`)) return;
+    
+    log(`Starting provisioning for '${tenantId}'...`);
+    try {
+      await callApi('/tenants/provision', { method: 'POST', body: JSON.stringify({ tenantId, displayName, env }) });
+      log('Tenant provisioning started. The process runs in the background. The table will update shortly.');
+      DOM.formProvisionTenant.reset();
+      setTimeout(loadTenants, 5000); // Refresh after a delay
+    } catch (error) {
+        // Error is already logged by callApi
+    }
+  });
+
+});
 </script>
+
 </body>
 </html>
