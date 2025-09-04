@@ -2,12 +2,16 @@ import { google } from 'googleapis';
 import { log } from '../routes/projects';
 
 const GCP_FOLDER_ID = process.env.GCP_FOLDER_ID || '';
-const BILLING_ACCOUNT_ID = process.env.BILLING_ACCOUNT_ID || ''; // נוסיף את זה בקרוב ל-Workflow
+const BILLING_ACCOUNT_ID = process.env.BILLING_ACCOUNT_ID || '';
+
+async function getAuth() {
+    return google.auth.getClient({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
+}
 
 export async function createGcpFolderForOrg(orgName: string): Promise<string> {
     if (!GCP_FOLDER_ID) throw new Error('GCP_FOLDER_ID environment variable is not set.');
     
-    const auth = await google.auth.getClient({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
+    const auth = await getAuth();
     const crm = google.cloudresourcemanager({ version: 'v3', auth });
 
     log('gcp.folder.create.start', { orgName, parentFolder: GCP_FOLDER_ID });
@@ -39,11 +43,10 @@ export async function createGcpFolderForOrg(orgName: string): Promise<string> {
     return folderId;
 }
 
-// --- NEW FUNCTION ---
 export async function createGcpProjectInFolder(projectId: string, displayName: string, folderId: string): Promise<string> {
     if (!BILLING_ACCOUNT_ID) throw new Error('BILLING_ACCOUNT_ID environment variable is not set.');
     
-    const auth = await google.auth.getClient({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
+    const auth = await getAuth();
     const crm = google.cloudresourcemanager({ version: 'v3', auth });
 
     log('gcp.project.create.start', { projectId, displayName, parentFolder: folderId });
@@ -64,7 +67,6 @@ export async function createGcpProjectInFolder(projectId: string, displayName: s
     }
     log('gcp.project.create.success', { projectId });
 
-    // Link to billing account
     log('gcp.project.billing.link.start', { projectId, billingAccountId: BILLING_ACCOUNT_ID });
     const billing = google.cloudbilling({ version: 'v1', auth });
     await billing.projects.updateBillingInfo({
@@ -76,4 +78,25 @@ export async function createGcpProjectInFolder(projectId: string, displayName: s
     log('gcp.project.billing.link.success', { projectId });
 
     return projectId;
+}
+
+// --- NEW DELETE FUNCTION ---
+export async function deleteGcpProject(projectId: string): Promise<void> {
+    const auth = await getAuth();
+    const crm = google.cloudresourcemanager({ version: 'v3', auth });
+
+    log('gcp.project.delete.start', { projectId });
+    try {
+        await crm.projects.delete({ name: `projects/${projectId}` });
+        log('gcp.project.delete.success', { projectId });
+    } catch (error: any) {
+        // It's possible the project is already marked for deletion or doesn't exist.
+        // We can treat a 404 (Not Found) or 403 (Permission Denied, often if project is already being deleted) as a success for our workflow.
+        if (error.code === 404 || error.code === 403) {
+            log('gcp.project.delete.already_gone', { projectId, code: error.code });
+            return;
+        }
+        log('gcp.project.delete.error', { projectId, error: error.message });
+        throw new Error(`Failed to delete GCP project '${projectId}': ${error.message}`);
+    }
 }
