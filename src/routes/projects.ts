@@ -118,8 +118,9 @@ async function provisionProject(projectId: string, displayName: string, orgId: s
         return { projectId, state: 'ready' };
 
     } catch (error: any) {
-        log('provision.error.fatal', { projectId, error: error.message });
-        await PROJECTS_COLLECTION.doc(projectId).update({ state: 'failed', error: error.message });
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        log('provision.error.fatal', { projectId, error: errorMessage });
+        await PROJECTS_COLLECTION.doc(projectId).update({ state: 'failed', error: errorMessage });
         throw error;
     }
 }
@@ -127,24 +128,35 @@ async function provisionProject(projectId: string, displayName: string, orgId: s
 // --- Routes ---
 router.get('/projects', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
     try {
-        let query: admin.firestore.Query = PROJECTS_COLLECTION;
+        let query: admin.firestore.Query | admin.firestore.CollectionReference = PROJECTS_COLLECTION;
 
         const userProfile = req.userProfile;
         // If not a superAdmin, filter by their assigned organizations
         if (!userProfile?.roles?.superAdmin) {
             const orgIds = userProfile?.roles?.orgAdmin || [];
             if (orgIds.length > 0) {
+                // Firestore limitation: Cannot have an inequality filter on a different field when using 'in'.
+                // So, we remove the orderBy for non-admins to prevent the query from crashing.
                 query = query.where('orgId', 'in', orgIds);
             } else {
-                // If user has no orgs, return empty list
                 return res.json([]);
             }
+        } else {
+             // SuperAdmins can get the ordered list
+            query = query.orderBy('createdAt', 'desc');
         }
 
-        const snap = await query.orderBy('createdAt', 'desc').limit(100).get();
+        const snap = await query.limit(100).get();
         const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        
+        // If we couldn't sort in the query (for non-admins), sort in memory.
+        if (!userProfile?.roles?.superAdmin) {
+            list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        }
+
         res.json(list);
-    } catch(e) {
+    } catch(e: any) {
+        log('projects.list.error', { error: e.message });
         res.status(500).json({ error: "Failed to list projects" });
     }
 });
@@ -165,7 +177,7 @@ router.post('/projects', requireAdminAuth, async (req: AuthenticatedRequest, res
         
         provisionProject(projectId, displayName.trim(), orgId)
             .catch(error => {
-                console.error(`[FATAL] Unhandled error during async provisioning for project '${projectId}':`, error.message);
+                console.error(`[FATAL] Unhandled error during async provisioning for project '${projectId}':`, error instanceof Error ? error.message : String(error));
             });
 
     } catch (e: any) {
@@ -198,8 +210,9 @@ router.delete('/projects/:id', requireAdminAuth, async (req: Request, res: Respo
                 await PROJECTS_COLLECTION.doc(id).delete();
                 log('project.delete.success', { projectId: id });
             } catch (error: any) {
-                log('project.delete.error.fatal', { projectId: id, error: error.message });
-                await PROJECTS_COLLECTION.doc(id).update({ state: 'delete_failed', error: error.message });
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                log('project.delete.error.fatal', { projectId: id, error: errorMessage });
+                await PROJECTS_COLLECTION.doc(id).update({ state: 'delete_failed', error: errorMessage });
             }
         })();
 
