@@ -3,33 +3,103 @@
     {
       "site": "wizbi-cp",
       "public": "public",
-      "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+      "ignore": [
+        "firebase.json",
+        "**/.*",
+        "**/node_modules/**"
+      ],
       "redirects": [
-        { "source": "/", "destination": "/admin/", "type": 301 }
+        {
+          "source": "/",
+          "destination": "/admin/",
+          "type": 301
+        }
       ],
       "headers": [
-        { "source": "/admin/**", "headers": [{ "key": "Cache-Control", "value": "no-store" }] }
+        {
+          "source": "/admin/**",
+          "headers": [
+            {
+              "key": "Cache-Control",
+              "value": "no-store"
+            },
+            {
+              "key": "Cross-Origin-Opener-Policy",
+              "value": "same-origin-allow-popups"
+            }
+          ]
+        }
       ],
       "rewrites": [
-        { "source": "/admin/**", "destination": "/admin/index.html" },
-        { "source": "/api/**", "run": { "serviceId": "cp-unified", "region": "europe-west1" } },
-        { "source": "/whatsapp/webhook", "run": { "serviceId": "cp-unified", "region": "europe-west1" } }
+        {
+          "source": "/admin/**",
+          "destination": "/admin/index.html"
+        },
+        {
+          "source": "/api/**",
+          "run": {
+            "serviceId": "cp-unified",
+            "region": "europe-west1"
+          }
+        },
+        {
+          "source": "/whatsapp/webhook",
+          "run": {
+            "serviceId": "cp-unified",
+            "region": "europe-west1"
+          }
+        }
       ]
     },
     {
       "site": "wizbi-cp-qa",
       "public": "public",
-      "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+      "ignore": [
+        "firebase.json",
+        "**/.*",
+        "**/node_modules/**"
+      ],
       "redirects": [
-        { "source": "/", "destination": "/admin/", "type": 301 }
+        {
+          "source": "/",
+          "destination": "/admin/",
+          "type": 301
+        }
       ],
       "headers": [
-        { "source": "/admin/**", "headers": [{ "key": "Cache-Control", "value": "no-store" }] }
+        {
+          "source": "/admin/**",
+          "headers": [
+            {
+              "key": "Cache-Control",
+              "value": "no-store"
+            },
+            {
+              "key": "Cross-Origin-Opener-Policy",
+              "value": "same-origin-allow-popups"
+            }
+          ]
+        }
       ],
       "rewrites": [
-        { "source": "/admin/**", "destination": "/admin/index.html" },
-        { "source": "/api/**", "run": { "serviceId": "cp-unified-qa", "region": "europe-west1" } },
-        { "source": "/whatsapp/webhook", "run": { "serviceId": "cp-unified-qa", "region": "europe-west1" } }
+        {
+          "source": "/admin/**",
+          "destination": "/admin/index.html"
+        },
+        {
+          "source": "/api/**",
+          "run": {
+            "serviceId": "cp-unified-qa",
+            "region": "europe-west1"
+          }
+        },
+        {
+          "source": "/whatsapp/webhook",
+          "run": {
+            "serviceId": "cp-unified-qa",
+            "region": "europe-west1"
+          }
+        }
       ]
     }
   ]
