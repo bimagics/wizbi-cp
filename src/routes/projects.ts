@@ -1,4 +1,4 @@
-// src/routes/projects.ts
+// File path: src/routes/projects.ts
 
 import { Router, Request, Response, NextFunction } from 'express';
 import admin from 'firebase-admin';
@@ -12,18 +12,15 @@ interface UserProfile {
   email: string;
   roles: {
     superAdmin?: boolean;
-    orgAdmin?: string[]; // Array of organization IDs they administer
+    orgAdmin?: string[];
   }
 }
 
-// --- NEW: Define a type for our project data ---
 interface Project {
     id: string;
-    createdAt: string; // Ensure createdAt is recognized as a string
-    // Add other known project fields here if needed for type safety
-    [key: string]: any; // Allow other fields
+    createdAt: string;
+    [key: string]: any;
 }
-
 
 interface AuthenticatedRequest extends Request {
   user?: admin.auth.DecodedIdToken;
@@ -36,12 +33,11 @@ const PROJECTS_COLLECTION = db.collection('projects');
 const USERS_COLLECTION = db.collection('users');
 const ORGS_COLLECTION = db.collection('orgs');
 
-// --- Utility Functions ---
 export function log(evt: string, meta: Record<string, any> = {}) {
   console.log(JSON.stringify({ ts: new Date().toISOString(), severity: 'INFO', evt, ...meta }));
 }
 
-// --- Permissions-Aware Auth Middleware ---
+// --- Auth Middleware ---
 async function verifyFirebaseToken(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   log('auth.middleware.verify_token.start');
   try {
@@ -68,7 +64,7 @@ async function fetchUserProfile(req: AuthenticatedRequest, res: Response, next: 
     const userDoc = await USERS_COLLECTION.doc(uid).get();
     if (!userDoc.exists) {
       log('auth.middleware.fetch_profile.user_not_found', { uid });
-      const newUserProfile: UserProfile = { uid, email: email || '', roles: {} }; // Default empty roles
+      const newUserProfile: UserProfile = { uid, email: email || '', roles: {} };
       await USERS_COLLECTION.doc(uid).set(newUserProfile);
       req.userProfile = newUserProfile;
       log('auth.middleware.fetch_profile.user_created', { uid });
@@ -94,43 +90,47 @@ function requireSuperAdmin(req: AuthenticatedRequest, res: Response, next: NextF
 export const requireAuth = [verifyFirebaseToken, fetchUserProfile];
 export const requireAdminAuth = [...requireAuth, requireSuperAdmin];
 
-// --- Provisioning Engine ---
+// --- The Main Provisioning Engine ---
 async function provisionProject(projectId: string, displayName: string, orgId: string) {
-    const orgDoc = await ORGS_COLLECTION.doc(orgId).get();
-    if (!orgDoc.exists) {
-        const err = new Error(`Organization with ID ${orgId} not found.`);
-        (err as any).statusCode = 404;
-        throw err;
-    }
-    const orgData = orgDoc.data()!;
+    const projectDocRef = PROJECTS_COLLECTION.doc(projectId);
 
-    if (!orgData.githubTeamSlug || !orgData.gcpFolderId) {
-        throw new Error(`Organization ${orgId} is missing critical data (githubTeamSlug or gcpFolderId).`);
-    }
-
-    await PROJECTS_COLLECTION.doc(projectId).set({
-        displayName, orgId, state: 'starting', createdAt: new Date().toISOString()
-    }, { merge: true });
+    const updateState = async (state: string, data: object = {}) => {
+        await projectDocRef.set({ state, ...data }, { merge: true });
+        log(`provision.state_change.${state}`, { projectId, ...data });
+    };
 
     try {
-        const gcpProjectId = await GcpService.createGcpProjectInFolder(projectId, displayName, orgData.gcpFolderId);
-        const githubRepoUrl = await GithubService.createGithubRepo(projectId, orgData.githubTeamSlug);
-        
-        log('provision.success', { projectId, gcpProjectId, githubRepoUrl });
+        await updateState('starting', { displayName, orgId, createdAt: new Date().toISOString() });
 
-        await PROJECTS_COLLECTION.doc(projectId).update({
-            state: 'ready',
-            gcpProjectId,
-            githubRepoUrl,
-        });
+        const orgDoc = await ORGS_COLLECTION.doc(orgId).get();
+        if (!orgDoc.exists) throw new Error(`Organization ${orgId} not found.`);
+        const orgData = orgDoc.data()!;
+        if (!orgData.githubTeamSlug || !orgData.gcpFolderId) {
+            throw new Error(`Organization ${orgId} is missing critical data (githubTeamSlug or gcpFolderId).`);
+        }
 
-        return { projectId, state: 'ready' };
+        await updateState('provisioning_gcp');
+        const gcpInfra = await GcpService.provisionProjectInfrastructure(projectId, displayName, orgData.gcpFolderId);
+
+        await updateState('provisioning_github');
+        const githubRepo = await GithubService.createGithubRepoFromTemplate(projectId, orgData.githubTeamSlug);
+        await projectDocRef.update({ githubRepoUrl: githubRepo.url, gcpProjectId: gcpInfra.projectId });
+
+        await updateState('injecting_secrets');
+        const secretsToCreate = {
+            GCP_PROJECT_ID: gcpInfra.projectId,
+            GCP_REGION: process.env.GCP_DEFAULT_REGION || 'europe-west1',
+            WIF_PROVIDER: gcpInfra.wifProviderName,
+            DEPLOYER_SA: gcpInfra.serviceAccountEmail,
+        };
+        await GithubService.createRepoSecrets(githubRepo.name, secretsToCreate);
+
+        await updateState('ready');
 
     } catch (error: any) {
         const errorMessage = error instanceof Error ? error.message : String(error);
-        log('provision.error.fatal', { projectId, error: errorMessage });
-        await PROJECTS_COLLECTION.doc(projectId).update({ state: 'failed', error: errorMessage });
-        throw error;
+        log('provision.error.fatal', { projectId, error: errorMessage, stack: error.stack });
+        await updateState('failed', { error: errorMessage });
     }
 }
 
@@ -152,11 +152,9 @@ router.get('/projects', requireAuth, async (req: AuthenticatedRequest, res: Resp
         }
 
         const snap = await query.limit(100).get();
-        // --- FIX: Cast the mapped data to our new Project type ---
         const list: Project[] = snap.docs.map(d => ({ id: d.id, ...d.data() } as Project));
         
         if (!userProfile?.roles?.superAdmin) {
-            // --- FIX: Explicitly type a and b as Project ---
             list.sort((a: Project, b: Project) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         }
 
@@ -168,28 +166,19 @@ router.get('/projects', requireAuth, async (req: AuthenticatedRequest, res: Resp
 });
 
 router.post('/projects', requireAdminAuth, async (req: AuthenticatedRequest, res: Response) => {
-    try {
-        const { orgId, projectId, displayName } = req.body;
-        if (!orgId || !projectId || !displayName) {
-            return res.status(400).json({ error: 'orgId, projectId, and displayName are required' });
-        }
-        
-        const existingProject = await PROJECTS_COLLECTION.doc(projectId).get();
-        if (existingProject.exists) {
-            return res.status(409).json({ error: `Project with ID '${projectId}' already exists.` });
-        }
-        
-        res.status(202).json({ ok: true, message: 'Project provisioning started.', projectId });
-        
-        provisionProject(projectId, displayName.trim(), orgId)
-            .catch(error => {
-                console.error(`[FATAL] Unhandled error during async provisioning for project '${projectId}':`, error instanceof Error ? error.message : String(error));
-            });
-
-    } catch (e: any) {
-        const statusCode = (e as any).statusCode || 500;
-        res.status(statusCode).json({ ok: false, error: e.message });
+    const { orgId, projectId, displayName } = req.body;
+    if (!orgId || !projectId || !displayName) {
+        return res.status(400).json({ error: 'orgId, projectId, and displayName are required' });
     }
+    
+    const existingProject = await PROJECTS_COLLECTION.doc(projectId).get();
+    if (existingProject.exists) {
+        return res.status(409).json({ error: `Project with ID '${projectId}' already exists.` });
+    }
+    
+    res.status(202).json({ ok: true, message: 'Project provisioning accepted and started.', projectId });
+    
+    provisionProject(projectId.trim(), displayName.trim(), orgId);
 });
 
 
