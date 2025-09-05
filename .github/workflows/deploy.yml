@@ -46,6 +46,8 @@ jobs:
 
       - name: Setup gcloud
         uses: google-github-actions/setup-gcloud@v2
+        with:
+          version: '458.0.1' # Pin the version for faster setup
 
       - name: Configure Docker to Artifact Registry
         run: gcloud auth configure-docker "${{ env.REGION }}-docker.pkg.dev" -q
@@ -110,8 +112,18 @@ jobs:
 
       - name: Setup gcloud
         uses: google-github-actions/setup-gcloud@v2
+        with:
+          version: '458.0.1' # Pin the version for faster setup
+      
+      - name: Cache Firebase CLI
+        id: cache-firebase
+        uses: actions/cache@v3
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-firebase-tools
 
       - name: Install Firebase CLI
+        if: steps.cache-firebase.outputs.cache-hit != 'true'
         run: npm i -g firebase-tools@latest
 
       - name: Decide target service and site (QA vs PROD)
