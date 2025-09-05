@@ -1,8 +1,10 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
+// File: src/index.ts
 
 import express from "express";
 import cors from "cors";
 import bodyParser from "body-parser";
+import sodium from 'libsodium-wrappers';
 
 // --- Import all routers using the unified pattern ---
 import healthRouter from './routes/health';
@@ -11,34 +13,47 @@ import projectsRouter from './routes/projects';
 import orgsRouter from './routes/orgs';
 import whatsappRouter from './routes/whatsapp';
 
-// --- App Initialization ---
-const app = express();
-const port = process.env.PORT || 8080;
-const WHATSAPP_ENABLED = (process.env.WHATSAPP_ENABLED || "false").toLowerCase() === "true";
+async function main() {
+  // --- Initialize libsodium ---
+  try {
+    await sodium.ready;
+    console.log('[wizbi-cp] Libsodium crypto library initialized successfully.');
+  } catch (error) {
+    console.error('[wizbi-cp] FATAL: Libsodium crypto library failed to initialize.', error);
+    process.exit(1); // Exit if crypto is not available
+  }
 
-console.log("[wizbi-cp] Initializing middleware...");
-app.use(express.json({ limit: '1mb' }));
-app.use(bodyParser.json({ limit: "5mb" }));
-app.use(cors({ origin: process.env.CORS_ORIGIN || "*" }));
-console.log("[wizbi-cp] Middleware initialized.");
+  // --- App Initialization ---
+  const app = express();
+  const port = process.env.PORT || 8080;
+  const WHATSAPP_ENABLED = (process.env.WHATSAPP_ENABLED || "false").toLowerCase() === "true";
 
-// --- Register all API routes ---
-console.log("[wizbi-cp] Registering routes...");
-app.use('/api', healthRouter);
-app.use('/api', userRouter); // Now includes all user-related endpoints
-app.use('/api', projectsRouter);
-app.use('/api', orgsRouter);
-console.log("   -> Core routers registered under /api.");
+  console.log("[wizbi-cp] Initializing middleware...");
+  app.use(express.json({ limit: '1mb' }));
+  app.use(bodyParser.json({ limit: "5mb" }));
+  app.use(cors({ origin: process.env.CORS_ORIGIN || "*" }));
+  console.log("[wizbi-cp] Middleware initialized.");
 
-if (WHATSAPP_ENABLED) {
-  app.use('/', whatsappRouter);
-  console.log("   -> WhatsApp router registered at root.");
-} else {
-  console.log("   -> WhatsApp router skipped (disabled).");
+  // --- Register all API routes ---
+  console.log("[wizbi-cp] Registering routes...");
+  app.use('/api', healthRouter);
+  app.use('/api', userRouter); // Now includes all user-related endpoints
+  app.use('/api', projectsRouter);
+  app.use('/api', orgsRouter);
+  console.log("   -> Core routers registered under /api.");
+
+  if (WHATSAPP_ENABLED) {
+    app.use('/', whatsappRouter);
+    console.log("   -> WhatsApp router registered at root.");
+  } else {
+    console.log("   -> WhatsApp router skipped (disabled).");
+  }
+  console.log("[wizbi-cp] All routes registered.");
+
+  // --- Start Server ---
+  app.listen(port, () => {
+    console.log(`[wizbi-cp] Server is fully initialized and listening on :${port}`);
+  });
 }
-console.log("[wizbi-cp] All routes registered.");
 
-// --- Start Server ---
-app.listen(port, () => {
-  console.log(`[wizbi-cp] Server is fully initialized and listening on :${port}`);
-});
+main();

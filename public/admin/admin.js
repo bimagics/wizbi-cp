@@ -1,9 +1,11 @@
+// This is the full and final code for admin.js
 document.addEventListener('DOMContentLoaded', () => {
     const firebaseAuth = firebase.auth();
     const googleProvider = new firebase.auth.GoogleAuthProvider();
     let idToken = null;
     let userProfile = null;
-    let projectsRefreshInterval = null;
+    let logsRefreshInterval = null;
+    let currentlyTrackedProjectId = null;
 
     const ICONS = {
         PROJECTS: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>`,
@@ -13,7 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
         GCP: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12.0001 2.00015C11.598 2.00015 11.2012 2.11265 10.8543 2.32523L3.14511 6.8249C2.45076 7.25143 2 8.02008 2 8.8471V15.1532C2 15.9802 2.45076 16.7489 3.14511 17.1754L10.8543 21.6751C11.2012 21.8876 11.598 22.0002 12.0001 22.0002C12.4022 22.0002 12.799 21.8876 13.1459 21.6751L20.8551 17.1754C21.5495 16.7489 22.0002 15.9802 22.0002 15.1532V8.8471C22.0002 8.02008 21.5495 7.25143 20.8551 6.8249L13.1459 2.32523C12.799 2.11265 12.4022 2.00015 12.0001 2.00015ZM12.0001 3.8643L19.071 8.00015L12.0001 12.1361L4.9292 8.00015L12.0001 3.8643ZM11.0001 13.2323V19.932L4.35411 15.8232L11.0001 13.2323ZM13.0001 13.2323L19.6461 15.8232L13.0001 19.932V13.2323Z"/></svg>`,
         DELETE: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>`,
         EDIT: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>`,
-        ERROR: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width: 18px; height: 18px; color: var(--error-color);"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>`
+        ERROR: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width: 18px; height: 18px; color: var(--error-color);"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>`,
     };
 
     const DOM = {
@@ -25,24 +27,19 @@ document.addEventListener('DOMContentLoaded', () => {
         btnLogoutAdmin: document.getElementById('btnLogoutAdmin'),
         btnLogoutUnauthorized: document.getElementById('btnLogoutUnauthorized'),
         sidebarNav: document.getElementById('sidebarNav'),
-        statusLog: document.getElementById('statusLog'),
         tabs: {},
         userEditModal: document.getElementById('userEditModal'),
         userEditModalTitle: document.getElementById('userEditModalTitle'),
-        closeUserEditModal: document.getElementById('closeUserEditModal'),
         userEditForm: document.getElementById('userEditForm'),
         userEditUid: document.getElementById('userEditUid'),
         userEditSuperAdmin: document.getElementById('userEditSuperAdmin'),
         userEditOrgs: document.getElementById('userEditOrgs'),
-        cancelUserEdit: document.getElementById('cancelUserEdit'),
-        saveUserEdit: document.getElementById('saveUserEdit'),
+        liveLogContainer: document.getElementById('liveLogContainer'),
+        liveLogTitle: document.getElementById('liveLogTitle'),
+        liveLogContent: document.getElementById('liveLogContent'),
     };
     
-    const log = (message, isError = false) => {
-        DOM.statusLog.textContent = typeof message === 'string' ? message : JSON.stringify(message, null, 2);
-        DOM.statusLog.classList.toggle('error', isError);
-    };
-
+    // --- Core Functions ---
     const showView = (viewName) => {
         ['loginContainer', 'unauthorizedContainer', 'adminPanelContainer'].forEach(id => {
             DOM[id].classList.toggle('hidden', id !== viewName);
@@ -51,36 +48,30 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const callApi = async (path, options = {}) => {
         if (!idToken) throw new Error('Not authenticated');
-        try {
-            const response = await fetch(`/api${path}`, {
-                ...options,
-                headers: { 'Content-Type': 'application/json', 'X-Firebase-ID-Token': idToken, ...(options.headers || {}) }
-            });
-            const responseData = await response.json().catch(() => ({ error: 'Failed to parse JSON response' }));
-            if (!response.ok) throw new Error(responseData.error || `HTTP error! status: ${response.status}`);
-            return responseData;
-        } catch (error) {
-            log(`API Error on ${path}: ${error.message}`, true);
-            throw error;
-        }
+        const response = await fetch(`/api${path}`, {
+            ...options,
+            headers: { 'Content-Type': 'application/json', 'X-Firebase-ID-Token': idToken, ...(options.headers || {}) }
+        });
+        const responseData = await response.json().catch(() => ({ ok: false, error: 'Failed to parse JSON response' }));
+        if (!response.ok) throw new Error(responseData.error || `HTTP error! status: ${response.status}`);
+        return responseData;
     };
     
     firebaseAuth.onAuthStateChanged(async (user) => {
-        clearInterval(projectsRefreshInterval);
-        projectsRefreshInterval = null;
+        stopLiveLogs();
         if (user) {
             idToken = await user.getIdToken();
             try {
                 userProfile = await callApi('/me');
                 DOM.userEmail.textContent = user.email;
-                if (userProfile.roles?.superAdmin || (userProfile.roles?.orgAdmin && userProfile.roles.orgAdmin.length > 0)) {
+                if (userProfile.roles?.superAdmin || (userProfile.roles?.orgAdmin?.length > 0)) {
                     showView('adminPanelContainer');
                     setupDashboard();
                 } else {
                     showView('unauthorizedContainer');
                 }
             } catch (error) {
-                log('Session initialization failed. Logging out.', true);
+                console.error('Session initialization failed.', error);
                 firebaseAuth.signOut();
             }
         } else {
@@ -90,258 +81,246 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     
-    const setupDashboard = () => {
-        const navItems = [
-            { id: 'Projects', icon: ICONS.PROJECTS, load: loadProjects, adminOnly: false },
-            { id: 'Orgs', icon: ICONS.ORGS, load: loadOrgs, adminOnly: false },
-            { id: 'Users', icon: ICONS.USERS, load: loadUsers, adminOnly: true }
-        ];
-
+    function setupDashboard() {
+        const navItems = [{ id: 'Projects', icon: ICONS.PROJECTS }, { id: 'Orgs', icon: ICONS.ORGS }, { id: 'Users', icon: ICONS.USERS, adminOnly: true }];
         DOM.sidebarNav.innerHTML = '';
         navItems.forEach(item => {
             if (item.adminOnly && !userProfile.roles?.superAdmin) return;
-            
             const button = document.createElement('button');
             button.id = `btnTab${item.id}`;
             button.className = 'nav-button';
             button.innerHTML = `${item.icon}<span>${item.id}</span>`;
             button.addEventListener('click', () => switchTab(item.id));
             DOM.sidebarNav.appendChild(button);
-
             DOM.tabs[`tabContent${item.id}`] = document.getElementById(`tabContent${item.id}`);
         });
-        
         switchTab('Projects');
-        loadOrgs();
-        loadProjects();
-        if (userProfile.roles?.superAdmin) {
-            loadUsers();
-        }
-        
-        document.getElementById('btnShowCreateOrg').classList.toggle('hidden', !userProfile.roles?.superAdmin);
-    };
+        loadAllData();
+    }
     
-    const switchTab = (tabId) => {
+    function switchTab(tabId) {
         Object.values(DOM.tabs).forEach(tab => tab.classList.add('hidden'));
         document.querySelectorAll('.nav-button').forEach(btn => btn.classList.remove('active'));
-        
         DOM.tabs[`tabContent${tabId}`].classList.remove('hidden');
         document.getElementById(`btnTab${tabId}`).classList.add('active');
-    };
+        DOM.liveLogContainer.classList.toggle('hidden', tabId !== 'Projects');
+    }
     
-    let orgsCache = [];
-    const loadOrgs = async () => {
-        const spinner = document.getElementById('orgsSpinner');
-        spinner.style.display = 'block';
+    // --- Data Loading & Rendering ---
+    let projectsCache = [], orgsCache = [], usersCache = [];
+
+    async function loadAllData() {
+        await Promise.all([loadProjects(), loadOrgs()]);
+        if (userProfile.roles?.superAdmin) await loadUsers();
+    }
+    
+    async function loadProjects() {
+        try {
+            projectsCache = await callApi('/projects');
+            renderProjectsTable(projectsCache);
+        } catch(e) { console.error("Failed to load projects", e); }
+    }
+    async function loadOrgs() {
         try {
             const { items } = await callApi('/orgs');
             orgsCache = items;
             renderOrgsTable(items);
             updateOrgDropdown(items);
-        } finally {
-            spinner.style.display = 'none';
-        }
-    };
-    
-    const loadProjects = async () => {
-        const spinner = document.getElementById('projectsSpinner');
-        spinner.style.display = 'block';
-        try {
-            const items = await callApi('/projects');
-            renderProjectsTable(items);
-
-            const isProcessing = items.some(p => ['starting', 'provisioning', 'deleting'].includes(p.state));
-            if (isProcessing && !projectsRefreshInterval) {
-                projectsRefreshInterval = setInterval(loadProjects, 10000);
-            } else if (!isProcessing && projectsRefreshInterval) {
-                clearInterval(projectsRefreshInterval);
-                projectsRefreshInterval = null;
-            }
-        } finally {
-            spinner.style.display = 'none';
-        }
-    };
-
-    let usersCache = [];
-    const loadUsers = async () => {
+        } catch(e) { console.error("Failed to load orgs", e); }
+    }
+    async function loadUsers() {
         if (!userProfile.roles?.superAdmin) return;
-        const spinner = document.getElementById('usersSpinner');
-        spinner.style.display = 'block';
-        try {
-            const items = await callApi('/users');
-            usersCache = items;
-            renderUsersTable(items);
-        } finally {
-            spinner.style.display = 'none';
-        }
-    };
+        try { usersCache = await callApi('/users'); renderUsersTable(usersCache); } catch(e) { console.error("Failed to load users", e); }
+    }
 
-    const renderProjectsTable = (projects) => {
+    function renderProjectsTable(projects) {
         const tbody = document.getElementById('projectsTable').querySelector('tbody');
-        tbody.innerHTML = projects.length === 0 ? `<tr><td colspan="7">No projects found.</td></tr>` : projects.map(p => {
-            const isFailed = ['failed', 'delete_failed'].includes(p.state);
+        tbody.innerHTML = projects.length === 0 ? `<tr><td colspan="6">No projects found.</td></tr>` : projects.map(p => {
+            const state = p.state || 'N/A';
+            const isFailed = state.startsWith('failed');
+            const isProcessing = state.startsWith('provisioning') || state.startsWith('injecting');
+            
             return `
             <tr>
-                <td>${p.displayName}</td>
-                <td>${p.id}</td>
-                <td>${p.orgId}</td>
-                <td class="state-cell">
-                    <div class="state-cell-text ${p.state}">${p.state || 'N/A'}</div>
-                    ${['starting', 'provisioning', 'deleting'].includes(p.state) ? '<div class="spinner spinner-inline" style="display: block;"></div>' : ''}
+                <td data-label="Display Name">${p.displayName}</td>
+                <td data-label="Project ID">${p.id}</td>
+                <td data-label="State" class="state-cell">
+                    <div class="state-cell-text ${state}">${state.replace(/_/g, ' ')}</div>
+                    ${isProcessing ? '<div class="spinner spinner-inline" style="display: block;"></div>' : ''}
                     ${isFailed ? `<span class="error-tooltip" title="${p.error || 'Unknown error'}">${ICONS.ERROR}</span>` : ''}
                 </td>
-                <td class="links-cell">
-                    ${p.gcpProjectId ? `<a href="https://console.cloud.google.com/home/dashboard?project=${p.gcpProjectId}" target="_blank" class="icon-button" title="Open in GCP Console">${ICONS.GCP}</a>` : ''}
-                    ${p.githubRepoUrl ? `<a href="${p.githubRepoUrl}" target="_blank" class="icon-button" title="Open in GitHub">${ICONS.GITHUB}</a>` : ''}
-                </td>
-                <td>${new Date(p.createdAt).toLocaleDateString()}</td>
-                <td class="actions-cell">
-                    ${userProfile.roles?.superAdmin ? `<button class="icon-button delete" data-type="project" data-id="${p.id}" title="Delete Project">${ICONS.DELETE}</button>` : ''}
-                </td>
-            </tr>
-        `}).join('');
-    };
-    
+                <td data-label="Links" class="links-cell"><div class="links-cell-content">
+                    ${p.gcpProjectId ? `<a href="https://console.cloud.google.com/home/dashboard?project=${p.gcpProjectId}" target="_blank" class="icon-button" title="GCP Console">${ICONS.GCP}</a>` : ''}
+                    ${p.githubRepoUrl ? `<a href="${p.githubRepoUrl}" target="_blank" class="icon-button" title="GitHub Repo">${ICONS.GITHUB}</a>` : ''}
+                </div></td>
+                <td data-label="Created">${new Date(p.createdAt).toLocaleDateString()}</td>
+                <td data-label="Actions" class="actions-cell"><div class="actions-cell-content">
+                    ${renderProjectActions(p)}
+                </div></td>
+            </tr>`;
+        }).join('');
+    }
+
+    function renderProjectActions(project) {
+        if (!userProfile.roles?.superAdmin) return '';
+        const state = project.state;
+        if (state === 'pending_gcp') return `<button class="btn btn-primary" data-action="provision-gcp" data-id="${project.id}">1. Provision GCP</button>`;
+        if (state === 'pending_github') return `<button class="btn btn-primary" data-action="provision-github" data-id="${project.id}">2. Create Repo</button>`;
+        if (state === 'pending_secrets') return `<button class="btn btn-primary" data-action="finalize" data-id="${project.id}">3. Finalize</button>`;
+        if (state.startsWith('provisioning') || state.startsWith('injecting')) return 'In Progress...';
+        return `<button class="icon-button delete" data-type="project" data-id="${project.id}" title="Delete Project">${ICONS.DELETE}</button>`;
+    }
+
     const renderOrgsTable = (orgs) => {
         const tbody = document.getElementById('orgsTable').querySelector('tbody');
         tbody.innerHTML = orgs.length === 0 ? `<tr><td colspan="5">No organizations found.</td></tr>` : orgs.map(org => `
             <tr>
-                <td>${org.name}</td>
-                <td>${org.id}</td>
-                <td>${org.phone || 'N/A'}</td>
-                <td>${new Date(org.createdAt).toLocaleDateString()}</td>
-                <td class="actions-cell">
+                <td data-label="Name">${org.name}</td> <td data-label="ID">${org.id}</td> <td data-label="Phone">${org.phone || 'N/A'}</td>
+                <td data-label="Created">${new Date(org.createdAt).toLocaleDateString()}</td>
+                <td data-label="Actions" class="actions-cell"><div class="actions-cell-content">
                    ${userProfile.roles?.superAdmin ? `<button class="icon-button delete" data-type="org" data-id="${org.id}" data-name="${org.name}" title="Delete Organization">${ICONS.DELETE}</button>`: ''}
-                </td>
-            </tr>
-        `).join('');
+                </div></td>
+            </tr>`).join('');
     };
 
     const renderUsersTable = (users) => {
         const tbody = document.getElementById('usersTable').querySelector('tbody');
         tbody.innerHTML = users.length === 0 ? `<tr><td colspan="4">No users found.</td></tr>` : users.map(user => {
             const role = user.roles?.superAdmin ? 'Super Admin' : (user.roles?.orgAdmin?.length > 0 ? 'Org Admin' : 'No Role');
-            const orgNames = (user.roles?.orgAdmin || [])
-                .map(orgId => orgsCache.find(o => o.id === orgId)?.name || orgId)
-                .join(', ');
+            const orgNames = (user.roles?.orgAdmin || []).map(orgId => orgsCache.find(o => o.id === orgId)?.name || orgId).join(', ');
             return `
                 <tr>
-                    <td>${user.email}</td>
-                    <td>${role}</td>
-                    <td>${orgNames || 'N/A'}</td>
-                    <td class="actions-cell">
-                        <button class="icon-button" data-action="edit-user" data-uid="${user.uid}" title="Edit User Roles">${ICONS.EDIT}</button>
-                    </td>
-                </tr>
-            `;
+                    <td data-label="Email">${user.email}</td> <td data-label="Role">${role}</td> <td data-label="Orgs">${orgNames || 'N/A'}</td>
+                    <td data-label="Actions" class="actions-cell"><div class="actions-cell-content"><button class="icon-button" data-action="edit-user" data-uid="${user.uid}" title="Edit User Roles">${ICONS.EDIT}</button></div></td>
+                </tr>`;
         }).join('');
     };
-    
+
     const updateOrgDropdown = (orgs) => {
         const select = document.getElementById('projectOrgId');
-        const currentVal = select.value;
-        select.innerHTML = '<option value="" disabled selected>Select an Organization</option>' + orgs.map(org => `<option value="${org.id}" data-name="${org.name}">${org.name}</option>`).join('');
-        if (currentVal) select.value = currentVal;
+        select.innerHTML = '<option value="" disabled selected>Select an Organization</option>' + orgs.map(org => `<option value="${org.id}">${org.name}</option>`).join('');
     };
-    
+
+    // --- Event Listeners ---
     DOM.btnLogin.addEventListener('click', () => firebaseAuth.signInWithPopup(googleProvider));
     [DOM.btnLogoutAdmin, DOM.btnLogoutUnauthorized].forEach(btn => btn.addEventListener('click', () => firebaseAuth.signOut()));
-
     document.getElementById('btnShowCreateOrg').addEventListener('click', () => document.getElementById('formCreateOrgCard').classList.toggle('hidden'));
     document.getElementById('btnShowProvisionProject').addEventListener('click', () => document.getElementById('formProvisionProjectCard').classList.toggle('hidden'));
     
     document.getElementById('formCreateOrg').addEventListener('submit', async (e) => {
         e.preventDefault();
         const name = e.target.elements.orgName.value.trim();
-        const phone = e.target.elements.orgPhone.value.trim();
-        if(!name) { log('Organization name is required.', true); return; }
-        log(`Creating organization: ${name}...`);
+        if(!name) return;
         try {
-            await callApi('/orgs', { method: 'POST', body: JSON.stringify({ name, phone }) });
-            log('Organization created successfully!');
-            e.target.reset();
-            document.getElementById('formCreateOrgCard').classList.add('hidden');
-            await loadOrgs();
-        } catch (error) {}
+            await callApi('/orgs', { method: 'POST', body: JSON.stringify({ name, phone: e.target.elements.orgPhone.value.trim() }) });
+            e.target.reset(); document.getElementById('formCreateOrgCard').classList.add('hidden'); await loadOrgs();
+        } catch (error) { console.error("Failed to create org", error); }
     });
 
     document.getElementById('formProvisionProject').addEventListener('submit', async (e) => {
         e.preventDefault();
-        const orgId = e.target.elements.projectOrgId.value;
-        const projectId = e.target.elements.projectId.value.trim();
-        const displayName = e.target.elements.projectDisplayName.value.trim();
-        if (!orgId || !projectId || !displayName) { log('All fields are required.', true); return; }
-        if (!confirm(`Provision new project '${displayName}'?`)) return;
-        log(`Starting provisioning for '${projectId}'...`);
+        const { projectOrgId, projectId, projectDisplayName } = e.target.elements;
+        if (!projectOrgId.value || !projectId.value || !projectDisplayName.value) return;
+        
+        const body = { orgId: projectOrgId.value, projectId: projectId.value.trim().toLowerCase(), displayName: projectDisplayName.value.trim() };
+        startLiveLogs(body.projectId, `Creating project entry for ${body.projectId}...`);
         try {
-            await callApi('/projects', { method: 'POST', body: JSON.stringify({ orgId, projectId, displayName }) });
-            log('Project provisioning accepted.');
-            e.target.reset();
-            document.getElementById('formProvisionProjectCard').classList.add('hidden');
-            await loadProjects();
-        } catch (error) {}
+            await callApi('/projects', { method: 'POST', body: JSON.stringify(body) });
+            e.target.reset(); document.getElementById('formProvisionProjectCard').classList.add('hidden');
+            loadAllData();
+        } catch (error) { 
+            DOM.liveLogContent.innerHTML += `\n\n<span class="log-meta-error">Failed to create project entry: ${error.message}</span>`;
+            stopLiveLogs(false); // Stop polling but keep logs visible
+        }
     });
     
     document.getElementById('adminPanelContainer').addEventListener('click', async (e) => {
-        const deleteBtn = e.target.closest('.icon-button.delete');
-        const editUserBtn = e.target.closest('.icon-button[data-action="edit-user"]');
+        const button = e.target.closest('button[data-action], button.delete');
+        if (!button) return;
+        
+        const { action, id, uid, type, name } = button.dataset;
 
-        if (deleteBtn) {
-            const { type, id, name } = deleteBtn.dataset;
-            if (confirm(`FINAL CONFIRMATION: Are you sure you want to delete ${type} '${name || id}'? This is irreversible.`)) {
-                log(`Initiating deletion for ${type} '${id}'...`);
+        if (action?.startsWith('provision-') || action === 'finalize') {
+            startLiveLogs(id, `Starting stage: ${action}...`);
+            try {
+                await callApi(`/projects/${id}/${action}`, { method: 'POST' });
+                loadAllData(); // Refresh table to show next step
+            } catch (error) { 
+                DOM.liveLogContent.innerHTML += `\n\n<span class="log-meta-error">Action failed: ${error.message}</span>`;
+                stopLiveLogs(false);
+            }
+        } else if (action === 'edit-user') {
+            const user = usersCache.find(u => u.uid === uid); if (user) openUserEditModal(user);
+        } else if (type === 'project' || type === 'org') {
+             if (confirm(`FINAL CONFIRMATION: Are you sure you want to delete ${type} '${name || id}'? This is irreversible.`)) {
                 try {
                     await callApi(`/${type}s/${id}`, { method: 'DELETE' });
-                    log(`Deletion started for ${type} '${id}'.`);
-                    type === 'project' ? await loadProjects() : await loadOrgs();
-                } catch (error) {}
+                    loadAllData();
+                } catch (error) { console.error(`Failed to delete ${type}`, error); }
             }
         }
-        
-        if (editUserBtn) {
-            const uid = editUserBtn.dataset.uid;
-            const user = usersCache.find(u => u.uid === uid);
-            if (user) openUserEditModal(user);
-        }
     });
+
+    // --- Modals & Logs ---
+    const openModal = (modalId) => document.getElementById(modalId).classList.remove('hidden');
+    const closeModal = (modalId) => document.getElementById(modalId).classList.add('hidden');
+    document.querySelectorAll('[data-close]').forEach(el => el.addEventListener('click', () => closeModal(el.dataset.close)));
 
     const openUserEditModal = (user) => {
         DOM.userEditModalTitle.textContent = `Edit: ${user.email}`;
         DOM.userEditUid.value = user.uid;
         DOM.userEditSuperAdmin.checked = user.roles?.superAdmin === true;
-        
-        DOM.userEditOrgs.innerHTML = orgsCache.map(org => `
-            <div class="checkbox-item">
-                <input type="checkbox" id="org-${org.id}" value="${org.id}" ${user.roles?.orgAdmin?.includes(org.id) ? 'checked' : ''}>
-                <label for="org-${org.id}">${org.name}</label>
-            </div>
-        `).join('');
-        
-        DOM.userEditModal.classList.remove('hidden');
+        DOM.userEditOrgs.innerHTML = orgsCache.map(org => `<div class="checkbox-item"><input type="checkbox" id="org-${org.id}" value="${org.id}" ${user.roles?.orgAdmin?.includes(org.id) ? 'checked' : ''}><label for="org-${org.id}">${org.name}</label></div>`).join('');
+        openModal('userEditModal');
     };
-    
-    const closeUserEditModal = () => DOM.userEditModal.classList.add('hidden');
-    
-    DOM.closeUserEditModal.addEventListener('click', closeUserEditModal);
-    DOM.cancelUserEdit.addEventListener('click', closeUserEditModal);
     
     DOM.userEditForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         const uid = DOM.userEditUid.value;
-        const isSuperAdmin = DOM.userEditSuperAdmin.checked;
-        const orgAdminOf = Array.from(DOM.userEditOrgs.querySelectorAll('input:checked')).map(input => input.value);
-        
-        const updatedRoles = {
-            superAdmin: isSuperAdmin,
-            orgAdmin: orgAdminOf
-        };
-        
-        log(`Updating user ${uid}...`);
-        try {
-            await callApi(`/users/${uid}`, { method: 'PUT', body: JSON.stringify({ roles: updatedRoles }) });
-            log('User updated successfully!');
-            closeUserEditModal();
-            await loadUsers();
-        } catch (error) {}
+        const roles = { superAdmin: DOM.userEditSuperAdmin.checked, orgAdmin: Array.from(DOM.userEditOrgs.querySelectorAll('input:checked')).map(input => input.value) };
+        try { await callApi(`/users/${uid}`, { method: 'PUT', body: JSON.stringify({ roles }) }); closeModal('userEditModal'); await loadUsers(); } catch (error) {}
     });
+
+    function startLiveLogs(projectId, initialMessage = 'Fetching logs...') {
+        if (currentlyTrackedProjectId === projectId && logsRefreshInterval) return;
+        stopLiveLogs();
+        currentlyTrackedProjectId = projectId;
+        DOM.liveLogContainer.classList.remove('hidden');
+        DOM.liveLogTitle.textContent = `Live Logs: ${projectId}`;
+        DOM.liveLogContent.innerHTML = initialMessage;
+        fetchAndRenderLogs();
+        logsRefreshInterval = setInterval(fetchAndRenderLogs, 4000);
+    }
+
+    function stopLiveLogs(hide = true) {
+        clearInterval(logsRefreshInterval);
+        logsRefreshInterval = null;
+        currentlyTrackedProjectId = null;
+        if (hide) DOM.liveLogContainer.classList.add('hidden');
+    }
+
+    async function fetchAndRenderLogs() {
+        if (!currentlyTrackedProjectId) return;
+        try {
+            const { ok, logs } = await callApi(`/projects/${currentlyTrackedProjectId}/logs`);
+            if (!ok) throw new Error('Logs API call failed');
+
+            DOM.liveLogContent.innerHTML = logs.map(log => {
+                const { ts, evt, serverTimestamp, ...meta } = log;
+                const isError = evt.includes('error') || evt.includes('fail');
+                let metaString = Object.keys(meta).length > 0 ? JSON.stringify(meta, null, 2) : '';
+                return `<div class="log-entry"><span class="log-timestamp">${new Date(ts).toLocaleTimeString()}</span><span class="log-event">${evt}</span><span class="log-meta ${isError ? 'log-meta-error' : ''}">${metaString}</span></div>`;
+            }).join('');
+            DOM.liveLogContent.scrollTop = DOM.liveLogContent.scrollHeight;
+
+            const project = projectsCache.find(p => p.id === currentlyTrackedProjectId);
+            if (project && !['pending_gcp', 'pending_github', 'pending_secrets', 'provisioning_gcp', 'provisioning_github', 'injecting_secrets'].includes(project.state)) {
+                stopLiveLogs(false); // Stop polling but keep logs visible
+                loadAllData(); // Final refresh
+            }
+        } catch (error) {
+            DOM.liveLogContent.innerHTML += `\n\n<span class="log-meta-error">Could not refresh logs: ${error.message}</span>`;
+            stopLiveLogs(false);
+        }
+    };
 });

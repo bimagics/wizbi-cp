@@ -1,4 +1,5 @@
-// src/routes/projects.ts
+// --- REPLACE THE ENTIRE FILE CONTENT ---
+// File path: src/routes/projects.ts
 
 import { Router, Request, Response, NextFunction } from 'express';
 import admin from 'firebase-admin';
@@ -12,18 +13,9 @@ interface UserProfile {
   email: string;
   roles: {
     superAdmin?: boolean;
-    orgAdmin?: string[]; // Array of organization IDs they administer
+    orgAdmin?: string[];
   }
 }
-
-// --- NEW: Define a type for our project data ---
-interface Project {
-    id: string;
-    createdAt: string; // Ensure createdAt is recognized as a string
-    // Add other known project fields here if needed for type safety
-    [key: string]: any; // Allow other fields
-}
-
 
 interface AuthenticatedRequest extends Request {
   user?: admin.auth.DecodedIdToken;
@@ -36,57 +28,53 @@ const PROJECTS_COLLECTION = db.collection('projects');
 const USERS_COLLECTION = db.collection('users');
 const ORGS_COLLECTION = db.collection('orgs');
 
-// --- Utility Functions ---
-export function log(evt: string, meta: Record<string, any> = {}) {
-  console.log(JSON.stringify({ ts: new Date().toISOString(), severity: 'INFO', evt, ...meta }));
+// --- Logger ---
+async function projectLogger(projectId: string, evt: string, meta: Record<string, any> = {}) {
+    const logEntry = { ts: new Date().toISOString(), severity: 'INFO', evt, ...meta };
+    console.log(JSON.stringify({ projectId, ...logEntry }));
+    try {
+        await PROJECTS_COLLECTION.doc(projectId).collection('logs').add({
+            ...logEntry,
+            serverTimestamp: admin.firestore.FieldValue.serverTimestamp()
+        });
+    } catch (error) {
+        console.error(`Failed to write log to Firestore for project ${projectId}`, error);
+    }
 }
 
-// --- Permissions-Aware Auth Middleware ---
+// --- Auth Middleware ---
 async function verifyFirebaseToken(req: AuthenticatedRequest, res: Response, next: NextFunction) {
-  log('auth.middleware.verify_token.start');
   try {
     const token = req.headers['x-firebase-id-token'] as string || (req.headers.authorization || '').slice(7);
-    if (!token) {
-      log('auth.middleware.verify_token.error', { reason: 'Missing token' });
-      return res.status(401).json({ error: 'Missing authentication token' });
-    }
+    if (!token) return res.status(401).json({ error: 'Missing token' });
     req.user = await admin.auth().verifyIdToken(token);
-    log('auth.middleware.verify_token.success', { uid: req.user.uid });
     next();
   } catch (e: any) {
-    log('auth.middleware.verify_token.error', { error: e.message });
     res.status(401).json({ error: 'Unauthorized', detail: e.message });
   }
 }
 
 async function fetchUserProfile(req: AuthenticatedRequest, res: Response, next: NextFunction) {
-  if (!req.user) return res.status(401).json({ error: 'Authentication not performed' });
-
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
   const { uid, email } = req.user;
-  log('auth.middleware.fetch_profile.start', { uid, email });
   try {
     const userDoc = await USERS_COLLECTION.doc(uid).get();
     if (!userDoc.exists) {
-      log('auth.middleware.fetch_profile.user_not_found', { uid });
-      const newUserProfile: UserProfile = { uid, email: email || '', roles: {} }; // Default empty roles
+      const newUserProfile: UserProfile = { uid, email: email || '', roles: {} };
       await USERS_COLLECTION.doc(uid).set(newUserProfile);
       req.userProfile = newUserProfile;
-      log('auth.middleware.fetch_profile.user_created', { uid });
     } else {
       req.userProfile = userDoc.data() as UserProfile;
-      log('auth.middleware.fetch_profile.success', { uid, roles: req.userProfile.roles });
     }
     next();
   } catch (e: any) {
-    log('auth.middleware.fetch_profile.error', { uid, error: e.message, stack: e.stack });
     res.status(500).json({ error: 'Failed to fetch user profile' });
   }
 }
 
 function requireSuperAdmin(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     if (req.userProfile?.roles?.superAdmin !== true) {
-        log('auth.permission_denied.superAdmin_required', { uid: req.userProfile?.uid });
-        return res.status(403).json({ error: 'Permission denied: Super admin role required.' });
+        return res.status(403).json({ error: 'Permission denied' });
     }
     next();
 }
@@ -94,137 +82,203 @@ function requireSuperAdmin(req: AuthenticatedRequest, res: Response, next: NextF
 export const requireAuth = [verifyFirebaseToken, fetchUserProfile];
 export const requireAdminAuth = [...requireAuth, requireSuperAdmin];
 
-// --- Provisioning Engine ---
-async function provisionProject(projectId: string, displayName: string, orgId: string) {
-    const orgDoc = await ORGS_COLLECTION.doc(orgId).get();
-    if (!orgDoc.exists) {
-        const err = new Error(`Organization with ID ${orgId} not found.`);
-        (err as any).statusCode = 404;
-        throw err;
-    }
-    const orgData = orgDoc.data()!;
+// --- ROUTES ---
 
-    if (!orgData.githubTeamSlug || !orgData.gcpFolderId) {
-        throw new Error(`Organization ${orgId} is missing critical data (githubTeamSlug or gcpFolderId).`);
-    }
-
-    await PROJECTS_COLLECTION.doc(projectId).set({
-        displayName, orgId, state: 'starting', createdAt: new Date().toISOString()
-    }, { merge: true });
-
-    try {
-        const gcpProjectId = await GcpService.createGcpProjectInFolder(projectId, displayName, orgData.gcpFolderId);
-        const githubRepoUrl = await GithubService.createGithubRepo(projectId, orgData.githubTeamSlug);
-        
-        log('provision.success', { projectId, gcpProjectId, githubRepoUrl });
-
-        await PROJECTS_COLLECTION.doc(projectId).update({
-            state: 'ready',
-            gcpProjectId,
-            githubRepoUrl,
-        });
-
-        return { projectId, state: 'ready' };
-
-    } catch (error: any) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        log('provision.error.fatal', { projectId, error: errorMessage });
-        await PROJECTS_COLLECTION.doc(projectId).update({ state: 'failed', error: errorMessage });
-        throw error;
-    }
-}
-
-// --- Routes ---
+// Get all projects
 router.get('/projects', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
     try {
         let query: admin.firestore.Query | admin.firestore.CollectionReference = PROJECTS_COLLECTION;
-
         const userProfile = req.userProfile;
         if (!userProfile?.roles?.superAdmin) {
             const orgIds = userProfile?.roles?.orgAdmin || [];
-            if (orgIds.length > 0) {
-                query = query.where('orgId', 'in', orgIds);
-            } else {
-                return res.json([]);
-            }
-        } else {
-            query = query.orderBy('createdAt', 'desc');
+            if (orgIds.length === 0) return res.json([]);
+            query = query.where('orgId', 'in', orgIds);
         }
-
-        const snap = await query.limit(100).get();
-        // --- FIX: Cast the mapped data to our new Project type ---
-        const list: Project[] = snap.docs.map(d => ({ id: d.id, ...d.data() } as Project));
-        
-        if (!userProfile?.roles?.superAdmin) {
-            // --- FIX: Explicitly type a and b as Project ---
-            list.sort((a: Project, b: Project) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-        }
-
+        const snap = await query.orderBy('createdAt', 'desc').limit(100).get();
+        const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         res.json(list);
     } catch(e: any) {
-        log('projects.list.error', { error: e.message });
         res.status(500).json({ error: "Failed to list projects" });
     }
 });
 
-router.post('/projects', requireAdminAuth, async (req: AuthenticatedRequest, res: Response) => {
+// Get logs for a project
+router.get('/projects/:id/logs', requireAuth, async (req: Request, res: Response) => {
     try {
-        const { orgId, projectId, displayName } = req.body;
-        if (!orgId || !projectId || !displayName) {
-            return res.status(400).json({ error: 'orgId, projectId, and displayName are required' });
-        }
-        
-        const existingProject = await PROJECTS_COLLECTION.doc(projectId).get();
-        if (existingProject.exists) {
-            return res.status(409).json({ error: `Project with ID '${projectId}' already exists.` });
-        }
-        
-        res.status(202).json({ ok: true, message: 'Project provisioning started.', projectId });
-        
-        provisionProject(projectId, displayName.trim(), orgId)
-            .catch(error => {
-                console.error(`[FATAL] Unhandled error during async provisioning for project '${projectId}':`, error instanceof Error ? error.message : String(error));
-            });
-
+        const { id } = req.params;
+        const logsSnap = await PROJECTS_COLLECTION.doc(id).collection('logs').orderBy('serverTimestamp', 'asc').get();
+        const logs = logsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        res.json({ ok: true, logs });
     } catch (e: any) {
-        const statusCode = (e as any).statusCode || 500;
-        res.status(statusCode).json({ ok: false, error: e.message });
+        res.status(500).json({ ok: false, error: 'failed-to-get-logs' });
     }
 });
 
+// STAGE 0: Create the initial project document
+router.post('/projects', requireAdminAuth, async (req: AuthenticatedRequest, res: Response) => {
+    const { orgId, projectId, displayName } = req.body;
+    if (!orgId || !projectId || !displayName) {
+        return res.status(400).json({ error: 'All fields are required' });
+    }
+    const projectDocRef = PROJECTS_COLLECTION.doc(projectId);
 
+    if ((await projectDocRef.get()).exists) {
+        return res.status(409).json({ error: `Project '${projectId}' already exists.` });
+    }
+
+    await projectDocRef.set({
+        displayName, orgId,
+        createdAt: new Date().toISOString(),
+        state: 'pending_gcp',
+    });
+    await projectLogger(projectId, 'project.created', { displayName, orgId });
+
+    res.status(201).json({ ok: true, id: projectId });
+});
+
+// STAGE 1: Provision GCP Infrastructure
+router.post('/projects/:id/provision-gcp', requireAdminAuth, async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const log = (evt: string, meta?: Record<string, any>) => projectLogger(id, evt, meta);
+    
+    res.status(202).json({ ok: true, message: 'GCP provisioning started.' });
+
+    try {
+        const projectDoc = await PROJECTS_COLLECTION.doc(id).get();
+        if (!projectDoc.exists) throw new Error('Project not found.');
+
+        const { displayName, orgId } = projectDoc.data()!;
+        const orgDoc = await ORGS_COLLECTION.doc(orgId).get();
+        if (!orgDoc.exists || !orgDoc.data()!.gcpFolderId) throw new Error('Organization data is invalid.');
+        
+        await PROJECTS_COLLECTION.doc(id).update({ state: 'provisioning_gcp' });
+        log('gcp.provision.start');
+        
+        const gcpInfra = await GcpService.provisionProjectInfrastructure(id, displayName, orgDoc.data()!.gcpFolderId);
+        
+        await PROJECTS_COLLECTION.doc(id).update({
+            state: 'pending_github',
+            gcpProjectId: gcpInfra.projectId,
+            gcpProjectNumber: gcpInfra.projectNumber,
+            gcpServiceAccount: gcpInfra.serviceAccountEmail,
+            gcpWifProvider: gcpInfra.wifProviderName
+        });
+        log('gcp.provision.success', gcpInfra);
+
+    } catch (e: any) {
+        await PROJECTS_COLLECTION.doc(id).update({ state: 'failed_gcp', error: e.message });
+        log('gcp.provision.failed', { error: e.message, stack: e.stack });
+    }
+});
+
+// STAGE 2: Provision GitHub Repository
+router.post('/projects/:id/provision-github', requireAdminAuth, async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const log = (evt: string, meta?: Record<string, any>) => projectLogger(id, evt, meta);
+
+    res.status(202).json({ ok: true, message: 'GitHub provisioning started.' });
+
+    try {
+        const projectDoc = await PROJECTS_COLLECTION.doc(id).get();
+        if (!projectDoc.exists) throw new Error('Project not found.');
+        
+        const { orgId } = projectDoc.data()!;
+        const orgDoc = await ORGS_COLLECTION.doc(orgId).get();
+        if (!orgDoc.exists || !orgDoc.data()!.githubTeamSlug) throw new Error('Organization data is invalid.');
+        
+        await PROJECTS_COLLECTION.doc(id).update({ state: 'provisioning_github' });
+        log('github.provision.start');
+        
+        const githubRepo = await GithubService.createGithubRepoFromTemplate(id, orgDoc.data()!.githubTeamSlug);
+        
+        await PROJECTS_COLLECTION.doc(id).update({
+            state: 'pending_secrets',
+            githubRepoUrl: githubRepo.url
+        });
+        log('github.provision.success', githubRepo);
+
+    } catch (e: any) {
+        await PROJECTS_COLLECTION.doc(id).update({ state: 'failed_github', error: e.message });
+        log('github.provision.failed', { error: e.message, stack: e.stack });
+    }
+});
+
+// STAGE 3: Inject Secrets and Finalize
+router.post('/projects/:id/finalize', requireAdminAuth, async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const log = (evt: string, meta?: Record<string, any>) => projectLogger(id, evt, meta);
+
+    res.status(202).json({ ok: true, message: 'Finalization started.' });
+
+    try {
+        await PROJECTS_COLLECTION.doc(id).update({ state: 'injecting_secrets' });
+        log('finalize.start');
+        
+        const projectDoc = await PROJECTS_COLLECTION.doc(id).get();
+        const projectData = projectDoc.data();
+        if (!projectData) throw new Error("Project data not found");
+
+        // --- FIX: Add validation for required fields before creating secrets ---
+        if (!projectData.gcpProjectId || !projectData.gcpWifProvider || !projectData.gcpServiceAccount) {
+            throw new Error('Project document is missing required GCP data for finalization. GCP provisioning may have failed.');
+        }
+
+        const secretsToCreate = {
+            GCP_PROJECT_ID: projectData.gcpProjectId,
+            GCP_REGION: process.env.GCP_DEFAULT_REGION || 'europe-west1',
+            WIF_PROVIDER: projectData.gcpWifProvider,
+            DEPLOYER_SA: projectData.gcpServiceAccount,
+        };
+        await GithubService.createRepoSecrets(id, secretsToCreate);
+        
+        await PROJECTS_COLLECTION.doc(id).update({ state: 'ready' });
+        log('finalize.success');
+
+    } catch (e: any) {
+        await PROJECTS_COLLECTION.doc(id).update({ state: 'failed_secrets', error: e.message });
+        log('finalize.failed', { error: e.message, stack: e.stack });
+    }
+});
+
+// DELETE a project
 router.delete('/projects/:id', requireAdminAuth, async (req: Request, res: Response) => {
     const { id } = req.params;
-    log('project.delete.received', { projectId: id });
+    const log = (evt: string, meta?: Record<string, any>) => projectLogger(id, evt, meta);
 
     try {
         const projectDoc = await PROJECTS_COLLECTION.doc(id).get();
         if (!projectDoc.exists) {
             return res.status(404).json({ error: 'Project not found' });
         }
-
-        await PROJECTS_COLLECTION.doc(id).update({ state: 'deleting' });
-
+        await log('project.delete.received');
+        
+        // Fire-and-forget deletion process
         (async () => {
             try {
+                await PROJECTS_COLLECTION.doc(id).update({ state: 'deleting' });
                 await GcpService.deleteGcpProject(id);
                 await GithubService.deleteGithubRepo(id);
                 await PROJECTS_COLLECTION.doc(id).delete();
-                log('project.delete.success', { projectId: id });
+                log('project.delete.success');
             } catch (error: any) {
-                const errorMessage = error instanceof Error ? error.message : String(error);
-                log('project.delete.error.fatal', { projectId: id, error: errorMessage });
+                const errorMessage = error.message || 'Unknown error during deletion';
                 await PROJECTS_COLLECTION.doc(id).update({ state: 'delete_failed', error: errorMessage });
+                log('project.delete.failed', { error: errorMessage });
             }
         })();
 
         res.status(202).json({ ok: true, message: 'Project deletion started.' });
 
     } catch (e: any) {
-        log('project.delete.error.initial', { projectId: id, error: e.message });
+        await log('project.delete.initial_error', { error: (e as Error).message });
         res.status(500).json({ ok: false, error: 'Failed to start project deletion.' });
     }
 });
 
 
 export default router;
+
+// Re-exporting log for use in other services
+export const log = (evt: string, meta: Record<string, any> = {}) => {
+  console.log(JSON.stringify({ ts: new Date().toISOString(), severity: 'INFO', evt, ...meta }));
+}

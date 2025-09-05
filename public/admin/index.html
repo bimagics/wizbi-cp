@@ -60,14 +60,14 @@
               <div class="form-group"><label for="projectOrgId">Organization</label><select id="projectOrgId" required></select></div>
               <div class="form-group"><label for="projectDisplayName">Display Name</label><input type="text" id="projectDisplayName" placeholder="e.g., 'Acme Website'" required></div>
               <div class="form-group"><label for="projectId">Project ID</label><input type="text" id="projectId" placeholder="Unique Project ID" required pattern="^[a-z0-9-]{6,}$" title="Must be at least 6 characters, and can only contain lowercase letters, numbers, and hyphens."></div>
-              <button type="submit" class="btn btn-primary">Provision</button>
+              <button type="submit" class="btn btn-primary">Create Project</button>
             </form>
         </div>
         <div class="card">
           <div id="projectsSpinner" class="spinner"></div>
           <div class="table-wrapper">
             <table id="projectsTable" class="data-table">
-              <thead><tr><th>Display Name</th><th>Project ID</th><th>Org ID</th><th>State</th><th>Links</th><th>Created</th><th>Actions</th></tr></thead>
+              <thead><tr><th>Display Name</th><th>Project ID</th><th>State</th><th>Links</th><th>Created</th><th>Actions</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -113,7 +113,10 @@
         </div>
       </div>
 
-      <pre id="statusLog" class="status-log">Welcome! System is ready.</pre>
+      <div id="liveLogContainer" class="card hidden">
+        <h3 id="liveLogTitle">Live Process Logs</h3>
+        <pre id="liveLogContent" class="status-log"></pre>
+      </div>
     </main>
   </div>
 
@@ -121,24 +124,18 @@
     <div class="modal-content">
       <div class="modal-header">
         <h3 id="userEditModalTitle">Edit User</h3>
-        <button id="closeUserEditModal" class="close-button">&times;</button>
+        <button class="close-button" data-close="userEditModal">&times;</button>
       </div>
       <div class="modal-body">
         <form id="userEditForm">
           <input type="hidden" id="userEditUid">
-          <div class="form-group">
-            <label>Role</label>
-            <div class="checkbox-item"><input type="checkbox" id="userEditSuperAdmin"><label for="userEditSuperAdmin">Super Admin</label></div>
-          </div>
-          <div class="form-group">
-            <label>Organization Admin</label>
-            <div id="userEditOrgs" class="checkbox-group"></div>
-          </div>
+          <div class="form-group"><label>Role</label><div class="checkbox-item"><input type="checkbox" id="userEditSuperAdmin"><label for="userEditSuperAdmin">Super Admin</label></div></div>
+          <div class="form-group"><label>Organization Admin</label><div id="userEditOrgs" class="checkbox-group"></div></div>
         </form>
       </div>
       <div class="modal-footer">
-        <button id="cancelUserEdit" type="button" class="btn btn-secondary">Cancel</button>
-        <button id="saveUserEdit" type="submit" form="userEditForm" class="btn btn-primary">Save Changes</button>
+        <button type="button" class="btn btn-secondary" data-close="userEditModal">Cancel</button>
+        <button type="submit" form="userEditForm" class="btn btn-primary">Save Changes</button>
       </div>
     </div>
   </div>

@@ -300,3 +300,89 @@ html, body {
     justify-content: flex-end;
   }
 }
+
+/* --- Added at the end of the file --- */
+
+/* Log Modal Specific Styles */
+.modal-content.modal-lg {
+  max-width: 900px;
+}
+
+#logsModalContent {
+  max-height: 60vh;
+  overflow-y: auto;
+  background-color: #0d1117;
+  color: #c9d1d9;
+  font-family: 'SF Mono', 'Fira Code', 'Fira Mono', 'Roboto Mono', monospace;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  padding: 1rem;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.log-entry {
+  display: flex;
+  gap: 1.5rem;
+  border-bottom: 1px solid #2a3546;
+  padding: 0.25rem 0;
+}
+.log-timestamp {
+  color: #8b949e;
+  flex-shrink: 0;
+}
+.log-event {
+  color: #58a6ff;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+.log-meta {
+  color: #c9d1d9;
+}
+
+/* New Icon Button for Logs */
+.icon-button.logs:hover {
+  color: #a5b4fc; /* text-accent */
+}
+
+/* --- Live Log Viewer Styles --- */
+#liveLogContainer {
+  margin-top: 2rem;
+  border-color: var(--primary-color);
+}
+#liveLogContent {
+  max-height: 400px;
+  overflow-y: auto;
+  background-color: #0d1117;
+  color: #c9d1d9;
+  font-family: 'SF Mono', 'Fira Code', 'Fira Mono', 'Roboto Mono', monospace;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  padding: 1rem;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin-top: 0;
+}
+.log-entry {
+  display: flex;
+  gap: 1.5rem;
+  padding: 0.25rem 0;
+}
+.log-timestamp {
+  color: #8b949e;
+  flex-shrink: 0;
+}
+.log-event {
+  color: #58a6ff;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+.log-meta {
+  color: #c9d1d9;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.log-meta-error {
+  color: var(--error-color);
+}
