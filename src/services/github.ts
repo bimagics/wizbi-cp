@@ -4,6 +4,9 @@ import { createAppAuth } from "@octokit/auth-app";
 import { log } from '../routes/projects';
 
 const GITHUB_OWNER = process.env.GITHUB_OWNER || 'bimagics';
+// --- NEW: Define the template repository to be used for new projects ---
+const GITHUB_TEMPLATE_REPO = 'wizbi-template-mono'; // <-- IMPORTANT: Create this template repo in your GitHub org
+
 let octokit: Octokit;
 
 async function getAuthenticatedClient(): Promise<Octokit> {
@@ -28,22 +31,32 @@ export async function createGithubTeam(orgName: string): Promise<{ id: number; s
     return { id: team.id, slug: team.slug };
 }
 
+// --- MODIFIED: This function now creates a repository from our defined template ---
 export async function createGithubRepo(projectName: string, teamSlug: string): Promise<string> {
     const client = await getAuthenticatedClient();
     
-    log('github.repo.create.start', { repoName: projectName });
-    const { data: repo } = await client.repos.createInOrg({
-        org: GITHUB_OWNER,
+    log('github.repo.create_from_template.start', {
+        templateRepo: GITHUB_TEMPLATE_REPO,
+        newRepoName: projectName,
+        owner: GITHUB_OWNER
+    });
+
+    const { data: repo } = await client.repos.createUsingTemplate({
+        template_owner: GITHUB_OWNER,
+        template_repo: GITHUB_TEMPLATE_REPO,
+        owner: GITHUB_OWNER,
         name: projectName,
         private: true,
     });
-    log('github.repo.create.success', { repoName: repo.name });
 
+    log('github.repo.create_from_template.success', { repoName: repo.name, repoUrl: repo.html_url });
+
+    // Add the organization's admin team to the new repository
     log('github.repo.permission.start', { repoName: repo.name, teamSlug });
     await client.teams.addOrUpdateRepoPermissionsInOrg({
         org: GITHUB_OWNER,
-        owner: GITHUB_OWNER,
         team_slug: teamSlug,
+        owner: GITHUB_OWNER, // 'owner' is technically redundant here but good for clarity
         repo: repo.name,
         permission: 'admin',
     });
@@ -51,6 +64,7 @@ export async function createGithubRepo(projectName: string, teamSlug: string): P
 
     return repo.html_url;
 }
+
 
 export async function deleteGithubRepo(repoName: string): Promise<void> {
     const client = await getAuthenticatedClient();
@@ -71,7 +85,6 @@ export async function deleteGithubRepo(repoName: string): Promise<void> {
     }
 }
 
-// --- NEW TEAM DELETE FUNCTION ---
 export async function deleteGithubTeam(teamSlug: string): Promise<void> {
     const client = await getAuthenticatedClient();
     log('github.team.delete.start', { teamSlug });
