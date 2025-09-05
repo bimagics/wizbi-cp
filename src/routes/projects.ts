@@ -34,7 +34,6 @@ const USERS_COLLECTION = db.collection('users');
 const ORGS_COLLECTION = db.collection('orgs');
 
 // --- Enhanced Logger ---
-// This logger writes to both console and a specific project's log subcollection in Firestore.
 async function projectLogger(projectId: string, evt: string, meta: Record<string, any> = {}) {
     const timestamp = new Date();
     const logEntry = {
@@ -44,14 +43,12 @@ async function projectLogger(projectId: string, evt: string, meta: Record<string
         ...meta
     };
 
-    // Log to console for real-time server monitoring
     console.log(JSON.stringify({ projectId, ...logEntry }));
 
-    // Persist log to Firestore for UI display
     try {
         await PROJECTS_COLLECTION.doc(projectId).collection('logs').add({
             ...logEntry,
-            serverTimestamp: admin.firestore.FieldValue.serverTimestamp() // For accurate ordering
+            serverTimestamp: admin.firestore.FieldValue.serverTimestamp()
         });
     } catch (error) {
         console.error(`Failed to write log to Firestore for project ${projectId}`, error);
@@ -61,7 +58,6 @@ async function projectLogger(projectId: string, evt: string, meta: Record<string
 
 // --- Auth Middleware ---
 async function verifyFirebaseToken(req: AuthenticatedRequest, res: Response, next: NextFunction) {
-  // Using a simplified console log for auth events as they aren't project-specific.
   console.log(JSON.stringify({ ts: new Date().toISOString(), evt: 'auth.middleware.verify_token.start' }));
   try {
     const token = req.headers['x-firebase-id-token'] as string || (req.headers.authorization || '').slice(7);
@@ -179,7 +175,7 @@ router.get('/projects', requireAuth, async (req: AuthenticatedRequest, res: Resp
 });
 
 // --- NEW ROUTE: Get logs for a specific project ---
-router.get('/projects/:id/logs', requireAuth, async (req, res) => {
+router.get('/projects/:id/logs', requireAuth, async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
         const logsSnap = await PROJECTS_COLLECTION.doc(id).collection('logs').orderBy('serverTimestamp', 'asc').get();
@@ -234,8 +230,6 @@ router.delete('/projects/:id', requireAdminAuth, async (req: Request, res: Respo
 
                 await log('project.delete.firestore_cleanup.start');
                 await PROJECTS_COLLECTION.doc(id).delete();
-                // Note: Logs subcollection is not deleted automatically, which is often desired for post-mortem.
-                // A more complex cleanup function would be needed to delete subcollections.
                 log('project.delete.firestore_cleanup.success');
             } catch (error: any) {
                 const errorMessage = error instanceof Error ? error.message : String(error);
