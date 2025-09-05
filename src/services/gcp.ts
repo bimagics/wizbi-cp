@@ -170,6 +170,11 @@ async function createServiceAccount(iam: iam_v1.Iam, projectId: string, saEmail:
             },
         });
         log('gcp.sa.create.success', { saEmail });
+        
+        // **CRITICAL FIX:** Wait for 10 seconds to allow the new SA to propagate through GCP IAM systems.
+        log('gcp.sa.create.propagating', { delay: 10000 });
+        await new Promise(resolve => setTimeout(resolve, 10000));
+
     } catch (error: any) {
         if (error.code === 409) {
             log('gcp.sa.create.already_exists', { saEmail });
