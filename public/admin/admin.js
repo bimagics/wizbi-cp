@@ -1,4 +1,3 @@
-// This is the full and final code for admin.js
 document.addEventListener('DOMContentLoaded', () => {
     const firebaseAuth = firebase.auth();
     const googleProvider = new firebase.auth.GoogleAuthProvider();
@@ -40,6 +39,11 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     
     // --- Core Functions ---
+    const showView = (viewName) => {
+        ['loginContainer', 'unauthorizedContainer', 'adminPanelContainer'].forEach(id => {
+            DOM[id].classList.toggle('hidden', id !== viewName);
+        });
+    };
 
     const callApi = async (path, options = {}) => {
         if (!idToken) throw new Error('Not authenticated');
