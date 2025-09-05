@@ -1,5 +1,5 @@
 # WIZBI Control Plane 🚀
-
+ 
 ## 1. Vision & Mission
 
 **Our Mission:** To build a Platform-as-a-Service (PaaS) that acts as an "Operating System for Businesses" on the Google Cloud Platform (GCP).
