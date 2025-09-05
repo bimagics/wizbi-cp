@@ -1,3 +1,6 @@
+# --- REPLACE THE ENTIRE FILE CONTENT ---
+# File: tools/bootstrap_cp.sh
+
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -57,11 +60,16 @@ for ROLE in roles/run.admin roles/artifactregistry.writer roles/cloudbuild.build
 done
 
 echo ">>> Grant minimal roles to Runner SA"
-for ROLE in roles/secretmanager.secretAccessor roles/datastore.user; do
+# MODIFICATION: Added roles/iam.workloadIdentityPoolAdmin and roles/firebase.admin to the runner SA
+# This allows the control plane to manage WIF providers in the central pool and manage firebase projects.
+# The other necessary permissions (projectCreator, billing.user etc) must be granted manually on the parent folder/org.
+for ROLE in roles/secretmanager.secretAccessor roles/datastore.user roles/iam.workloadIdentityPoolAdmin roles/firebase.admin; do
   gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$RUNNER_SA" --role="$ROLE" --quiet || true
 done
 
 echo ">>> Grant factory roles (for later org provisioning)"
+# NOTE: To allow project creation, the RUNNER_SA (not factory) needs these roles on the parent Folder/Organization.
+# This must be done manually after the bootstrap script runs.
 for ROLE in roles/resourcemanager.projectCreator roles/billing.user roles/serviceusage.serviceUsageAdmin; do
   gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$FACTORY_SA" --role="$ROLE" --quiet || true
 done
@@ -86,6 +94,7 @@ gcloud iam service-accounts add-iam-policy-binding "$DEPLOYER_SA" \
 
 WIF_PROVIDER_PATH="projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${WIF_POOL}/providers/${WIF_PROVIDER}"
 echo "WIF_PROVIDER=${WIF_PROVIDER_PATH}"
+echo "GCP_CONTROL_PLANE_PROJECT_NUMBER=${PROJECT_NUMBER}"
 
 echo ">>> (Optional) Firebase setup — requires firebase-tools login"
 if ! command -v firebase >/dev/null 2>&1; then
@@ -117,11 +126,25 @@ Bootstrap finished.
 
 Add these GitHub Action secrets to your repo (Settings → Secrets → Actions):
 
-  GCP_PROJECT_ID   = $PROJECT_ID
-  GCP_REGION       = $REGION
-  WIF_PROVIDER     = $WIF_PROVIDER_PATH
-  DEPLOYER_SA      = $DEPLOYER_SA
-  (optional) FIREBASE_TOKEN = output of 'firebase login:ci'
+  GCP_PROJECT_ID                 = $PROJECT_ID
+  GCP_REGION                     = $REGION
+  WIF_PROVIDER                   = $WIF_PROVIDER_PATH
+  DEPLOYER_SA                    = $DEPLOYER_SA
+  GCP_CONTROL_PLANE_PROJECT_NUMBER = $PROJECT_NUMBER  <-- NEW AND IMPORTANT
+  (optional) FIREBASE_TOKEN      = output of 'firebase login:ci'
+
+IMPORTANT MANUAL STEP:
+The service account for the control plane ('$RUNNER_SA')
+needs permissions to create projects in your organization. Grant it the following
+roles on the GCP Folder or Organization where new projects will be created:
+  - Project Creator
+  - Billing User
+
+Example command:
+gcloud resource-manager folders add-iam-policy-binding YOUR_FOLDER_ID \\
+  --member="serviceAccount:$RUNNER_SA" --role="roles/resourcemanager.projectCreator"
+gcloud resource-manager folders add-iam-policy-binding YOUR_FOLDER_ID \\
+  --member="serviceAccount:$RUNNER_SA" --role="roles/billing.user"
 
 Then push to 'dev' to deploy QA (cp-unified-qa), or 'main' for Prod (cp-unified).
 ==============================================================
