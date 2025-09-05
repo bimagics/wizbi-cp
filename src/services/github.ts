@@ -1,142 +1,273 @@
-// File path: src/services/github.ts
+// File path: src/services/gcp.ts
 
-import { Octokit } from '@octokit/rest';
-import { getSecret } from './secrets';
-import { createAppAuth } from "@octokit/auth-app";
+import { google, cloudresourcemanager_v3, iam_v1, serviceusage_v1, firebase_v1beta1 } from 'googleapis';
 import { log } from '../routes/projects';
-import sodium from 'libsodium-wrappers';
+import * as GcpLegacyService from './gcp_legacy';
 
+const GCP_FOLDER_ID = process.env.GCP_FOLDER_ID || '';
+const BILLING_ACCOUNT_ID = process.env.BILLING_ACCOUNT_ID || '';
 const GITHUB_OWNER = process.env.GITHUB_OWNER || 'bimagics';
-const GITHUB_TEMPLATE_REPO = 'wizbi-template-mono';
 
-let octokit: Octokit;
-
-// --- Interfaces for structured data ---
-interface GitHubTeam {
-    id: number;
-    slug: string;
+// Helper to get authenticated client
+async function getAuth() {
+    return google.auth.getClient({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
 }
 
-interface GitHubRepo {
-    name: string;
-    url: string;
-}
-
-interface RepoSecrets {
-    [key: string]: string;
-}
-
-async function getAuthenticatedClient(): Promise<Octokit> {
-    if (octokit) return octokit;
-    const appId = await getSecret('GITHUB_APP_ID');
-    const privateKey = await getSecret('GITHUB_PRIVATE_KEY');
-    const installationId = await getSecret('GITHUB_INSTALLATION_ID');
-    
-    const auth = await createAppAuth({ appId: Number(appId), privateKey, installationId: Number(installationId) });
-    const { token } = await auth({ type: "installation" });
-
-    octokit = new Octokit({ auth: token });
-    return octokit;
-}
-
-export async function createGithubTeam(orgName: string): Promise<GitHubTeam> {
-    const client = await getAuthenticatedClient();
-    const slug = orgName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-    log('github.team.create.start', { orgName, slug });
-    const { data: team } = await client.teams.create({ org: GITHUB_OWNER, name: `${orgName} Admins`, privacy: 'closed' });
-    log('github.team.create.success', { teamId: team.id, teamSlug: team.slug });
-    return { id: team.id, slug: team.slug };
-}
-
-export async function createGithubRepoFromTemplate(projectName: string, teamSlug: string): Promise<GitHubRepo> {
-    const client = await getAuthenticatedClient();
-    
-    log('github.repo.create_from_template.start', { newRepoName: projectName });
-    const { data: repo } = await client.repos.createUsingTemplate({
-        template_owner: GITHUB_OWNER,
-        template_repo: GITHUB_TEMPLATE_REPO,
-        owner: GITHUB_OWNER,
-        name: projectName,
-        private: true,
-    });
-    log('github.repo.create_from_template.success', { repoName: repo.name });
-
-    log('github.repo.permission.start', { repoName: repo.name, teamSlug });
-    await client.teams.addOrUpdateRepoPermissionsInOrg({
-        org: GITHUB_OWNER,
-        team_slug: teamSlug,
-        repo: repo.name,
-        permission: 'admin',
-    });
-    log('github.repo.permission.success', { repoName: repo.name });
-
-    return { name: repo.name, url: repo.html_url };
+// --- Interfaces for structured return types ---
+export interface ProvisionResult {
+    projectId: string;
+    projectNumber: string;
+    serviceAccountEmail: string;
+    wifProviderName: string;
 }
 
 /**
- * Creates or updates GitHub Actions secrets in a repository.
- * Secrets are encrypted using the repository's public key before being sent.
+ * A comprehensive function to provision a new GCP project with all necessary infrastructure.
+ * This function is designed to be idempotent where possible.
  */
-export async function createRepoSecrets(repoName: string, secrets: RepoSecrets): Promise<void> {
-    const client = await getAuthenticatedClient();
-    log('github.secrets.create.start', { repoName, secrets: Object.keys(secrets) });
+export async function provisionProjectInfrastructure(projectId: string, displayName: string, folderId: string): Promise<ProvisionResult> {
+    const auth = await getAuth();
+    const crm = google.cloudresourcemanager({ version: 'v3', auth });
+    const iam = google.iam({ version: 'v1', auth });
+    const serviceUsage = google.serviceusage({ version: 'v1', auth });
+    const firebase = google.firebase({ version: 'v1beta1', auth });
 
-    const { data: publicKey } = await client.actions.getRepoPublicKey({
-        owner: GITHUB_OWNER,
-        repo: repoName,
+    // --- 1. Create Project (if not exists) and Link Billing ---
+    await createProjectAndLinkBilling(crm, projectId, displayName, folderId);
+    const projectNumber = await getProjectNumber(crm, projectId);
+
+    // --- 2. Enable Required APIs ---
+    await enableProjectApis(serviceUsage, projectId);
+
+    // --- 3. Add Firebase to the Project ---
+    await addFirebase(firebase, projectId);
+
+    // --- 4. Create CI/CD Service Account ---
+    const saEmail = `github-deployer@${projectId}.iam.gserviceaccount.com`;
+    await createServiceAccount(iam, projectId, saEmail);
+
+    // --- 5. Grant IAM Roles to the new Service Account ---
+    await grantRolesToServiceAccount(crm, projectId, saEmail);
+
+    // --- 6. Set up Workload Identity Federation (WIF) ---
+    const wifProviderName = await setupWif(iam, projectId, projectNumber, saEmail);
+
+    log('gcp.provision.success', { projectId });
+    return {
+        projectId,
+        projectNumber,
+        serviceAccountEmail: saEmail,
+        wifProviderName,
+    };
+}
+
+
+// --- Helper Sub-functions ---
+
+async function createProjectAndLinkBilling(crm: cloudresourcemanager_v3.Cloudresourcemanager, projectId: string, displayName: string, folderId: string) {
+    log('gcp.project.create.start', { projectId, parent: folderId });
+    try {
+        const createOp = await crm.projects.create({
+            requestBody: { projectId, displayName, parent: `folders/${folderId}` },
+        });
+        await pollOperation(crm, createOp.data.name!);
+        log('gcp.project.create.success', { projectId });
+    } catch (error: any) {
+        if (error.code === 409) {
+            log('gcp.project.create.already_exists', { projectId });
+        } else {
+            throw error;
+        }
+    }
+
+    log('gcp.billing.link.start', { projectId });
+    const billing = google.cloudbilling({ version: 'v1', auth: await getAuth() });
+    await billing.projects.updateBillingInfo({
+        name: `projects/${projectId}`,
+        requestBody: { billingAccountName: `billingAccounts/${BILLING_ACCOUNT_ID}` },
+    });
+    log('gcp.billing.link.success', { projectId });
+}
+
+async function getProjectNumber(crm: cloudresourcemanager_v3.Cloudresourcemanager, projectId: string): Promise<string> {
+    const project = await crm.projects.get({ name: `projects/${projectId}` });
+    const projectNumber = project.data.name?.split('/')[1];
+    if (!projectNumber) throw new Error(`Could not retrieve project number for ${projectId}`);
+    return projectNumber;
+}
+
+async function enableProjectApis(serviceUsage: serviceusage_v1.Serviceusage, projectId: string) {
+    const apis = [
+        'run.googleapis.com', 'iam.googleapis.com', 'artifactregistry.googleapis.com',
+        'cloudbuild.googleapis.com', 'firebase.googleapis.com', 'firestore.googleapis.com',
+        'cloudresourcemanager.googleapis.com', 'iamcredentials.googleapis.com',
+        'serviceusage.googleapis.com', 'firebasehosting.googleapis.com'
+    ];
+    log('gcp.api.enable.start', { projectId, apis });
+    const parent = `projects/${projectId}`;
+    const enableOp = await serviceUsage.services.batchEnable({
+        parent,
+        requestBody: { serviceIds: apis },
+    });
+    await pollOperation(serviceUsage, enableOp.data.name!);
+    log('gcp.api.enable.success', { projectId });
+}
+
+async function addFirebase(firebase: firebase_v1beta1.Firebase, projectId: string) {
+    log('gcp.firebase.add.start', { projectId });
+    try {
+        await firebase.projects.addFirebase({ project: `projects/${projectId}` });
+        log('gcp.firebase.add.success', { projectId });
+
+        const hosting = google.firebasehosting({ version: 'v1beta1', auth: await getAuth() });
+        // **FIX:** The `siteId` is passed as a query parameter, not in the request body.
+        await hosting.projects.sites.create({
+            parent: `projects/${projectId}`,
+            siteId: projectId, // Use the project ID as the default site ID
+        });
+        log('gcp.firebase.hosting_site.create.success', { projectId, siteId: projectId });
+
+    } catch (error: any) {
+        if (error.code === 409) {
+            log('gcp.firebase.add.already_exists', { projectId });
+        } else {
+            log('gcp.firebase.add.initial_fail_retrying', { projectId, error: error.message });
+            await new Promise(resolve => setTimeout(resolve, 15000));
+            await firebase.projects.addFirebase({ project: `projects/${projectId}` });
+            log('gcp.firebase.add.retry_success', { projectId });
+        }
+    }
+}
+
+async function createServiceAccount(iam: iam_v1.Iam, projectId: string, saEmail: string) {
+    log('gcp.sa.create.start', { saEmail });
+    try {
+        await iam.projects.serviceAccounts.create({
+            name: `projects/${projectId}`,
+            requestBody: {
+                accountId: saEmail.split('@')[0],
+                serviceAccount: { displayName: 'GitHub Actions Deployer' },
+            },
+        });
+        log('gcp.sa.create.success', { saEmail });
+    } catch (error: any) {
+        if (error.code === 409) {
+            log('gcp.sa.create.already_exists', { saEmail });
+        } else {
+            throw error;
+        }
+    }
+}
+
+async function grantRolesToServiceAccount(crm: cloudresourcemanager_v3.Cloudresourcemanager, projectId: string, saEmail: string) {
+    const roles = [
+        'roles/run.admin', 'roles/artifactregistry.writer',
+        'roles/firebase.admin', 'roles/iam.serviceAccountUser'
+    ];
+    log('gcp.iam.grant.start', { saEmail, roles });
+    const resource = `projects/${projectId}`;
+    const { data: policy } = await crm.projects.getIamPolicy({ resource });
+    
+    if (!policy.bindings) {
+        policy.bindings = [];
+    }
+
+    roles.forEach(role => {
+        let binding = policy.bindings!.find(b => b.role === role);
+        if (binding) {
+            if (!binding.members?.includes(`serviceAccount:${saEmail}`)) {
+                 binding.members?.push(`serviceAccount:${saEmail}`);
+            }
+        } else {
+            policy.bindings!.push({
+                role,
+                members: [`serviceAccount:${saEmail}`],
+            });
+        }
     });
 
-    await sodium.ready;
+    await crm.projects.setIamPolicy({ resource, requestBody: { policy } });
+    log('gcp.iam.grant.success', { saEmail });
+}
 
-    for (const secretName in secrets) {
-        const secretValue = secrets[secretName];
-        
-        const messageBytes = Buffer.from(secretValue);
-        const keyBytes = Buffer.from(publicKey.key, 'base64');
-        
-        const encryptedBytes = sodium.crypto_box_seal(messageBytes, keyBytes);
-        const encryptedBase64 = Buffer.from(encryptedBytes).toString('base64');
+async function setupWif(iam: iam_v1.Iam, projectId: string, projectNumber: string, saEmail: string): Promise<string> {
+    const poolId = 'github-pool';
+    const providerId = 'github-provider';
+    const poolPath = `projects/${projectNumber}/locations/global/workloadIdentityPools/${poolId}`;
 
-        await client.actions.createOrUpdateRepoSecret({
-            owner: GITHUB_OWNER,
-            repo: repoName,
-            secret_name: secretName,
-            encrypted_value: encryptedBase64,
-            key_id: publicKey.key_id,
+    log('gcp.wif.pool.create.start', { poolId });
+    try {
+        await iam.projects.locations.workloadIdentityPools.create({
+            parent: `projects/${projectId}/locations/global`,
+            workloadIdentityPoolId: poolId,
+            requestBody: { displayName: 'GitHub Actions Pool' },
         });
-        log('github.secrets.create.success', { repoName, secretName });
-    }
-}
-
-
-// --- Deletion Functions ---
-
-export async function deleteGithubRepo(repoName: string): Promise<void> {
-    const client = await getAuthenticatedClient();
-    log('github.repo.delete.start', { repoName });
-    try {
-        await client.repos.delete({ owner: GITHUB_OWNER, repo: repoName });
-        log('github.repo.delete.success', { repoName });
     } catch (error: any) {
-        if (error.status === 404) {
-            log('github.repo.delete.already_gone', { repoName });
-        } else {
-            throw new Error(`Failed to delete GitHub repo '${repoName}': ${error.message}`);
-        }
+        if (error.code !== 409) throw error;
+        log('gcp.wif.pool.already_exists', { poolId });
+    }
+
+    log('gcp.wif.provider.create.start', { providerId });
+    try {
+        const repoCondition = `attribute.repository == '${GITHUB_OWNER}/${projectId}'`;
+        await iam.projects.locations.workloadIdentityPools.providers.create({
+            parent: poolPath,
+            workloadIdentityPoolProviderId: providerId,
+            requestBody: {
+                displayName: 'GitHub Actions Provider',
+                oidc: {
+                    issuerUri: 'https://token.actions.githubusercontent.com',
+                },
+                attributeMapping: {
+                    'google.subject': 'assertion.sub',
+                    'attribute.actor': 'assertion.actor',
+                    'attribute.repository': 'assertion.repository',
+                },
+                attributeCondition: repoCondition,
+            },
+        });
+    } catch (error: any) {
+        if (error.code !== 409) throw error;
+        log('gcp.wif.provider.already_exists', { providerId });
+    }
+
+    log('gcp.wif.sa_binding.start', { saEmail });
+    const saResource = `projects/${projectId}/serviceAccounts/${saEmail}`;
+    const { data: saPolicy } = await iam.projects.serviceAccounts.getIamPolicy({ resource: saResource });
+    
+    if (!saPolicy.bindings) {
+        saPolicy.bindings = [];
+    }
+    const wifBinding = {
+        role: 'roles/iam.workloadIdentityUser',
+        members: [`principalSet://iam.googleapis.com/${poolPath}/attribute.repository/${GITHUB_OWNER}/${projectId}`],
+    };
+    saPolicy.bindings.push(wifBinding);
+    
+    await iam.projects.serviceAccounts.setIamPolicy({
+        resource: saResource,
+        requestBody: { policy: saPolicy },
+    });
+
+    const providerName = `projects/${projectNumber}/locations/global/workloadIdentityPools/${poolId}/providers/${providerId}`;
+    log('gcp.wif.setup.success', { providerName });
+    return providerName;
+}
+
+
+async function pollOperation(api: any, operationName: string, maxRetries = 20, delay = 5000) {
+    let isDone = false;
+    let retries = 0;
+    while (!isDone && retries < maxRetries) {
+        await new Promise(resolve => setTimeout(resolve, delay));
+        const op = await api.operations.get({ name: operationName });
+        isDone = op.data.done || false;
+        retries++;
+        log('gcp.operation.polling', { name: operationName, done: isDone, attempt: retries });
+    }
+    if (!isDone) {
+        throw new Error(`Operation ${operationName} did not complete in time.`);
     }
 }
 
-export async function deleteGithubTeam(teamSlug: string): Promise<void> {
-    const client = await getAuthenticatedClient();
-    log('github.team.delete.start', { teamSlug });
-    try {
-        await client.teams.deleteInOrg({ org: GITHUB_OWNER, team_slug: teamSlug });
-        log('github.team.delete.success', { teamSlug });
-    } catch (error: any) {
-        if (error.status === 404) {
-             log('github.team.delete.already_gone', { teamSlug });
-        } else {
-            throw new Error(`Failed to delete GitHub team '${teamSlug}': ${error.message}`);
-        }
-    }
-}
+export const { createGcpFolderForOrg, deleteGcpFolder, deleteGcpProject } = GcpLegacyService;
