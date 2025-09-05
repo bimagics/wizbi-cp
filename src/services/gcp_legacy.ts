@@ -1,3 +1,5 @@
+// File path: src/services/gcp_legacy.ts
+
 import { google } from 'googleapis';
 import { log } from '../routes/projects';
 
@@ -27,7 +29,7 @@ export async function createGcpFolderForOrg(orgName: string): Promise<string> {
     let finalOperation;
     while (!isDone) {
         await new Promise(resolve => setTimeout(resolve, 5000));
-        log('gcp.folder.create.polling', { operationName: initialOperation.data.name });
+        log('gcp.folder.create.polling', { operationName: initialOperation.data.name! });
         const op = await crm.operations.get({ name: initialOperation.data.name! });
         finalOperation = op.data;
         isDone = finalOperation.done || false;
@@ -98,7 +100,6 @@ export async function deleteGcpProject(projectId: string): Promise<void> {
     }
 }
 
-// --- NEW FOLDER DELETE FUNCTION ---
 export async function deleteGcpFolder(folderId: string): Promise<void> {
     const auth = await getAuth();
     const crm = google.cloudresourcemanager({ version: 'v3', auth });
