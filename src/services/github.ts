@@ -1,4 +1,4 @@
-// src/services/github.ts
+// File path: src/services/github.ts
 
 import { Octokit } from '@octokit/rest';
 import { getSecret } from './secrets';
@@ -32,7 +32,7 @@ async function getAuthenticatedClient(): Promise<Octokit> {
     const privateKey = await getSecret('GITHUB_PRIVATE_KEY');
     const installationId = await getSecret('GITHUB_INSTALLATION_ID');
     
-    const auth = await createAppAuth({ appId, privateKey, installationId: Number(installationId) });
+    const auth = await createAppAuth({ appId: Number(appId), privateKey, installationId: Number(installationId) });
     const { token } = await auth({ type: "installation" });
 
     octokit = new Octokit({ auth: token });
@@ -81,7 +81,6 @@ export async function createRepoSecrets(repoName: string, secrets: RepoSecrets):
     const client = await getAuthenticatedClient();
     log('github.secrets.create.start', { repoName, secrets: Object.keys(secrets) });
 
-    // 1. Get the repository's public key for encryption
     const { data: publicKey } = await client.actions.getRepoPublicKey({
         owner: GITHUB_OWNER,
         repo: repoName,
@@ -89,7 +88,6 @@ export async function createRepoSecrets(repoName: string, secrets: RepoSecrets):
 
     await sodium.ready;
 
-    // 2. Encrypt and create/update each secret
     for (const secretName in secrets) {
         const secretValue = secrets[secretName];
         
