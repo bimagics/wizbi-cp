@@ -116,28 +116,48 @@ async function enableProjectApis(serviceUsage: serviceusage_v1.Serviceusage, pro
 async function addFirebase(firebase: firebase_v1beta1.Firebase, projectId: string) {
     log('gcp.firebase.add.start', { projectId });
     try {
+        // Step 1: Add Firebase project
         await firebase.projects.addFirebase({ project: `projects/${projectId}` });
         log('gcp.firebase.add.success', { projectId });
-
-        const hosting = google.firebasehosting({ version: 'v1beta1', auth: await getAuth() });
-        // **FIX:** The `siteId` is passed as a query parameter, not in the request body.
-        await hosting.projects.sites.create({
-            parent: `projects/${projectId}`,
-            siteId: projectId, // Use the project ID as the default site ID
-        });
-        log('gcp.firebase.hosting_site.create.success', { projectId, siteId: projectId });
-
     } catch (error: any) {
         if (error.code === 409) {
             log('gcp.firebase.add.already_exists', { projectId });
         } else {
-            log('gcp.firebase.add.initial_fail_retrying', { projectId, error: error.message });
-            await new Promise(resolve => setTimeout(resolve, 15000));
-            await firebase.projects.addFirebase({ project: `projects/${projectId}` });
-            log('gcp.firebase.add.retry_success', { projectId });
+            // If even adding the core Firebase fails, re-throw
+            throw error;
+        }
+    }
+
+    // Step 2: Create Hosting Site with a robust retry mechanism
+    const hosting = google.firebasehosting({ version: 'v1beta1', auth: await getAuth() });
+    const maxRetries = 5;
+    const delay = 10000; // 10 seconds
+
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            log('gcp.firebase.hosting_site.create.attempt', { projectId, siteId: projectId, attempt: i + 1 });
+            await hosting.projects.sites.create({
+                parent: `projects/${projectId}`,
+                siteId: projectId,
+            });
+            log('gcp.firebase.hosting_site.create.success', { projectId, siteId: projectId });
+            return; // Success, exit the function
+        } catch (error: any) {
+            // 409 means it already exists (e.g., from a previous partial run), which is a success condition for us.
+            if (error.code === 409) {
+                log('gcp.firebase.hosting_site.create.already_exists', { projectId, siteId: projectId });
+                return;
+            }
+            log('gcp.firebase.hosting_site.create.error', { projectId, error: error.message, attempt: i + 1 });
+            if (i === maxRetries - 1) {
+                // If this was the last attempt, throw the error to fail the whole process
+                throw new Error(`Failed to create Firebase Hosting site for ${projectId} after ${maxRetries} attempts.`);
+            }
+            await new Promise(resolve => setTimeout(resolve, delay));
         }
     }
 }
+
 
 async function createServiceAccount(iam: iam_v1.Iam, projectId: string, saEmail: string) {
     log('gcp.sa.create.start', { saEmail });
