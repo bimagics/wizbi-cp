@@ -229,7 +229,8 @@ async function setupWif(iam: iam_v1.Iam, newProjectId: string, saEmail: string):
             parent: poolPath,
             workloadIdentityPoolProviderId: providerId,
             requestBody: {
-                displayName: `GitHub Provider for ${newProjectId}`,
+                // --- THIS IS THE FIX ---
+                displayName: `GH-${newProjectId}`.substring(0, 32),
                 oidc: { issuerUri: 'https://token.actions.githubusercontent.com' },
                 attributeMapping: {
                     'google.subject': 'assertion.sub',
