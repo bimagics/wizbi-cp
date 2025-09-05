@@ -1,3 +1,4 @@
+// This is the full and final code for admin.js
 document.addEventListener('DOMContentLoaded', () => {
     const firebaseAuth = firebase.auth();
     const googleProvider = new firebase.auth.GoogleAuthProvider();
