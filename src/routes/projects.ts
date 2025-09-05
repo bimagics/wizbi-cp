@@ -234,6 +234,42 @@ router.post('/projects/:id/finalize', requireAdminAuth, async (req: Request, res
     }
 });
 
+// DELETE a project
+router.delete('/projects/:id', requireAdminAuth, async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const log = (evt: string, meta?: Record<string, any>) => projectLogger(id, evt, meta);
+
+    try {
+        const projectDoc = await PROJECTS_COLLECTION.doc(id).get();
+        if (!projectDoc.exists) {
+            return res.status(404).json({ error: 'Project not found' });
+        }
+        await log('project.delete.received');
+        
+        // Fire-and-forget deletion process
+        (async () => {
+            try {
+                await PROJECTS_COLLECTION.doc(id).update({ state: 'deleting' });
+                await GcpService.deleteGcpProject(id);
+                await GithubService.deleteGithubRepo(id);
+                await PROJECTS_COLLECTION.doc(id).delete();
+                log('project.delete.success');
+            } catch (error: any) {
+                const errorMessage = error.message || 'Unknown error during deletion';
+                await PROJECTS_COLLECTION.doc(id).update({ state: 'delete_failed', error: errorMessage });
+                log('project.delete.failed', { error: errorMessage });
+            }
+        })();
+
+        res.status(202).json({ ok: true, message: 'Project deletion started.' });
+
+    } catch (e: any) {
+        await log('project.delete.initial_error', { error: (e as Error).message });
+        res.status(500).json({ ok: false, error: 'Failed to start project deletion.' });
+    }
+});
+
+
 export default router;
 
 // Re-exporting log for use in other services
