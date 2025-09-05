@@ -1,317 +1,159 @@
 name: Deploy (Cloud Run + Hosting)
 
-
-
 on:
-
-  push:
-
-    branches: [ "dev", "main" ]
-
-  workflow_dispatch: {}
-
-
+  push:
+    branches: [ "dev", "main" ]
+  workflow_dispatch: {}
 
 concurrency:
-
-  group: deploy-${{ github.ref }}
-
-  cancel-in-progress: true
-
-
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
-
-  id-token: write
-
-  contents: read
-
-  actions: write # Required for the GHA cache backend
-
-
+  id-token: write
+  contents: read
+  actions: write # Required for the GHA cache backend
 
 env:
-
-  AR_REPO: wizbi
-
-  IMAGE_NAME: cp-unified
-
-  HOSTING_SITE_PROD: wizbi-cp
-
-  HOSTING_SITE_QA: wizbi-cp-qa
-
-  ADMINS: "omer.cohen@bimagics.com"
-
-  # --- NEW: Add Billing Account ID as a secret in GitHub Actions settings ---
-
-  BILLING_ACCOUNT_ID: ${{ secrets.BILLING_ACCOUNT_ID }} # Example: 016B29-ABB281-DD40F9
-
-
+  AR_REPO: wizbi
+  IMAGE_NAME: cp-unified
+  HOSTING_SITE_PROD: wizbi-cp
+  HOSTING_SITE_QA: wizbi-cp-qa
+  ADMINS: "omer.cohen@bimagics.com"
+  # --- NEW: Add Billing Account ID as a secret in GitHub Actions settings ---
+  BILLING_ACCOUNT_ID: ${{ secrets.BILLING_ACCOUNT_ID }} # Example: 016B29-ABB281-DD40F9
 
 jobs:
-
-  build-and-deploy-cloud-run:
-
-    name: Build & Deploy Cloud Run
-
-    runs-on: ubuntu-latest
-
-    env:
-
-      PROJECT_ID:   ${{ secrets.GCP_PROJECT_ID }}
-
-      REGION:       ${{ secrets.GCP_REGION }}
-
-      WIF_PROVIDER: ${{ secrets.WIF_PROVIDER }}
-
-      DEPLOYER_SA:  ${{ secrets.DEPLOYER_SA }}
-
-    steps:
-
-      - name: Checkout
-
-        uses: actions/checkout@v4
-
-
-
-      - name: Auth to GCP (WIF)
-
-        id: auth
-
-        uses: google-github-actions/auth@v2
-
-        with:
-
-          workload_identity_provider: ${{ env.WIF_PROVIDER }}
-
-          service_account: ${{ env.DEPLOYER_SA }}
-
-          project_id: ${{ env.PROJECT_ID }}
-
-
-
-      - name: Setup gcloud
-
-        uses: google-github-actions/setup-gcloud@v2
-
-
-
-      - name: Configure Docker to Artifact Registry
-
-        run: gcloud auth configure-docker "${{ env.REGION }}-docker.pkg.dev" -q
-
-
-
-      - name: Set up Docker Buildx
-
-        uses: docker/setup-buildx-action@v3
-
-
-
-      - name: Build and Push Image (with GHA Cache)
-
-        id: build-and-push
-
-        uses: docker/build-push-action@v5
-
-        with:
-
-          context: .
-
-          push: true
-
-          tags: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}:branch-${{ github.ref_name }}
-
-          cache-from: type=gha
-
-          cache-to: type=gha,mode=max
-
-
-
-      - name: Decide target service (QA vs PROD)
-
-        id: svc
-
-        run: |
-
-          if [[ "${GITHUB_REF_NAME}" == "dev" ]]; then
-
-            echo "service=cp-unified-qa"  >> $GITHUB_OUTPUT
-
-          else
-
-            echo "service=cp-unified"     >> $GITHUB_OUTPUT
-
-          fi
-
-
-
-      - name: Deploy to Cloud Run (Public with App-Layer Auth)
-
-        run: |
-
-          IMAGE_TAG="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}:branch-${{ github.ref_name }}"
-
-          SERVICE_NAME="${{ steps.svc.outputs.service }}"
-
-          
-
-          echo ">>> Deploying Image: ${IMAGE_TAG}"
-
-          echo ">>> To Cloud Run Service: ${SERVICE_NAME} in region ${{ env.REGION }}"
-
-
-
-          # --- UPDATED: Added BILLING_ACCOUNT_ID to env vars ---
-
-          gcloud run deploy "${SERVICE_NAME}" \
-
-            --image "$IMAGE_TAG" \
-
-            --region "${{ env.REGION }}" \
-
-            --service-account "wizbi-runner@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
-
-            --allow-unauthenticated \
-
-            --update-env-vars "NODE_ENV=production,FIREBASE_PROJECT_ID=${{ env.PROJECT_ID }},GCP_PROJECT_ID=${{ env.PROJECT_ID }},BILLING_ACCOUNT_ID=${{ env.BILLING_ACCOUNT_ID }},CORS_ORIGIN=*,WHATSAPP_ENABLED=false,ADMINS=${{ env.ADMINS }}"
-
-
-
-  deploy-hosting-and-test:
-
-    name: Deploy Hosting + Verify Service
-
-    needs: build-and-deploy-cloud-run
-
-    runs-on: ubuntu-latest
-
-    env:
-
-      PROJECT_ID:     ${{ secrets.GCP_PROJECT_ID }}
-
-      REGION:         ${{ secrets.GCP_REGION }}
-
-      WIF_PROVIDER:   ${{ secrets.WIF_PROVIDER }}
-
-      DEPLOYER_SA:    ${{ secrets.DEPLOYER_SA }}
-
-    steps:
-
-      - name: Checkout
-
-        uses: actions/checkout@v4
-
-
-
-      - name: Auth to GCP (WIF)
-
-        uses: google-github-actions/auth@v2
-
-        with:
-
-          workload_identity_provider: ${{ env.WIF_PROVIDER }}
-
-          service_account: ${{ env.DEPLOYER_SA }}
-
-          project_id: ${{ env.PROJECT_ID }}
-
-
-
-      - name: Setup gcloud
-
-        uses: google-github-actions/setup-gcloud@v2
-
-
-
-      - name: Install Firebase CLI
-
-        run: npm i -g firebase-tools@latest
-
-
-
-      - name: Decide target service and site (QA vs PROD)
-
-        id: svc
-
-        run: |
-
-          if [[ "${GITHUB_REF_NAME}" == "dev" ]]; then
-
-            echo "service=cp-unified-qa"           >> $GITHUB_OUTPUT
-
-            echo "site=${{ env.HOSTING_SITE_QA }}"   >> $GITHUB_OUTPUT
-
-          else
-
-            echo "service=cp-unified"              >> $GITHUB_OUTPUT
-
-            echo "site=${{ env.HOSTING_SITE_PROD }}"  >> $GITHUB_OUTPUT
-
-          fi
-
-      
-
-      - name: Verify Cloud Run Deployment Status
-
-        run: |
-
-          set -e
-
-          SERVICE_NAME="${{ steps.svc.outputs.service }}"
-
-          echo "Verifying deployment status for service: $SERVICE_NAME"
-
-
-
-          for i in {1..30}; do
-
-            LATEST_REVISION=$(gcloud run services describe "$SERVICE_NAME" --region "${{ env.REGION }}" --format 'value(status.latestReadyRevisionName)')
-
-            TRAFFIC_TARGET=$(gcloud run services describe "$SERVICE_NAME" --region "${{ env.REGION }}" --format 'value(status.traffic[0].revisionName)')
-
-
-
-            echo "--> Attempt ($i/30): Latest Ready Revision = [${LATEST_REVISION}], Traffic Target = [${TRAFFIC_TARGET}]"
-
-
-
-            if [[ -n "$LATEST_REVISION" && "$LATEST_REVISION" == "$TRAFFIC_TARGET" ]]; then
-
-              echo "✅ Success: Service $SERVICE_NAME is ready and serving traffic on revision $LATEST_REVISION."
-
-              exit 0
-
-            fi
-
-
-
-            echo "Waiting for service to be ready..."
-
-            sleep 10
-
-          done
-
-
-
-          echo "::error::Service $SERVICE_NAME did not become ready in time."
-
-          exit 1
-
-          
-
-      - name: Deploy Hosting
-
-        run: |
-
-          SITE_NAME="${{ steps.svc.outputs.site }}"
-
-          echo ">>> Deploying to Firebase Hosting site: ${SITE_NAME}"
-
-          firebase deploy \
-
-            --only "hosting:${SITE_NAME}" \
-
-            --project "${{ env.PROJECT_ID }}" \
-
-            --non-interactive
+  build-and-deploy-cloud-run:
+    name: Build & Deploy Cloud Run
+    runs-on: ubuntu-latest
+    env:
+      PROJECT_ID:   ${{ secrets.GCP_PROJECT_ID }}
+      REGION:       ${{ secrets.GCP_REGION }}
+      WIF_PROVIDER: ${{ secrets.WIF_PROVIDER }}
+      DEPLOYER_SA:  ${{ secrets.DEPLOYER_SA }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Auth to GCP (WIF)
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.DEPLOYER_SA }}
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker to Artifact Registry
+        run: gcloud auth configure-docker "${{ env.REGION }}-docker.pkg.dev" -q
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and Push Image (with GHA Cache)
+        id: build-and-push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}:branch-${{ github.ref_name }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Decide target service (QA vs PROD)
+        id: svc
+        run: |
+          if [[ "${GITHUB_REF_NAME}" == "dev" ]]; then
+            echo "service=cp-unified-qa"  >> $GITHUB_OUTPUT
+          else
+            echo "service=cp-unified"     >> $GITHUB_OUTPUT
+          fi
+
+      - name: Deploy to Cloud Run (Public with App-Layer Auth)
+        run: |
+          IMAGE_TAG="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}:branch-${{ github.ref_name }}"
+          SERVICE_NAME="${{ steps.svc.outputs.service }}"
+          
+          echo ">>> Deploying Image: ${IMAGE_TAG}"
+          echo ">>> To Cloud Run Service: ${SERVICE_NAME} in region ${{ env.REGION }}"
+
+          # --- UPDATED: Added BILLING_ACCOUNT_ID to env vars ---
+          gcloud run deploy "${SERVICE_NAME}" \
+            --image "$IMAGE_TAG" \
+            --region "${{ env.REGION }}" \
+            --service-account "wizbi-runner@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
+            --allow-unauthenticated \
+            --update-env-vars "NODE_ENV=production,FIREBASE_PROJECT_ID=${{ env.PROJECT_ID }},GCP_PROJECT_ID=${{ env.PROJECT_ID }},BILLING_ACCOUNT_ID=${{ env.BILLING_ACCOUNT_ID }},CORS_ORIGIN=*,WHATSAPP_ENABLED=false,ADMINS=${{ env.ADMINS }}"
+
+  deploy-hosting-and-test:
+    name: Deploy Hosting + Verify Service
+    needs: build-and-deploy-cloud-run
+    runs-on: ubuntu-latest
+    env:
+      PROJECT_ID:     ${{ secrets.GCP_PROJECT_ID }}
+      REGION:         ${{ secrets.GCP_REGION }}
+      WIF_PROVIDER:   ${{ secrets.WIF_PROVIDER }}
+      DEPLOYER_SA:    ${{ secrets.DEPLOYER_SA }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Auth to GCP (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.DEPLOYER_SA }}
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Install Firebase CLI
+        run: npm i -g firebase-tools@latest
+
+      - name: Decide target service and site (QA vs PROD)
+        id: svc
+        run: |
+          if [[ "${GITHUB_REF_NAME}" == "dev" ]]; then
+            echo "service=cp-unified-qa"           >> $GITHUB_OUTPUT
+            echo "site=${{ env.HOSTING_SITE_QA }}"   >> $GITHUB_OUTPUT
+          else
+            echo "service=cp-unified"              >> $GITHUB_OUTPUT
+            echo "site=${{ env.HOSTING_SITE_PROD }}"  >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Verify Cloud Run Deployment Status
+        run: |
+          set -e
+          SERVICE_NAME="${{ steps.svc.outputs.service }}"
+          echo "Verifying deployment status for service: $SERVICE_NAME"
+
+          for i in {1..30}; do
+            LATEST_REVISION=$(gcloud run services describe "$SERVICE_NAME" --region "${{ env.REGION }}" --format 'value(status.latestReadyRevisionName)')
+            TRAFFIC_TARGET=$(gcloud run services describe "$SERVICE_NAME" --region "${{ env.REGION }}" --format 'value(status.traffic[0].revisionName)')
+
+            echo "--> Attempt ($i/30): Latest Ready Revision = [${LATEST_REVISION}], Traffic Target = [${TRAFFIC_TARGET}]"
+
+            if [[ -n "$LATEST_REVISION" && "$LATEST_REVISION" == "$TRAFFIC_TARGET" ]]; then
+              echo "✅ Success: Service $SERVICE_NAME is ready and serving traffic on revision $LATEST_REVISION."
+              exit 0
+            fi
+
+            echo "Waiting for service to be ready..."
+            sleep 10
+          done
+
+          echo "::error::Service $SERVICE_NAME did not become ready in time."
+          exit 1
+          
+      - name: Deploy Hosting
+        run: |
+          SITE_NAME="${{ steps.svc.outputs.site }}"
+          echo ">>> Deploying to Firebase Hosting site: ${SITE_NAME}"
+          firebase deploy \
+            --only "hosting:${SITE_NAME}" \
+            --project "${{ env.PROJECT_ID }}" \
+            --non-interactive
