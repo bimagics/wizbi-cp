@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-t" />
+  <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>WizBI Control</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>">
@@ -112,6 +112,11 @@
           </div>
         </div>
       </div>
+
+      <div id="liveLogContainer" class="card hidden">
+        <h3 id="liveLogTitle">Live Process Logs</h3>
+        <pre id="liveLogContent" class="status-log"></pre>
+      </div>
     </main>
   </div>
 
@@ -134,22 +139,6 @@
       </div>
     </div>
   </div>
-
-  <div id="logsModal" class="modal-overlay hidden">
-    <div class="modal-content modal-lg">
-        <div class="modal-header">
-            <h3 id="logsModalTitle">Project Logs</h3>
-            <button class="close-button" data-close="logsModal">&times;</button>
-        </div>
-        <div class="modal-body">
-            <pre id="logsModalContent" class="status-log"></pre>
-        </div>
-        <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-close="logsModal">Close</button>
-        </div>
-    </div>
-  </div>
-
 
 <script src="/admin/admin.js"></script>
 </body>
