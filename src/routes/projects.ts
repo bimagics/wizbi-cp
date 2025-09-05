@@ -1,3 +1,4 @@
+// --- REPLACE THE ENTIRE FILE CONTENT ---
 // File path: src/routes/projects.ts
 
 import { Router, Request, Response, NextFunction } from 'express';
@@ -216,6 +217,11 @@ router.post('/projects/:id/finalize', requireAdminAuth, async (req: Request, res
         const projectDoc = await PROJECTS_COLLECTION.doc(id).get();
         const projectData = projectDoc.data();
         if (!projectData) throw new Error("Project data not found");
+
+        // --- FIX: Add validation for required fields before creating secrets ---
+        if (!projectData.gcpProjectId || !projectData.gcpWifProvider || !projectData.gcpServiceAccount) {
+            throw new Error('Project document is missing required GCP data for finalization. GCP provisioning may have failed.');
+        }
 
         const secretsToCreate = {
             GCP_PROJECT_ID: projectData.gcpProjectId,
