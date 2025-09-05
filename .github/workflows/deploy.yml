@@ -20,8 +20,7 @@ env:
   HOSTING_SITE_PROD: wizbi-cp
   HOSTING_SITE_QA: wizbi-cp-qa
   ADMINS: "omer.cohen@bimagics.com"
-  # --- NEW: Add Billing Account ID as a secret in GitHub Actions settings ---
-  BILLING_ACCOUNT_ID: ${{ secrets.BILLING_ACCOUNT_ID }} # Example: 016B29-ABB281-DD40F9
+  BILLING_ACCOUNT_ID: ${{ secrets.BILLING_ACCOUNT_ID }}
 
 jobs:
   build-and-deploy-cloud-run:
@@ -47,7 +46,7 @@ jobs:
       - name: Setup gcloud
         uses: google-github-actions/setup-gcloud@v2
         with:
-          version: '458.0.1' # Pin the version for faster setup
+          version: '458.0.1' # Pinning version for consistency and speed
 
       - name: Configure Docker to Artifact Registry
         run: gcloud auth configure-docker "${{ env.REGION }}-docker.pkg.dev" -q
@@ -82,7 +81,6 @@ jobs:
           echo ">>> Deploying Image: ${IMAGE_TAG}"
           echo ">>> To Cloud Run Service: ${SERVICE_NAME} in region ${{ env.REGION }}"
 
-          # --- UPDATED: Added BILLING_ACCOUNT_ID to env vars ---
           gcloud run deploy "${SERVICE_NAME}" \
             --image "$IMAGE_TAG" \
             --region "${{ env.REGION }}" \
@@ -113,18 +111,20 @@ jobs:
       - name: Setup gcloud
         uses: google-github-actions/setup-gcloud@v2
         with:
-          version: '458.0.1' # Pin the version for faster setup
-      
-      - name: Cache Firebase CLI
-        id: cache-firebase
+          version: '458.0.1'
+
+      - name: Cache Firebase CLI dependencies
+        id: cache-firebase-deps
         uses: actions/cache@v3
         with:
           path: ~/.npm
-          key: ${{ runner.os }}-firebase-tools
+          key: ${{ runner.os }}-npm-firebase-tools-v1
 
       - name: Install Firebase CLI
-        if: steps.cache-firebase.outputs.cache-hit != 'true'
         run: npm i -g firebase-tools@latest
+
+      - name: Add npm global bin to PATH
+        run: echo "$(npm bin -g)" >> $GITHUB_PATH
 
       - name: Decide target service and site (QA vs PROD)
         id: svc
