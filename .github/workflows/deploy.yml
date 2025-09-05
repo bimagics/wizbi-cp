@@ -1,3 +1,6 @@
+# --- REPLACE THE ENTIRE FILE CONTENT ---
+# File: .github/workflows/deploy.yml
+
 name: Deploy (Cloud Run + Hosting)
 
 on:
@@ -21,6 +24,8 @@ env:
   HOSTING_SITE_QA: wizbi-cp-qa
   ADMINS: "omer.cohen@bimagics.com"
   BILLING_ACCOUNT_ID: ${{ secrets.BILLING_ACCOUNT_ID }}
+  # NEW: Add the control plane project number secret
+  GCP_CONTROL_PLANE_PROJECT_NUMBER: ${{ secrets.GCP_CONTROL_PLANE_PROJECT_NUMBER }}
 
 jobs:
   build-and-deploy-cloud-run:
@@ -81,12 +86,13 @@ jobs:
           echo ">>> Deploying Image: ${IMAGE_TAG}"
           echo ">>> To Cloud Run Service: ${SERVICE_NAME} in region ${{ env.REGION }}"
 
+          # MODIFICATION: Added GCP_CONTROL_PLANE_PROJECT_NUMBER to env vars
           gcloud run deploy "${SERVICE_NAME}" \
             --image "$IMAGE_TAG" \
             --region "${{ env.REGION }}" \
             --service-account "wizbi-runner@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
             --allow-unauthenticated \
-            --update-env-vars "NODE_ENV=production,FIREBASE_PROJECT_ID=${{ env.PROJECT_ID }},GCP_PROJECT_ID=${{ env.PROJECT_ID }},BILLING_ACCOUNT_ID=${{ env.BILLING_ACCOUNT_ID }},CORS_ORIGIN=*,WHATSAPP_ENABLED=false,ADMINS=${{ env.ADMINS }}"
+            --update-env-vars "NODE_ENV=production,FIREBASE_PROJECT_ID=${{ env.PROJECT_ID }},GCP_PROJECT_ID=${{ env.PROJECT_ID }},BILLING_ACCOUNT_ID=${{ env.BILLING_ACCOUNT_ID }},CORS_ORIGIN=*,WHATSAPP_ENABLED=false,ADMINS=${{ env.ADMINS }},GCP_CONTROL_PLANE_PROJECT_NUMBER=${{ env.GCP_CONTROL_PLANE_PROJECT_NUMBER }}"
 
   deploy-hosting-and-test:
     name: Deploy Hosting + Verify Service
