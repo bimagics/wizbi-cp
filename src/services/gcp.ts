@@ -38,7 +38,7 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
 
     // --- 2. Enable Required APIs ---
     await enableProjectApis(serviceUsage, projectId);
-    
+
     // --- 3. Add Firebase to the Project ---
     await addFirebase(firebase, projectId);
 
@@ -48,10 +48,10 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
 
     // --- 5. Grant IAM Roles to the new Service Account ---
     await grantRolesToServiceAccount(crm, projectId, saEmail);
-    
+
     // --- 6. Set up Workload Identity Federation (WIF) ---
     const wifProviderName = await setupWif(iam, projectId, projectNumber, saEmail);
-    
+
     log('gcp.provision.success', { projectId });
     return {
         projectId,
@@ -118,12 +118,12 @@ async function addFirebase(firebase: firebase_v1beta1.Firebase, projectId: strin
     try {
         await firebase.projects.addFirebase({ project: `projects/${projectId}` });
         log('gcp.firebase.add.success', { projectId });
-        
-        // After adding Firebase, create a default hosting site
+
         const hosting = google.firebasehosting({ version: 'v1beta1', auth: await getAuth() });
+        // **FIX:** The `siteId` is passed as a query parameter, not in the request body.
         await hosting.projects.sites.create({
             parent: `projects/${projectId}`,
-            requestBody: { siteId: projectId } // Use projectId as siteId
+            siteId: projectId, // Use the project ID as the default site ID
         });
         log('gcp.firebase.hosting_site.create.success', { projectId, siteId: projectId });
 
@@ -132,7 +132,7 @@ async function addFirebase(firebase: firebase_v1beta1.Firebase, projectId: strin
             log('gcp.firebase.add.already_exists', { projectId });
         } else {
             log('gcp.firebase.add.initial_fail_retrying', { projectId, error: error.message });
-            await new Promise(resolve => setTimeout(resolve, 15000)); // Wait 15s
+            await new Promise(resolve => setTimeout(resolve, 15000));
             await firebase.projects.addFirebase({ project: `projects/${projectId}` });
             log('gcp.firebase.add.retry_success', { projectId });
         }
@@ -168,15 +168,18 @@ async function grantRolesToServiceAccount(crm: cloudresourcemanager_v3.Cloudreso
     const resource = `projects/${projectId}`;
     const { data: policy } = await crm.projects.getIamPolicy({ resource });
     
+    if (!policy.bindings) {
+        policy.bindings = [];
+    }
+
     roles.forEach(role => {
-        if (!policy.bindings) {
-            policy.bindings = [];
-        }
-        let binding = policy.bindings.find(b => b.role === role);
+        let binding = policy.bindings!.find(b => b.role === role);
         if (binding) {
-            binding.members?.push(`serviceAccount:${saEmail}`);
+            if (!binding.members?.includes(`serviceAccount:${saEmail}`)) {
+                 binding.members?.push(`serviceAccount:${saEmail}`);
+            }
         } else {
-            policy.bindings.push({
+            policy.bindings!.push({
                 role,
                 members: [`serviceAccount:${saEmail}`],
             });
@@ -191,7 +194,7 @@ async function setupWif(iam: iam_v1.Iam, projectId: string, projectNumber: strin
     const poolId = 'github-pool';
     const providerId = 'github-provider';
     const poolPath = `projects/${projectNumber}/locations/global/workloadIdentityPools/${poolId}`;
-    
+
     log('gcp.wif.pool.create.start', { poolId });
     try {
         await iam.projects.locations.workloadIdentityPools.create({
@@ -229,24 +232,29 @@ async function setupWif(iam: iam_v1.Iam, projectId: string, projectNumber: strin
     }
 
     log('gcp.wif.sa_binding.start', { saEmail });
+    const saResource = `projects/${projectId}/serviceAccounts/${saEmail}`;
+    const { data: saPolicy } = await iam.projects.serviceAccounts.getIamPolicy({ resource: saResource });
+    
+    if (!saPolicy.bindings) {
+        saPolicy.bindings = [];
+    }
+    const wifBinding = {
+        role: 'roles/iam.workloadIdentityUser',
+        members: [`principalSet://iam.googleapis.com/${poolPath}/attribute.repository/${GITHUB_OWNER}/${projectId}`],
+    };
+    saPolicy.bindings.push(wifBinding);
+    
     await iam.projects.serviceAccounts.setIamPolicy({
-        resource: `projects/${projectId}/serviceAccounts/${saEmail}`,
-        requestBody: {
-            policy: {
-                bindings: [{
-                    role: 'roles/iam.workloadIdentityUser',
-                    members: [`principalSet://iam.googleapis.com/${poolPath}/attribute.repository/${GITHUB_OWNER}/${projectId}`],
-                }],
-            },
-        },
+        resource: saResource,
+        requestBody: { policy: saPolicy },
     });
 
-    const providerName = poolPath.replace(`projects/${projectNumber}`, `projects/${projectId}`) + `/providers/${providerId}`;
+    const providerName = `projects/${projectNumber}/locations/global/workloadIdentityPools/${poolId}/providers/${providerId}`;
     log('gcp.wif.setup.success', { providerName });
     return providerName;
 }
 
-// --- Generic Operation Poller ---
+
 async function pollOperation(api: any, operationName: string, maxRetries = 20, delay = 5000) {
     let isDone = false;
     let retries = 0;
@@ -262,5 +270,4 @@ async function pollOperation(api: any, operationName: string, maxRetries = 20, d
     }
 }
 
-// Export legacy functions so they are still available for organization management
 export const { createGcpFolderForOrg, deleteGcpFolder, deleteGcpProject } = GcpLegacyService;
