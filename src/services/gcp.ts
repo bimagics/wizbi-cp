@@ -45,7 +45,7 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
     // --- 3. NEW: Create Artifact Registry Repository ---
     await createArtifactRegistryRepo(projectId, 'wizbi');
 
-    // --- 4. Add Firebase to the Project ---
+    // --- 4. Add Firebase to the Project (including QA site) ---
     await addFirebase(firebase, projectId);
 
     // --- 5. Create CI/CD Service Account ---
