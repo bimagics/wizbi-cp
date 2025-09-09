@@ -29,12 +29,15 @@ async function projectLogger(projectId: string, evt: string, meta: Record<string
     const logEntry = { ts: new Date().toISOString(), severity: 'INFO', evt, ...meta };
     console.log(JSON.stringify({ projectId, ...logEntry }));
     try {
-        await PROJECTS_COLLECTION.doc(projectId).collection('logs').add({
+        PROJECTS_COLLECTION.doc(projectId).collection('logs').add({
             ...logEntry,
             serverTimestamp: admin.firestore.FieldValue.serverTimestamp()
-        });
-    } catch (error) { console.error(`Failed to write log to Firestore for project ${projectId}`, error); }
+        }).catch(error => console.error(`ASYNC LOG FAILED: Failed to write log to Firestore for project ${projectId}`, error));
+    } catch (error) { 
+        console.error(`SYNC LOG FAILED: Failed to write log to Firestore for project ${projectId}`, error); 
+    }
 }
+
 
 // --- Auth Middleware ---
 async function verifyFirebaseToken(req: AuthenticatedRequest, res: Response, next: NextFunction) {
@@ -72,9 +75,78 @@ function requireSuperAdmin(req: AuthenticatedRequest, res: Response, next: NextF
 export const requireAuth = [verifyFirebaseToken, fetchUserProfile];
 export const requireAdminAuth = [...requireAuth, requireSuperAdmin];
 
+// --- Orchestration Logic ---
+async function runFullProvisioning(projectId: string) {
+    const log = (evt: string, meta?: Record<string, any>) => projectLogger(projectId, evt, meta);
+    
+    try {
+        // --- STAGE 1: GCP ---
+        await log('stage.gcp.start');
+        const projectDoc = await PROJECTS_COLLECTION.doc(projectId).get();
+        if (!projectDoc.exists) throw new Error('Project document not found in Firestore.');
+
+        const { displayName, orgId, template } = projectDoc.data()!;
+        const orgDoc = await ORGS_COLLECTION.doc(orgId).get();
+        if (!orgDoc.exists || !orgDoc.data()!.gcpFolderId) throw new Error('Parent organization data or GCP Folder ID is invalid.');
+
+        await PROJECTS_COLLECTION.doc(projectId).update({ state: 'provisioning_gcp' });
+        const gcpInfra = await GcpService.provisionProjectInfrastructure(projectId, displayName, orgDoc.data()!.gcpFolderId);
+        
+        await PROJECTS_COLLECTION.doc(projectId).update({
+            state: 'pending_github',
+            gcpProjectId: gcpInfra.projectId,
+            gcpProjectNumber: gcpInfra.projectNumber,
+            gcpServiceAccount: gcpInfra.serviceAccountEmail,
+            gcpWifProvider: gcpInfra.wifProviderName
+        });
+        await log('stage.gcp.success', { nextState: 'pending_github' });
+        
+        // --- STAGE 2: GitHub ---
+        await log('stage.github.start');
+        if (!orgDoc.data()!.githubTeamSlug) throw new Error('Parent organization data or GitHub Team Slug is invalid.');
+        
+        await PROJECTS_COLLECTION.doc(projectId).update({ state: 'provisioning_github' });
+        const projectInfo = {
+            id: projectId, 
+            displayName: displayName,
+            gcpRegion: process.env.GCP_DEFAULT_REGION || 'europe-west1'
+        };
+        const githubRepo = await GithubService.createGithubRepoFromTemplate(projectInfo, orgDoc.data()!.githubTeamSlug, template);
+
+        await PROJECTS_COLLECTION.doc(projectId).update({
+            state: 'pending_secrets', githubRepoUrl: githubRepo.url
+        });
+        await log('stage.github.success', { nextState: 'pending_secrets' });
+
+        // --- STAGE 3: Finalize (Secrets & Deployment) ---
+        await log('stage.finalize.start');
+        await PROJECTS_COLLECTION.doc(projectId).update({ state: 'injecting_secrets' });
+        
+        const secretsToCreate = {
+            GCP_PROJECT_ID: gcpInfra.projectId,
+            GCP_REGION: process.env.GCP_DEFAULT_REGION || 'europe-west1',
+            WIF_PROVIDER: gcpInfra.wifProviderName,
+            DEPLOYER_SA: gcpInfra.serviceAccountEmail,
+        };
+        await GithubService.createRepoSecrets(projectId, secretsToCreate);
+        await GithubService.triggerInitialDeployment(projectId);
+
+        await PROJECTS_COLLECTION.doc(projectId).update({ state: 'ready' });
+        await log('stage.finalize.success', { finalState: 'ready' });
+
+    } catch (e: any) {
+        const errorMessage = (e as Error).message || 'An unknown error occurred';
+        const projectDoc = await PROJECTS_COLLECTION.doc(projectId).get();
+        const currentState = projectDoc.data()?.state || 'unknown';
+        const failedState = `failed_${currentState.replace('provisioning_', '').replace('injecting_', '')}`;
+        
+        await PROJECTS_COLLECTION.doc(projectId).update({ state: failedState, error: errorMessage });
+        await log(`stage.${currentState}.failed`, { error: errorMessage, stack: (e as Error).stack });
+    }
+}
+
 // --- ROUTES ---
 
-// GET all projects
 router.get('/projects', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
     try {
         let query: admin.firestore.Query | admin.firestore.CollectionReference = PROJECTS_COLLECTION;
@@ -89,7 +161,6 @@ router.get('/projects', requireAuth, async (req: AuthenticatedRequest, res: Resp
     } catch(e: any) { res.status(500).json({ error: "Failed to list projects" }); }
 });
 
-// GET a single project by ID
 router.get('/projects/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
     try {
         const { id } = req.params;
@@ -103,7 +174,6 @@ router.get('/projects/:id', requireAuth, async (req: AuthenticatedRequest, res: 
     } catch (e: any) { res.status(500).json({ error: "Failed to get project details" }); }
 });
 
-// GET logs for a project
 router.get('/projects/:id/logs', requireAuth, async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
@@ -113,13 +183,13 @@ router.get('/projects/:id/logs', requireAuth, async (req: Request, res: Response
     } catch (e: any) { res.status(500).json({ ok: false, error: 'failed-to-get-logs' }); }
 });
 
-// STAGE 0: Create the initial project document
 router.post('/projects', requireAdminAuth, async (req: AuthenticatedRequest, res: Response) => {
     const { orgId, displayName, shortName, template } = req.body;
     if (!orgId || !displayName || !shortName || !template) {
         return res.status(400).json({ error: 'Missing required fields' });
     }
 
+    let projectId = '';
     try {
         const orgDoc = await ORGS_COLLECTION.doc(orgId).get();
         if (!orgDoc.exists) return res.status(404).json({ error: 'Organization not found' });
@@ -127,132 +197,58 @@ router.post('/projects', requireAdminAuth, async (req: AuthenticatedRequest, res
         const orgName = orgDoc.data()?.name || 'unknown';
         const orgSlug = orgName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
         const formattedShortName = shortName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-        const projectId = `wizbi-${orgSlug}-${formattedShortName}`;
+        projectId = `wizbi-${orgSlug}-${formattedShortName}`;
 
         const projectDocRef = PROJECTS_COLLECTION.doc(projectId);
         if ((await projectDocRef.get()).exists) {
             return res.status(409).json({ error: `Project ID '${projectId}' already exists.` });
         }
-
+        
+        await projectLogger(projectId, 'project.create.init', { orgId, displayName, shortName, template });
         await projectDocRef.set({
             displayName, orgId, shortName, template,
             createdAt: new Date().toISOString(),
             state: 'pending_gcp',
         });
-        await projectLogger(projectId, 'project.created', { displayName, orgId, template });
+        await projectLogger(projectId, 'project.create.success', { finalProjectId: projectId });
         res.status(201).json({ ok: true, id: projectId });
     } catch (error: any) {
-        log('project.create.error', { error: (error as Error).message, stack: (error as Error).stack });
+        const eid = projectId || 'unknown-project';
+        await projectLogger(eid, 'project.create.fatal', { error: (error as Error).message, stack: (error as Error).stack });
         res.status(500).json({ ok: false, error: 'Failed to create project', detail: (error as Error).message });
     }
 });
 
-// STAGE 1: Provision GCP
-router.post('/projects/:id/provision-gcp', requireAdminAuth, async (req: Request, res: Response) => {
+// --- UNIFIED PROVISIONING ENDPOINT ---
+// This single endpoint starts or retries the entire provisioning flow.
+router.post('/projects/:id/provision', requireAdminAuth, async (req: Request, res: Response) => {
     const { id } = req.params;
-    const log = (evt: string, meta?: Record<string, any>) => projectLogger(id, evt, meta);
-    res.status(202).json({ ok: true, message: 'GCP provisioning started.' });
-    try {
-        const projectDoc = await PROJECTS_COLLECTION.doc(id).get();
-        if (!projectDoc.exists) throw new Error('Project not found.');
-        const { displayName, orgId } = projectDoc.data()!;
-        const orgDoc = await ORGS_COLLECTION.doc(orgId).get();
-        if (!orgDoc.exists || !orgDoc.data()!.gcpFolderId) throw new Error('Organization data is invalid.');
-        await PROJECTS_COLLECTION.doc(id).update({ state: 'provisioning_gcp' });
-        log('gcp.provision.start');
-        const gcpInfra = await GcpService.provisionProjectInfrastructure(id, displayName, orgDoc.data()!.gcpFolderId);
-        await PROJECTS_COLLECTION.doc(id).update({
-            state: 'pending_github',
-            gcpProjectId: gcpInfra.projectId,
-            gcpProjectNumber: gcpInfra.projectNumber,
-            gcpServiceAccount: gcpInfra.serviceAccountEmail,
-            gcpWifProvider: gcpInfra.wifProviderName
-        });
-        log('gcp.provision.success', gcpInfra);
-    } catch (e: any) {
-        const errorMessage = (e as Error).message || 'An unknown error occurred';
-        await PROJECTS_COLLECTION.doc(id).update({ state: 'failed_gcp', error: errorMessage });
-        log('gcp.provision.failed', { error: errorMessage, stack: (e as Error).stack });
+    const projectDoc = await PROJECTS_COLLECTION.doc(id).get();
+    const state = projectDoc.data()?.state;
+
+    // Prevent re-triggering if already in progress
+    if (state && (state.startsWith('provisioning') || state.startsWith('injecting'))) {
+        return res.status(409).json({ ok: false, error: 'Provisioning is already in progress.'});
     }
+
+    // Acknowledge the request immediately
+    res.status(202).json({ ok: true, message: 'Full provisioning process initiated.' });
+
+    // Run the long process in the background
+    runFullProvisioning(id);
 });
 
-// STAGE 2: Provision GitHub
-router.post('/projects/:id/provision-github', requireAdminAuth, async (req: Request, res: Response) => {
-    const { id } = req.params;
-    const log = (evt: string, meta?: Record<string, any>) => projectLogger(id, evt, meta);
-    res.status(202).json({ ok: true, message: 'GitHub provisioning started.' });
-    try {
-        const projectDoc = await PROJECTS_COLLECTION.doc(id).get();
-        if (!projectDoc.exists) throw new Error('Project not found.');
-        const { orgId, displayName, template } = projectDoc.data()!;
-        const orgDoc = await ORGS_COLLECTION.doc(orgId).get();
-        if (!orgDoc.exists || !orgDoc.data()!.githubTeamSlug) throw new Error('Organization data is invalid.');
-        
-        await PROJECTS_COLLECTION.doc(id).update({ state: 'provisioning_github' });
-        log('github.provision.start', { template });
 
-        const projectInfo = {
-            id: id, 
-            displayName: displayName,
-            gcpRegion: process.env.GCP_DEFAULT_REGION || 'europe-west1'
-        };
-        const githubRepo = await GithubService.createGithubRepoFromTemplate(projectInfo, orgDoc.data()!.githubTeamSlug, template);
-
-        await PROJECTS_COLLECTION.doc(id).update({
-            state: 'pending_secrets', githubRepoUrl: githubRepo.url
-        });
-        log('github.provision.success', githubRepo);
-    } catch (e: any) {
-        const errorMessage = (e as Error).message || 'An unknown error occurred';
-        await PROJECTS_COLLECTION.doc(id).update({ state: 'failed_github', error: errorMessage });
-        log('github.provision.failed', { error: errorMessage, stack: (e as Error).stack });
-    }
-});
-
-// STAGE 3: Finalize
-router.post('/projects/:id/finalize', requireAdminAuth, async (req: Request, res: Response) => {
-    const { id } = req.params;
-    const log = (evt: string, meta?: Record<string, any>) => projectLogger(id, evt, meta);
-    res.status(202).json({ ok: true, message: 'Finalization started.' });
-    try {
-        await PROJECTS_COLLECTION.doc(id).update({ state: 'injecting_secrets' });
-        log('finalize.start');
-        const projectDoc = await PROJECTS_COLLECTION.doc(id).get();
-        const projectData = projectDoc.data();
-        if (!projectData) throw new Error("Project data not found");
-        if (!projectData.gcpProjectId || !projectData.gcpWifProvider || !projectData.gcpServiceAccount) {
-            throw new Error('Project document is missing required GCP data for finalization.');
-        }
-        const secretsToCreate = {
-            GCP_PROJECT_ID: projectData.gcpProjectId,
-            GCP_REGION: process.env.GCP_DEFAULT_REGION || 'europe-west1',
-            WIF_PROVIDER: projectData.gcpWifProvider,
-            DEPLOYER_SA: projectData.gcpServiceAccount,
-        };
-        await GithubService.createRepoSecrets(id, secretsToCreate);
-        
-        // ** THIS IS THE NEW LINE **
-        await GithubService.triggerInitialDeployment(id);
-
-        await PROJECTS_COLLECTION.doc(id).update({ state: 'ready' });
-        log('finalize.success');
-    } catch (e: any) {
-        const errorMessage = (e as Error).message || 'An unknown error occurred';
-        await PROJECTS_COLLECTION.doc(id).update({ state: 'failed_secrets', error: errorMessage });
-        log('finalize.failed', { error: errorMessage, stack: (e as Error).stack });
-    }
-});
-
-// DELETE a project
 router.delete('/projects/:id', requireAdminAuth, async (req: Request, res: Response) => {
     const { id } = req.params;
     const log = (evt: string, meta?: Record<string, any>) => projectLogger(id, evt, meta);
     try {
         const projectDoc = await PROJECTS_COLLECTION.doc(id).get();
-        if (!projectDoc.exists) {
-            return res.status(404).json({ error: 'Project not found' });
-        }
+        if (!projectDoc.exists) return res.status(404).json({ error: 'Project not found' });
+        
         await log('project.delete.received');
+        res.status(202).json({ ok: true, message: 'Project deletion started.' });
+
         (async () => {
             try {
                 await PROJECTS_COLLECTION.doc(id).update({ state: 'deleting' });
@@ -265,14 +261,13 @@ router.delete('/projects/:id', requireAdminAuth, async (req: Request, res: Respo
                 logsSnapshot.docs.forEach(doc => batch.delete(doc.ref));
                 await batch.commit();
                 await PROJECTS_COLLECTION.doc(id).delete();
-                log('project.delete.success');
+                console.log(JSON.stringify({ projectId: id, evt: 'project.delete.success' }));
             } catch (error: any) {
                 const errorMessage = (error as Error).message || 'Unknown error during deletion';
                 await PROJECTS_COLLECTION.doc(id).update({ state: 'delete_failed', error: errorMessage });
-                log('project.delete.failed', { error: errorMessage });
+                await log('project.delete.failed', { error: errorMessage });
             }
         })();
-        res.status(202).json({ ok: true, message: 'Project deletion started.' });
     } catch (e: any) {
         await log('project.delete.initial_error', { error: (e as Error).message });
         res.status(500).json({ ok: false, error: 'Failed to start project deletion.' });

@@ -78,7 +78,17 @@
         <div class="card">
           <div class="table-wrapper">
             <table id="projectsTable" class="data-table">
-              <thead><tr><th>Display Name</th><th>Project ID</th><th>Status</th><th>Links</th><th>Created</th><th>Actions</th></tr></thead>
+              <thead>
+                <tr>
+                  <th data-sortable="displayName">Display Name</th>
+                  <th data-sortable="orgName">Organization</th>
+                  <th data-sortable="id">Project ID</th>
+                  <th data-sortable="state">Status</th>
+                  <th>Links</th>
+                  <th data-sortable="createdAt">Created</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
               <tbody></tbody>
             </table>
           </div>
@@ -184,7 +194,10 @@
       <div class="modal-content modal-lg">
           <div class="modal-header">
               <h3 id="logsModalTitle">Logs</h3>
-              <button class="close-button" data-close="logsModal">&times;</button>
+              <div>
+                <button id="btnCopyLogs" class="btn btn-secondary btn-sm">Copy Logs</button>
+                <button class="close-button" data-close="logsModal">&times;</button>
+              </div>
           </div>
           <div class="modal-body">
               <div id="logsModalContent"></div>

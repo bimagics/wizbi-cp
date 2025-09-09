@@ -14,11 +14,13 @@ document.addEventListener('DOMContentLoaded', () => {
         TEMPLATES: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>`,
         GITHUB: `<svg viewBox="0 0 16 16"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>`,
         GCP: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12.0001 2.00015C11.598 2.00015 11.2012 2.11265 10.8543 2.32523L3.14511 6.8249C2.45076 7.25143 2 8.02008 2 8.8471V15.1532C2 15.9802 2.45076 16.7489 3.14511 17.1754L10.8543 21.6751C11.2012 21.8876 11.598 22.0002 12.0001 22.0002C12.4022 22.0002 12.799 21.8876 13.1459 21.6751L20.8551 17.1754C21.5495 16.7489 22.0002 15.9802 22.0002 15.1532V8.8471C22.0002 8.02008 21.5495 7.25143 20.8551 6.8249L13.1459 2.32523C12.799 2.11265 12.4022 2.00015 12.0001 2.00015ZM12.0001 3.8643L19.071 8.00015L12.0001 12.1361L4.9292 8.00015L12.0001 3.8643ZM11.0001 13.2323V19.932L4.35411 15.8232L11.0001 13.2323ZM13.0001 13.2323L19.6461 15.8232L13.0001 19.932V13.2323Z"/></svg>`,
+        LINK: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>`,
         DELETE: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>`,
         EDIT: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>`,
         ERROR: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width: 18px; height: 18px; color: var(--error-color);"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>`,
         LOGS: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>`,
         RETRY: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5M20 19v-5h-5M4 19h5v-5M20 4h-5v5"/></svg>`,
+        COPY: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" width="16" height="16"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>`,
     };
 
     const DOM = {
@@ -40,11 +42,13 @@ document.addEventListener('DOMContentLoaded', () => {
         logsModal: document.getElementById('logsModal'),
         logsModalTitle: document.getElementById('logsModalTitle'),
         logsModalContent: document.getElementById('logsModalContent'),
+        btnCopyLogs: document.getElementById('btnCopyLogs'),
         projectOrgId: document.getElementById('projectOrgId'),
         projectShortName: document.getElementById('projectShortName'),
         fullProjectIdPreview: document.getElementById('fullProjectIdPreview'),
         templateName: document.getElementById('templateName'),
         fullTemplateNamePreview: document.getElementById('fullTemplateNamePreview'),
+        projectsTable: document.getElementById('projectsTable'),
     };
     
     // --- Core Functions ---
@@ -197,46 +201,55 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function renderProjectsTable(projects) {
-        const tbody = document.getElementById('projectsTable').querySelector('tbody');
-        tbody.innerHTML = projects.length === 0 ? `<tr><td colspan="6">No projects found.</td></tr>` : projects.map(p => {
-            const newRow = document.createElement('tr');
-            newRow.id = `project-row-${p.id}`;
-            newRow.innerHTML = generateProjectRowHTML(p);
+        const tbody = DOM.projectsTable.querySelector('tbody');
+        tbody.innerHTML = projects.length === 0 ? `<tr><td colspan="7">No projects found.</td></tr>` : projects.map(p => {
+            const org = orgsCache.find(o => o.id === p.orgId);
+            const projectWithOrg = { ...p, orgName: org ? org.name : 'N/A' };
             if (isProjectInProcess(p.state)) {
                 startProjectPolling(p.id);
             }
-            return newRow.outerHTML;
+            return generateProjectRowHTML(projectWithOrg);
         }).join('');
     }
 
     function generateProjectRowHTML(p) {
         const state = p.state || 'N/A';
         const isFailed = state.startsWith('failed');
+        const isReady = state === 'ready';
         const inProcess = isProjectInProcess(state);
         const progress = getProgressForState(state);
-        
+        const createdDateTime = new Date(p.createdAt).toLocaleString(undefined, {
+            year: 'numeric', month: 'short', day: 'numeric',
+            hour: '2-digit', minute: '2-digit'
+        });
+
         return `
-            <td data-label="Display Name">${p.displayName}</td>
-            <td data-label="Project ID">${p.id}</td>
-            <td data-label="Status" class="status-cell">
-                <div class="status-indicator">
-                    <div class="status-text ${state}">${state.replace(/_/g, ' ')}</div>
-                    ${isFailed ? `<span class="error-tooltip" title="${p.error || 'Unknown error'}">${ICONS.ERROR}</span>` : ''}
-                </div>
-                <div class="progress-bar ${inProcess ? '' : 'hidden'}">
-                    <div class="progress-bar-inner" style="width: ${progress.percent}%;"></div>
-                </div>
-                <div class="progress-text ${inProcess ? '' : 'hidden'}">${progress.text}</div>
-            </td>
-            <td data-label="Links" class="links-cell"><div class="links-cell-content">
-                ${p.gcpProjectId ? `<a href="https://console.cloud.google.com/home/dashboard?project=${p.gcpProjectId}" target="_blank" class="icon-button" title="GCP Console">${ICONS.GCP}</a>` : ''}
-                ${p.githubRepoUrl ? `<a href="${p.githubRepoUrl}" target="_blank" class="icon-button" title="GitHub Repo">${ICONS.GITHUB}</a>` : ''}
-            </div></td>
-            <td data-label="Created">${new Date(p.createdAt).toLocaleDateString()}</td>
-            <td data-label="Actions" class="actions-cell"><div class="actions-cell-content">
-                <button class="icon-button logs" data-action="show-logs" data-id="${p.id}" title="Show Logs">${ICONS.LOGS}</button>
-                ${renderProjectActions(p)}
-            </div></td>
+            <tr id="project-row-${p.id}">
+                <td data-label="Display Name">${p.displayName}</td>
+                <td data-label="Organization">${p.orgName}</td>
+                <td data-label="Project ID">${p.id}</td>
+                <td data-label="Status" class="status-cell">
+                    <div class="status-indicator">
+                        <div class="status-text ${state}">${state.replace(/_/g, ' ')}</div>
+                        ${isFailed ? `<span class="error-tooltip" title="${p.error || 'Unknown error'}">${ICONS.ERROR}</span>` : ''}
+                    </div>
+                    <div class="progress-bar ${inProcess ? '' : 'hidden'}">
+                        <div class="progress-bar-inner" style="width: ${progress.percent}%;"></div>
+                    </div>
+                    <div class="progress-text ${inProcess ? '' : 'hidden'}">${progress.text}</div>
+                </td>
+                <td data-label="Links" class="links-cell"><div class="links-cell-content">
+                    ${p.gcpProjectId ? `<a href="https://console.cloud.google.com/home/dashboard?project=${p.gcpProjectId}" target="_blank" class="icon-button" title="GCP Console">${ICONS.GCP}</a>` : ''}
+                    ${p.githubRepoUrl ? `<a href="${p.githubRepoUrl}" target="_blank" class="icon-button" title="GitHub Repo">${ICONS.GITHUB}</a>` : ''}
+                    ${isReady ? `<a href="https://${p.id}.web.app" target="_blank" class="icon-button" title="Production Site">${ICONS.LINK}</a>` : ''}
+                    ${isReady ? `<a href="https://${p.id}-qa.web.app" target="_blank" class="icon-button" title="QA Site" style="color: var(--warning-color);">${ICONS.LINK}</a>` : ''}
+                </div></td>
+                <td data-label="Created">${createdDateTime}</td>
+                <td data-label="Actions" class="actions-cell"><div class="actions-cell-content">
+                    <button class="icon-button logs" data-action="show-logs" data-id="${p.id}" title="Show Logs">${ICONS.LOGS}</button>
+                    ${renderProjectActions(p)}
+                </div></td>
+            </tr>
         `;
     }
 
@@ -246,11 +259,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const inProcess = isProjectInProcess(state);
         let actionsHtml = '';
         if (state.startsWith('failed')) {
-            const stage = state.split('_')[1];
-            actionsHtml += `<button class="btn btn-secondary btn-sm" data-action="retry" data-stage="${stage}" data-id="${project.id}" title="Retry Stage">${ICONS.RETRY} Retry</button>`;
+            actionsHtml += `<button class="btn btn-secondary btn-sm" data-action="provision" data-id="${project.id}" title="Retry Stage">${ICONS.RETRY} Retry</button>`;
         }
         if (state === 'pending_gcp') {
-            actionsHtml += `<button class="btn btn-primary btn-sm" data-action="provision-all" data-id="${project.id}">Provision All</button>`;
+            actionsHtml += `<button class="btn btn-primary btn-sm" data-action="provision" data-id="${project.id}">Provision All</button>`;
         }
         if (!inProcess) {
              actionsHtml += `<button class="icon-button delete" data-type="project" data-id="${project.id}" title="Delete Project">${ICONS.DELETE}</button>`;
@@ -370,10 +382,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     await loadTemplatesForProjectForm();
                 } catch (error) { alert(`Failed to update description: ${error.message}`); }
             }
-        } else if (action === 'provision-all') {
-            handleFullProvisioning(id);
-        } else if (action === 'retry') {
-            handleRetry(id, stage);
+        } else if (action === 'provision') {
+            try {
+                await callApi(`/projects/${id}/provision`, { method: 'POST' });
+                startProjectPolling(id);
+            } catch (error) {
+                alert(`Failed to start provisioning for ${id}: ${error.message}`);
+            }
         } else if (action === 'show-logs') {
             showLogsForProject(id);
         } else if (action === 'edit-user') {
@@ -389,6 +404,35 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // --- Table Sorting ---
+    let sortState = { column: 'createdAt', direction: 'desc' };
+
+    DOM.projectsTable.querySelector('thead').addEventListener('click', (e) => {
+        const header = e.target.closest('th[data-sortable]');
+        if (!header) return;
+        
+        const column = header.dataset.sortable;
+        if (sortState.column === column) {
+            sortState.direction = sortState.direction === 'asc' ? 'desc' : 'asc';
+        } else {
+            sortState.column = column;
+            sortState.direction = 'asc';
+        }
+        
+        projectsCache.sort((a, b) => {
+            const valA = a[column] || '';
+            const valB = b[column] || '';
+            let comparison = 0;
+            if (valA > valB) { comparison = 1; } 
+            else if (valA < valB) { comparison = -1; }
+            return sortState.direction === 'asc' ? comparison : comparison * -1;
+        });
+
+        document.querySelectorAll('#projectsTable th[data-sortable]').forEach(th => th.removeAttribute('data-sort-dir'));
+        header.setAttribute('data-sort-dir', sortState.direction);
+        renderProjectsTable(projectsCache);
+    });
+    
     // --- Modals & State Management ---
     const openModal = (modalId) => document.getElementById(modalId).classList.remove('hidden');
     const closeModal = (modalId) => document.getElementById(modalId).classList.add('hidden');
@@ -415,12 +459,29 @@ document.addEventListener('DOMContentLoaded', () => {
         openModal('logsModal');
         try {
             const { logs } = await callApi(`/projects/${projectId}/logs`);
-            DOM.logsModalContent.innerHTML = logs.length > 0 ? logs.map(log => {
+            const formattedLogs = logs.map(log => {
+                const { ts, evt, serverTimestamp, ...meta } = log;
+                const metaString = Object.keys(meta).length > 0 ? JSON.stringify(meta, null, 2) : '';
+                return `[${new Date(ts).toLocaleString()}] ${evt}\n${metaString ? metaString + '\n' : ''}`;
+            }).join('---\n');
+            
+            const htmlLogs = logs.map(log => {
                 const { ts, evt, ...meta } = log;
                 const isError = evt.includes('error') || evt.includes('fail');
                 let metaString = Object.keys(meta).length > 0 ? JSON.stringify(meta, null, 2) : '';
                 return `<div class="log-entry"><span class="log-timestamp">${new Date(ts).toLocaleTimeString()}</span><span class="log-event ${isError ? 'log-event-error' : ''}">${evt}</span><pre class="log-meta">${metaString}</pre></div>`;
-            }).join('') : 'No logs found.';
+            }).join('');
+            
+            DOM.logsModalContent.innerHTML = htmlLogs || 'No logs found.';
+            DOM.btnCopyLogs.onclick = () => {
+                navigator.clipboard.writeText(formattedLogs).then(() => {
+                    const originalText = DOM.btnCopyLogs.innerHTML;
+                    DOM.btnCopyLogs.innerHTML = 'Copied!';
+                    setTimeout(() => DOM.btnCopyLogs.innerHTML = originalText, 2000);
+                });
+            };
+            DOM.btnCopyLogs.innerHTML = `${ICONS.COPY} <span>Copy Logs</span>`;
+
         } catch (error) {
             DOM.logsModalContent.innerHTML = `<span class="log-meta-error">Could not load logs: ${error.message}</span>`;
         }
@@ -446,7 +507,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function startProjectPolling(projectId) {
         if (activeProjectPollers[projectId]) return;
-        activeProjectPollers[projectId] = setInterval(() => pollProjectStatus(projectId), 5000);
+        activeProjectPollers[projectId] = setInterval(() => pollProjectStatus(projectId), 7000);
     }
 
     function stopProjectPolling(projectId) {
@@ -460,15 +521,23 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const project = await callApi(`/projects/${projectId}`);
             const index = projectsCache.findIndex(p => p.id === projectId);
-            if (index > -1) projectsCache[index] = project;
-            else projectsCache.push(project);
+            if (index > -1) {
+                projectsCache[index] = { ...projectsCache[index], ...project };
+            } else {
+                projectsCache.push(project);
+            }
+            
+            const org = orgsCache.find(o => o.id === project.orgId);
+            const projectWithOrg = { ...project, orgName: org ? org.name : 'N/A' };
+
             const row = document.getElementById(`project-row-${projectId}`);
-            if (row) row.outerHTML = generateProjectRowHTML(project);
+            if (row) {
+                // *** BUG FIX: Replace the entire row's HTML content, not the element itself ***
+                row.outerHTML = generateProjectRowHTML(projectWithOrg);
+            }
+
             if (!isProjectInProcess(project.state)) {
                 stopProjectPolling(projectId);
-            } else {
-                const nextAction = getNextActionForState(project.state);
-                if (nextAction) await callApi(`/projects/${projectId}/${nextAction}`, { method: 'POST' });
             }
         } catch (error) {
             console.error(`Polling failed for ${projectId}:`, error);
@@ -476,42 +545,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const row = document.getElementById(`project-row-${projectId}`);
             if (row) {
                 const statusCell = row.querySelector('.status-cell');
-                if (statusCell) statusCell.innerHTML += `<div class="error-text">Polling failed.</div>`;
+                if (statusCell) statusCell.innerHTML += `<div class="error-text">Polling failed. Refresh recommended.</div>`;
             }
         }
-    }
-    
-    function getNextActionForState(state) {
-        const transitions = {
-            'pending_gcp': 'provision-gcp',
-            'pending_github': 'provision-github',
-            'pending_secrets': 'finalize'
-        };
-        return transitions[state] || null;
-    }
-
-    async function handleFullProvisioning(projectId) {
-        try {
-            const project = projectsCache.find(p => p.id === projectId);
-            if (!project) throw new Error('Project not found in cache.');
-            const firstAction = getNextActionForState(project.state);
-            if (!firstAction) { alert('Project is in a state that cannot be actioned.'); return; }
-            await callApi(`/projects/${projectId}/${firstAction}`, { method: 'POST' });
-            startProjectPolling(projectId);
-        } catch (error) { alert(`Failed to start provisioning: ${error.message}`); }
-    }
-
-    async function handleRetry(projectId, stage) {
-        const stageToAction = {
-            'gcp': 'provision-gcp',
-            'github': 'provision-github',
-            'secrets': 'finalize'
-        };
-        const action = stageToAction[stage];
-        if (!action) { alert(`Unknown stage for retry: ${stage}`); return; }
-        try {
-            await callApi(`/projects/${projectId}/${action}`, { method: 'POST' });
-            startProjectPolling(projectId);
-        } catch (error) { alert(`Failed to retry stage ${stage}: ${error.message}`); }
     }
 });
