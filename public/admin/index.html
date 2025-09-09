@@ -64,10 +64,9 @@
             </form>
         </div>
         <div class="card">
-          <div id="projectsSpinner" class="spinner"></div>
           <div class="table-wrapper">
             <table id="projectsTable" class="data-table">
-              <thead><tr><th>Display Name</th><th>Project ID</th><th>State</th><th>Links</th><th>Created</th><th>Actions</th></tr></thead>
+              <thead><tr><th>Display Name</th><th>Project ID</th><th>Status</th><th>Links</th><th>Created</th><th>Actions</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -88,7 +87,6 @@
             </form>
         </div>
         <div class="card">
-          <div id="orgsSpinner" class="spinner"></div>
           <div class="table-wrapper">
             <table id="orgsTable" class="data-table">
               <thead><tr><th>Name</th><th>ID</th><th>Phone</th><th>Created</th><th>Actions</th></tr></thead>
@@ -103,7 +101,6 @@
           <h2>User Management</h2>
         </div>
         <div class="card">
-          <div id="usersSpinner" class="spinner"></div>
           <div class="table-wrapper">
             <table id="usersTable" class="data-table">
               <thead><tr><th>Email</th><th>Role</th><th>Organizations</th><th>Actions</th></tr></thead>
@@ -111,11 +108,6 @@
             </table>
           </div>
         </div>
-      </div>
-
-      <div id="liveLogContainer" class="card hidden">
-        <h3 id="liveLogTitle">Live Process Logs</h3>
-        <pre id="liveLogContent" class="status-log"></pre>
       </div>
     </main>
   </div>
@@ -138,6 +130,18 @@
         <button type="submit" form="userEditForm" class="btn btn-primary">Save Changes</button>
       </div>
     </div>
+  </div>
+  
+  <div id="logsModal" class="modal-overlay hidden">
+      <div class="modal-content modal-lg">
+          <div class="modal-header">
+              <h3 id="logsModalTitle">Logs</h3>
+              <button class="close-button" data-close="logsModal">&times;</button>
+          </div>
+          <div class="modal-body">
+              <div id="logsModalContent"></div>
+          </div>
+      </div>
   </div>
 
 <script src="/admin/admin.js"></script>
