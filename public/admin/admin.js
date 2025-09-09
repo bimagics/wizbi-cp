@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', () => {
         PROJECTS: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>`,
         ORGS: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg>`,
         USERS: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M15 21a6 6 0 00-9-5.197M15 11a4 4 0 110-5.292"></path></svg>`,
+        TEMPLATES: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>`,
         GITHUB: `<svg viewBox="0 0 16 16"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>`,
         GCP: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12.0001 2.00015C11.598 2.00015 11.2012 2.11265 10.8543 2.32523L3.14511 6.8249C2.45076 7.25143 2 8.02008 2 8.8471V15.1532C2 15.9802 2.45076 16.7489 3.14511 17.1754L10.8543 21.6751C11.2012 21.8876 11.598 22.0002 12.0001 22.0002C12.4022 22.0002 12.799 21.8876 13.1459 21.6751L20.8551 17.1754C21.5495 16.7489 22.0002 15.9802 22.0002 15.1532V8.8471C22.0002 8.02008 21.5495 7.25143 20.8551 6.8249L13.1459 2.32523C12.799 2.11265 12.4022 2.00015 12.0001 2.00015ZM12.0001 3.8643L19.071 8.00015L12.0001 12.1361L4.9292 8.00015L12.0001 3.8643ZM11.0001 13.2323V19.932L4.35411 15.8232L11.0001 13.2323ZM13.0001 13.2323L19.6461 15.8232L13.0001 19.932V13.2323Z"/></svg>`,
         DELETE: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>`,
@@ -42,6 +43,8 @@ document.addEventListener('DOMContentLoaded', () => {
         projectOrgId: document.getElementById('projectOrgId'),
         projectShortName: document.getElementById('projectShortName'),
         fullProjectIdPreview: document.getElementById('fullProjectIdPreview'),
+        templateName: document.getElementById('templateName'),
+        fullTemplateNamePreview: document.getElementById('fullTemplateNamePreview'),
     };
     
     // --- Core Functions ---
@@ -88,7 +91,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     
     function setupDashboard() {
-        const navItems = [{ id: 'Projects', icon: ICONS.PROJECTS }, { id: 'Orgs', icon: ICONS.ORGS }, { id: 'Users', icon: ICONS.USERS, adminOnly: true }];
+        const navItems = [
+            { id: 'Projects', icon: ICONS.PROJECTS }, 
+            { id: 'Orgs', icon: ICONS.ORGS }, 
+            { id: 'Templates', icon: ICONS.TEMPLATES, adminOnly: true },
+            { id: 'Users', icon: ICONS.USERS, adminOnly: true }
+        ];
         DOM.sidebarNav.innerHTML = '';
         navItems.forEach(item => {
             if (item.adminOnly && !userProfile.roles?.superAdmin) return;
@@ -102,7 +110,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         switchTab('Projects');
         loadAllData();
-        loadTemplates(); 
+        loadTemplatesForProjectForm(); 
     }
     
     function switchTab(tabId) {
@@ -117,7 +125,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function loadAllData() {
         await Promise.all([loadOrgs(), loadProjects()]);
-        if (userProfile.roles?.superAdmin) await loadUsers();
+        if (userProfile.roles?.superAdmin) {
+            await Promise.all([loadUsers(), loadTemplatesData()]);
+        }
     }
     
     async function loadProjects() {
@@ -146,18 +156,44 @@ document.addEventListener('DOMContentLoaded', () => {
         try { usersCache = await callApi('/users'); renderUsersTable(usersCache); } catch(e) { console.error("Failed to load users", e); }
     }
 
-    async function loadTemplates() {
+    async function loadTemplatesForProjectForm() {
         try {
             const { templates } = await callApi('/github/templates');
             templatesCache = templates;
             const select = document.getElementById('projectTemplate');
             select.innerHTML = '<option value="" disabled selected>Select a Template</option>' + 
-                templates.map(t => `<option value="${t.name}">${t.name.replace(/-/g, ' ')} (${t.description || 'No description'})</option>`).join('');
+                templates.map(t => `<option value="${t.name}">${t.name.replace('template-', '').replace(/-/g, ' ')} (${t.description || 'No description'})</option>`).join('');
+        } catch (e) {
+            console.error("Failed to load templates for form", e);
+            document.getElementById('projectTemplate').innerHTML = '<option value="" disabled selected>Error loading templates</option>';
+        }
+    }
+
+    async function loadTemplatesData() {
+        if (!userProfile.roles?.superAdmin) return;
+        try {
+            const { templates } = await callApi('/github/templates');
+            renderTemplatesTable(templates);
         } catch (e) {
             console.error("Failed to load templates", e);
-            const select = document.getElementById('projectTemplate');
-            select.innerHTML = '<option value="" disabled selected>Error loading templates</option>';
+            document.getElementById('templatesTable').querySelector('tbody').innerHTML = `<tr><td colspan="4">Error loading templates.</td></tr>`;
         }
+    }
+
+    function renderTemplatesTable(templates) {
+        const tbody = document.getElementById('templatesTable').querySelector('tbody');
+        tbody.innerHTML = templates.length === 0 ? `<tr><td colspan="4">No templates found.</td></tr>` : templates.map(t => `
+            <tr>
+                <td data-label="Name">${t.name}</td>
+                <td data-label="Description">${t.description || 'N/A'}</td>
+                <td data-label="Link"><a href="${t.url}" target="_blank" class="icon-button" title="View on GitHub">${ICONS.GITHUB}</a></td>
+                <td data-label="Actions" class="actions-cell">
+                    <div class="actions-cell-content">
+                        <button class="icon-button" data-action="edit-template" data-name="${t.name}" data-description="${t.description || ''}" title="Edit Description">${ICONS.EDIT}</button>
+                    </div>
+                </td>
+            </tr>
+        `).join('');
     }
 
     function renderProjectsTable(projects) {
@@ -206,28 +242,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderProjectActions(project) {
         if (!userProfile.roles?.superAdmin) return '';
-
         const state = project.state;
         const inProcess = isProjectInProcess(state);
-
         let actionsHtml = '';
-
-        // Add Retry button for any failed state
         if (state.startsWith('failed')) {
-            const stage = state.split('_')[1]; // gcp, github, secrets
+            const stage = state.split('_')[1];
             actionsHtml += `<button class="btn btn-secondary btn-sm" data-action="retry" data-stage="${stage}" data-id="${project.id}" title="Retry Stage">${ICONS.RETRY} Retry</button>`;
         }
-
-        // Add "Provision All" button for the very first step
         if (state === 'pending_gcp') {
             actionsHtml += `<button class="btn btn-primary btn-sm" data-action="provision-all" data-id="${project.id}">Provision All</button>`;
         }
-
-        // Add Delete button for any state that is NOT in process
         if (!inProcess) {
              actionsHtml += `<button class="icon-button delete" data-type="project" data-id="${project.id}" title="Delete Project">${ICONS.DELETE}</button>`;
         }
-        
         return actionsHtml;
     }
     
@@ -266,6 +293,7 @@ document.addEventListener('DOMContentLoaded', () => {
     [DOM.btnLogoutAdmin, DOM.btnLogoutUnauthorized].forEach(btn => btn.addEventListener('click', () => firebaseAuth.signOut()));
     document.getElementById('btnShowCreateOrg').addEventListener('click', () => document.getElementById('formCreateOrgCard').classList.toggle('hidden'));
     document.getElementById('btnShowProvisionProject').addEventListener('click', () => document.getElementById('formProvisionProjectCard').classList.toggle('hidden'));
+    document.getElementById('btnShowCreateTemplate').addEventListener('click', () => document.getElementById('formCreateTemplateCard').classList.toggle('hidden'));
     
     document.getElementById('formCreateOrg').addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -289,39 +317,60 @@ document.addEventListener('DOMContentLoaded', () => {
         };
         try {
             await callApi('/projects', { method: 'POST', body: JSON.stringify(body) });
-            e.target.reset();
-            DOM.fullProjectIdPreview.value = '';
+            e.target.reset(); DOM.fullProjectIdPreview.value = '';
             document.getElementById('formProvisionProjectCard').classList.add('hidden');
             await loadProjects();
-        } catch (error) { 
-            alert(`Failed to create project entry: ${error.message}`);
-        }
+        } catch (error) { alert(`Failed to create project entry: ${error.message}`); }
     });
 
-    [DOM.projectOrgId, DOM.projectShortName].forEach(el => {
-        el.addEventListener('input', updateProjectIdPreview);
+    document.getElementById('formCreateTemplate').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const name = e.target.elements.templateName.value.trim();
+        const description = e.target.elements.templateDescription.value.trim();
+        if (!name || !description) return;
+        try {
+            await callApi('/github/templates', { method: 'POST', body: JSON.stringify({ name, description }) });
+            e.target.reset(); DOM.fullTemplateNamePreview.value = '';
+            document.getElementById('formCreateTemplateCard').classList.add('hidden');
+            await loadTemplatesData();
+            await loadTemplatesForProjectForm();
+        } catch (error) { alert(`Error creating template: ${error.message}`); }
     });
+
+    [DOM.projectOrgId, DOM.projectShortName].forEach(el => el.addEventListener('input', updateProjectIdPreview));
+    DOM.templateName.addEventListener('input', updateTemplateNamePreview);
 
     function updateProjectIdPreview() {
         const orgId = DOM.projectOrgId.value;
         const shortName = DOM.projectShortName.value.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
-        if (!orgId || !shortName) {
-            DOM.fullProjectIdPreview.value = '';
-            return;
-        }
+        if (!orgId || !shortName) { DOM.fullProjectIdPreview.value = ''; return; }
         const selectedOrg = orgsCache.find(o => o.id === orgId);
         if (!selectedOrg) return;
         const orgSlug = (selectedOrg.name || 'unknown').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
         DOM.fullProjectIdPreview.value = `wizbi-${orgSlug}-${shortName}`;
+    }
+
+    function updateTemplateNamePreview() {
+        const shortName = DOM.templateName.value.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
+        DOM.fullTemplateNamePreview.value = shortName ? `template-${shortName}` : '';
     }
     
     document.getElementById('adminPanelContainer').addEventListener('click', async (e) => {
         const button = e.target.closest('button[data-action], button[data-type="project"], button[data-type="org"]');
         if (!button) return;
 
-        const { action, id, uid, type, name, stage } = button.dataset;
+        const { action, id, uid, type, name, stage, description } = button.dataset;
 
-        if (action === 'provision-all') {
+        if (action === 'edit-template') {
+            const newDescription = prompt(`Enter new description for:\n${name}`, description);
+            if (newDescription !== null && newDescription !== description) {
+                try {
+                    await callApi(`/github/templates/${name}`, { method: 'PUT', body: JSON.stringify({ description: newDescription }) });
+                    await loadTemplatesData();
+                    await loadTemplatesForProjectForm();
+                } catch (error) { alert(`Failed to update description: ${error.message}`); }
+            }
+        } else if (action === 'provision-all') {
             handleFullProvisioning(id);
         } else if (action === 'retry') {
             handleRetry(id, stage);
@@ -413,17 +462,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const index = projectsCache.findIndex(p => p.id === projectId);
             if (index > -1) projectsCache[index] = project;
             else projectsCache.push(project);
-            
             const row = document.getElementById(`project-row-${projectId}`);
             if (row) row.outerHTML = generateProjectRowHTML(project);
-
             if (!isProjectInProcess(project.state)) {
                 stopProjectPolling(projectId);
             } else {
                 const nextAction = getNextActionForState(project.state);
-                if (nextAction) {
-                    await callApi(`/projects/${projectId}/${nextAction}`, { method: 'POST' });
-                }
+                if (nextAction) await callApi(`/projects/${projectId}/${nextAction}`, { method: 'POST' });
             }
         } catch (error) {
             console.error(`Polling failed for ${projectId}:`, error);
@@ -463,15 +508,10 @@ document.addEventListener('DOMContentLoaded', () => {
             'secrets': 'finalize'
         };
         const action = stageToAction[stage];
-        if (!action) {
-            alert(`Unknown stage for retry: ${stage}`);
-            return;
-        }
+        if (!action) { alert(`Unknown stage for retry: ${stage}`); return; }
         try {
             await callApi(`/projects/${projectId}/${action}`, { method: 'POST' });
             startProjectPolling(projectId);
-        } catch (error) {
-            alert(`Failed to retry stage ${stage}: ${error.message}`);
-        }
+        } catch (error) { alert(`Failed to retry stage ${stage}: ${error.message}`); }
     }
 });
