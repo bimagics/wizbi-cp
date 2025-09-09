@@ -41,23 +41,28 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
     await createProjectAndLinkBilling(crm, projectId, displayName, folderId);
     const projectNumber = await getProjectNumber(crm, projectId);
 
-    // --- 2. Enable Required APIs ---
+    // --- 2. NEW: Set Initial Project Owner to fix inheritance issue ---
+    // TODO: Pass the creating user's email dynamically instead of hardcoding.
+    const initialOwnerEmail = 'omer.cohen@bimagics.com';
+    await setInitialProjectOwner(crm, projectId, initialOwnerEmail);
+    
+    // --- 3. Enable Required APIs ---
     await enableProjectApis(serviceUsage, projectId);
 
-    // --- 3. Create Artifact Registry Repository (with built-in retry logic for IAM propagation) ---
+    // --- 4. Create Artifact Registry Repository (with built-in retry logic for IAM propagation) ---
     await createArtifactRegistryRepo(projectId, 'wizbi');
 
-    // --- 4. Add Firebase to the Project (including QA site) ---
+    // --- 5. Add Firebase to the Project (including QA site) ---
     await addFirebase(firebase, projectId);
 
-    // --- 5. Create CI/CD Service Account ---
+    // --- 6. Create CI/CD Service Account ---
     const saEmail = `github-deployer@${projectId}.iam.gserviceaccount.com`;
     await createServiceAccount(iam, projectId, saEmail);
 
-    // --- 6. Grant IAM Roles to the new Service Account ---
+    // --- 7. Grant IAM Roles to the new Service Account ---
     await grantRolesToServiceAccount(crm, projectId, saEmail);
 
-    // --- 7. Set up Workload Identity Federation (WIF) ---
+    // --- 8. Set up Workload Identity Federation (WIF) ---
     const wifProviderName = await setupWif(iam, projectId, saEmail);
 
     log('gcp.provision.all.success', { projectId, projectNumber, finalSa: saEmail });
@@ -98,6 +103,50 @@ async function createProjectAndLinkBilling(crm: cloudresourcemanager_v3.Cloudres
     });
     log('gcp.billing.link.success', { projectId });
 }
+
+// --- NEW FUNCTION ---
+async function setInitialProjectOwner(crm: cloudresourcemanager_v3.Cloudresourcemanager, projectId: string, ownerEmail: string) {
+    log('gcp.iam.set_initial_owner.attempt', { projectId, owner: ownerEmail });
+    try {
+        const resource = `projects/${projectId}`;
+        // Get the current policy (which might be empty)
+        const { data: policy } = await crm.projects.getIamPolicy({ resource });
+        
+        // Add the new owner binding
+        const ownerBinding = {
+            role: 'roles/owner',
+            members: [`user:${ownerEmail}`],
+        };
+        
+        if (!policy.bindings) {
+            policy.bindings = [ownerBinding];
+        } else {
+            // Avoid adding duplicate bindings
+            const existingBinding = policy.bindings.find(b => b.role === 'roles/owner');
+            if (existingBinding) {
+                if (!existingBinding.members?.includes(`user:${ownerEmail}`)) {
+                    existingBinding.members.push(`user:${ownerEmail}`);
+                }
+            } else {
+                policy.bindings.push(ownerBinding);
+            }
+        }
+
+        // Set the updated policy
+        await crm.projects.setIamPolicy({
+            resource,
+            requestBody: { policy },
+        });
+        log('gcp.iam.set_initial_owner.success', { projectId, owner: ownerEmail });
+        // Add a delay to allow the new owner permission to propagate
+        log('gcp.iam.propagating_owner_role', { delay: 10000 });
+        await new Promise(resolve => setTimeout(resolve, 10000));
+    } catch (error: any) {
+        log('gcp.iam.set_initial_owner.error', { projectId, error: error.message });
+        throw new Error(`Failed to set initial owner for project ${projectId}: ${error.message}`);
+    }
+}
+
 
 async function getProjectNumber(crm: cloudresourcemanager_v3.Cloudresourcemanager, projectId: string): Promise<string> {
     log('gcp.project.number.get', { projectId });
