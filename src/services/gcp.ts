@@ -42,7 +42,13 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
     // --- 2. Enable Required APIs ---
     await enableProjectApis(serviceUsage, projectId);
 
-    // --- 3. NEW: Create Artifact Registry Repository ---
+    // --- FIX: Add a strategic delay to allow IAM policies to propagate to the new project ---
+    const propagationDelay = 15000; // 15 seconds
+    log('gcp.iam.propagation_delay', { projectId, delay: propagationDelay });
+    await new Promise(resolve => setTimeout(resolve, propagationDelay));
+    // --- END OF FIX ---
+
+    // --- 3. Create Artifact Registry Repository ---
     await createArtifactRegistryRepo(projectId, 'wizbi');
 
     // --- 4. Add Firebase to the Project (including QA site) ---
@@ -134,7 +140,6 @@ async function createArtifactRegistryRepo(projectId: string, repoId: string) {
                 description: 'Default repository for WIZBI project containers',
             },
         });
-        // FIX: Poll using the correct operations client for Artifact Registry
         await pollOperation(artifactRegistry.projects.locations.operations, createOp.data.name!);
         log('gcp.ar.repo.create.success', { repoId });
     } catch (error: any) {
@@ -294,7 +299,6 @@ async function setupWif(iam: iam_v1.Iam, newProjectId: string, saEmail: string):
     return providerName;
 }
 
-// FIX: This function now accepts the specific operations client
 async function pollOperation(operationsClient: any, operationName: string, maxRetries = 20, delay = 5000) {
     let isDone = false;
     let retries = 0;
@@ -309,3 +313,4 @@ async function pollOperation(operationsClient: any, operationName: string, maxRe
 }
 
 export const { createGcpFolderForOrg, deleteGcpFolder, deleteGcpProject } = GcpLegacyService;
+
