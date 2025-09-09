@@ -45,7 +45,7 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
     // TODO: Pass the creating user's email dynamically instead of hardcoding.
     const initialOwnerEmail = 'omer.cohen@bimagics.com';
     await setInitialProjectOwner(crm, projectId, initialOwnerEmail);
-    
+
     // --- 3. Enable Required APIs ---
     await enableProjectApis(serviceUsage, projectId);
 
@@ -111,22 +111,27 @@ async function setInitialProjectOwner(crm: cloudresourcemanager_v3.Cloudresource
         const resource = `projects/${projectId}`;
         // Get the current policy (which might be empty)
         const { data: policy } = await crm.projects.getIamPolicy({ resource });
-        
+
         // Add the new owner binding
         const ownerBinding = {
             role: 'roles/owner',
             members: [`user:${ownerEmail}`],
         };
-        
+
         if (!policy.bindings) {
             policy.bindings = [ownerBinding];
         } else {
-            // Avoid adding duplicate bindings
             const existingBinding = policy.bindings.find(b => b.role === 'roles/owner');
             if (existingBinding) {
-                if (!existingBinding.members?.includes(`user:${ownerEmail}`)) {
+                // *** FIX STARTS HERE ***
+                // Ensure members array exists before trying to access it
+                if (!existingBinding.members) {
+                    existingBinding.members = [];
+                }
+                if (!existingBinding.members.includes(`user:${ownerEmail}`)) {
                     existingBinding.members.push(`user:${ownerEmail}`);
                 }
+                // *** FIX ENDS HERE ***
             } else {
                 policy.bindings.push(ownerBinding);
             }
