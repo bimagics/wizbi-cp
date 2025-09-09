@@ -108,6 +108,42 @@
         </div>
       </div>
 
+      <div id="tabContentTemplates" class="tab-content hidden">
+        <div class="page-header">
+          <h2>Template Management</h2>
+          <button id="btnShowCreateTemplate" class="btn btn-primary">Create New Template</button>
+        </div>
+        
+        <div id="formCreateTemplateCard" class="card hidden">
+            <h3>Create New Template</h3>
+            <form id="formCreateTemplate" class="form-grid">
+                <div class="form-group">
+                    <label for="templateName">Template Name (e.g., "nextjs-blog")</label>
+                    <input type="text" id="templateName" placeholder="Short name, no spaces" required pattern="^[a-z0-9-]{3,}$" title="Must be at least 3 characters of lowercase letters, numbers, and hyphens.">
+                </div>
+                <div class="form-group">
+                    <label for="templateDescription">Description</label>
+                    <input type="text" id="templateDescription" placeholder="A brief description of the template" required>
+                </div>
+                <div class="form-group full-width">
+                    <label>Full Repository Name (Auto-generated)</label>
+                    <input type="text" id="fullTemplateNamePreview" readonly class="preview-field">
+                </div>
+                <p class="full-width" style="color: var(--text-secondary); font-size: 0.875rem;">This will create a new repository by cloning 'template-base' and mark it as a template on GitHub.</p>
+                <button type="submit" class="btn btn-primary">Create Template</button>
+            </form>
+        </div>
+        
+        <div class="card">
+          <div class="table-wrapper">
+            <table id="templatesTable" class="data-table">
+              <thead><tr><th>Name</th><th>Description</th><th>Link</th><th>Actions</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
       <div id="tabContentUsers" class="tab-content hidden">
         <div class="page-header">
           <h2>User Management</h2>
