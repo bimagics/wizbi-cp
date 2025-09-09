@@ -119,11 +119,12 @@ async function enableProjectApis(serviceUsage: serviceusage_v1.Serviceusage, pro
     log('gcp.api.enable.success', { projectId });
 }
 
-// --- NEW HELPER FUNCTION ---
+// --- NEW HELPER FUNCTION (WITH FIX) ---
 async function createArtifactRegistryRepo(projectId: string, repoId: string) {
     log('gcp.ar.repo.create.start', { projectId, repoId });
     const auth = await getAuth();
     const artifactRegistry = google.artifactregistry({ version: 'v1', auth });
+    const serviceUsage = google.serviceusage({ version: 'v1', auth }); // Client for polling
     const parent = `projects/${projectId}/locations/${GCP_DEFAULT_REGION}`;
 
     try {
@@ -135,7 +136,8 @@ async function createArtifactRegistryRepo(projectId: string, repoId: string) {
                 description: 'Default repository for WIZBI project containers',
             },
         });
-        await pollOperation(artifactRegistry, createOp.data.name!);
+        // Use the serviceUsage client to poll the generic operation
+        await pollOperation(serviceUsage, createOp.data.name!);
         log('gcp.ar.repo.create.success', { repoId });
     } catch (error: any) {
         if (error.code === 409) {
