@@ -11,9 +11,31 @@ const GITHUB_OWNER = process.env.GITHUB_OWNER || 'bimagics';
 const CP_PROJECT_NUMBER = process.env.GCP_CONTROL_PLANE_PROJECT_NUMBER || ''; // Project number of the control plane
 const GCP_DEFAULT_REGION = process.env.GCP_DEFAULT_REGION || 'europe-west1';
 
+// --- MODIFICATION: ADDED A FLAG TO LOG IDENTITY ONLY ONCE ---
+let identityLogged = false;
+
 // Helper to get authenticated client
 async function getAuth() {
-    return google.auth.getClient({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
+    const auth = google.auth;
+    const client = await auth.getClient({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
+
+    // --- MODIFICATION: LOG THE CALLER'S IDENTITY ---
+    if (!identityLogged) {
+        try {
+            const credentials = await (client as any).getCredentials();
+            if (credentials && credentials.client_email) {
+                log('gcp.auth.identity_check', { identity: credentials.client_email });
+            } else {
+                 log('gcp.auth.identity_check', { identity: 'Could not determine service account email, but auth is active.' });
+            }
+            identityLogged = true; // Set flag to prevent re-logging
+        } catch (e: any) {
+            log('gcp.auth.identity_check.error', { error: e.message });
+        }
+    }
+    // --- END MODIFICATION ---
+
+    return client;
 }
 
 // --- Interfaces for structured return types ---
@@ -90,7 +112,6 @@ async function createProjectAndLinkBilling(crm: cloudresourcemanager_v3.Cloudres
         }
     }
 
-    // --- MODIFICATION START: Add robust retry logic for the billing link operation ---
     const billing = google.cloudbilling({ version: 'v1', auth: await getAuth() });
     for (let attempt = 1; attempt <= 3; attempt++) {
         try {
@@ -102,19 +123,16 @@ async function createProjectAndLinkBilling(crm: cloudresourcemanager_v3.Cloudres
             log('gcp.billing.link.success', { projectId, attempt });
             return; // Success, exit the function
         } catch (error: any) {
-            // Check for permission-related errors (403 or message content) and if it's not the last attempt
             if (attempt < 3 && (error.code === 403 || (error.message && String(error.message).toLowerCase().includes("permission")))) {
                 const delay = 7000 * attempt; // Wait 7s, then 14s
                 log('gcp.billing.link.permission_denied_retrying', { projectId, attempt, delay, error: error.message });
                 await new Promise(resolve => setTimeout(resolve, delay));
             } else {
-                // This was the last attempt or a different, non-retryable error
                 log('gcp.billing.link.fatal_error', { projectId, attempt, error: error.message });
                 throw error;
             }
         }
     }
-    // --- MODIFICATION END ---
 }
 
 async function getProjectNumber(crm: cloudresourcemanager_v3.Cloudresourcemanager, projectId: string): Promise<string> {
@@ -343,3 +361,4 @@ async function pollOperation(operationsClient: any, operationName: string, maxRe
 }
 
 export const { createGcpFolderForOrg, deleteGcpFolder, deleteGcpProject } = GcpLegacyService;
+
