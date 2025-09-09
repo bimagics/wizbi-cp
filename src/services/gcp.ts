@@ -37,7 +37,7 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
 
     log('gcp.provision.all.start', { projectId, displayName, parentFolder: folderId, region: GCP_DEFAULT_REGION });
 
-    // --- 1. Create Project (if not exists) and Link Billing ---
+    // --- 1. Create Project (if not exists) and Link Billing (NOW WITH RETRY LOGIC) ---
     await createProjectAndLinkBilling(crm, projectId, displayName, folderId);
     const projectNumber = await getProjectNumber(crm, projectId);
 
@@ -90,13 +90,31 @@ async function createProjectAndLinkBilling(crm: cloudresourcemanager_v3.Cloudres
         }
     }
 
-    log('gcp.billing.link.attempt', { projectId, billingAccount: BILLING_ACCOUNT_ID });
+    // --- MODIFICATION START: Add robust retry logic for the billing link operation ---
     const billing = google.cloudbilling({ version: 'v1', auth: await getAuth() });
-    await billing.projects.updateBillingInfo({
-        name: `projects/${projectId}`,
-        requestBody: { billingAccountName: `billingAccounts/${BILLING_ACCOUNT_ID}` },
-    });
-    log('gcp.billing.link.success', { projectId });
+    for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+            log('gcp.billing.link.attempt', { projectId, billingAccount: BILLING_ACCOUNT_ID, attempt });
+            await billing.projects.updateBillingInfo({
+                name: `projects/${projectId}`,
+                requestBody: { billingAccountName: `billingAccounts/${BILLING_ACCOUNT_ID}` },
+            });
+            log('gcp.billing.link.success', { projectId, attempt });
+            return; // Success, exit the function
+        } catch (error: any) {
+            // Check for permission-related errors (403 or message content) and if it's not the last attempt
+            if (attempt < 3 && (error.code === 403 || (error.message && String(error.message).toLowerCase().includes("permission")))) {
+                const delay = 7000 * attempt; // Wait 7s, then 14s
+                log('gcp.billing.link.permission_denied_retrying', { projectId, attempt, delay, error: error.message });
+                await new Promise(resolve => setTimeout(resolve, delay));
+            } else {
+                // This was the last attempt or a different, non-retryable error
+                log('gcp.billing.link.fatal_error', { projectId, attempt, error: error.message });
+                throw error;
+            }
+        }
+    }
+    // --- MODIFICATION END ---
 }
 
 async function getProjectNumber(crm: cloudresourcemanager_v3.Cloudresourcemanager, projectId: string): Promise<string> {
@@ -200,7 +218,7 @@ async function createHostingSite(hosting: any, projectId: string, siteId: string
                 log('gcp.firebase.hosting.create.error_retrying', { siteId, error: error.message, attempt, delay });
                 await new Promise(resolve => setTimeout(resolve, delay));
             } else {
-                 throw new Error(`Failed to create Firebase Hosting site ${siteId} after 5 attempts.`);
+                  throw new Error(`Failed to create Firebase Hosting site ${siteId} after 5 attempts.`);
             }
         }
     }
