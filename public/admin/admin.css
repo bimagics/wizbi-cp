@@ -113,6 +113,7 @@ html, body {
 .btn-primary:active { transform: scale(0.98); }
 .btn-secondary { background-color: var(--border-color); color: var(--text-primary); }
 .btn-secondary:hover { background-color: #4b5563; }
+.btn-sm { font-size: 0.875rem; padding: 0.375rem 0.75rem; }
 
 /* --- Login & Unauthorized --- */
 .center-container { display: flex; align-items: center; justify-content: center; text-align: center; height: 100%; padding: 1rem; }
@@ -164,7 +165,7 @@ html, body {
 }
 .data-table tbody tr:hover { background-color: rgba(79, 70, 229, 0.05); }
 .data-table td { font-size: 0.95rem; }
-.data-table .actions-cell, .data-table .links-cell { width: 120px; text-align: center; }
+.data-table .actions-cell { width: 1%; } /* Let it shrink to fit content */
 
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; align-items: end;}
 .form-group { display: flex; flex-direction: column; }
@@ -184,26 +185,19 @@ html, body {
   border-color: var(--primary-color);
   box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.4);
 }
-.status-log {
-  text-align: left; background-color: #0d1117; color: var(--text-accent);
-  border: 1px solid var(--border-color); border-radius: 0.5rem; padding: 1rem;
-  font-family: 'SF Mono', 'Fira Code', 'Fira Mono', 'Roboto Mono', monospace;
-  white-space: pre-wrap; word-break: break-all; margin-top: 1.5rem; font-size: 0.875rem;
-}
-.status-log.error { color: var(--error-color); }
 .spinner {
     border: 3px solid var(--border-color); border-top: 3px solid var(--primary-color);
     border-radius: 50%; width: 28px; height: 28px; animation: spin 1s linear infinite;
     display: none; margin: 2rem auto;
 }
 
-/* --- Table Cell Styles & ROW JUMP FIX --- */
+/* --- Table Cell Specific Styles --- */
 .actions-cell-content, .links-cell-content {
   display: flex;
   gap: 0.75rem;
   align-items: center;
-  justify-content: center;
-  min-height: 24px; /* <-- KEY FIX: Ensures consistent height even when empty */
+  justify-content: flex-end;
+  min-height: 24px;
 }
 .icon-button {
   background: none; border: none; padding: 0.25rem; cursor: pointer;
@@ -214,18 +208,38 @@ html, body {
 .icon-button svg { width: 20px; height: 20px; }
 .icon-button:hover { color: var(--text-primary); background-color: rgba(255, 255, 255, 0.1); }
 .icon-button.delete:hover { color: var(--error-color); }
-.state-cell { display: flex; align-items: center; gap: 0.75rem; font-weight: 500; }
-.state-cell .spinner-inline {
-    width: 16px; height: 16px; border-width: 2px;
-    border-style: solid; border-color: var(--warning-color) transparent;
-    animation: spin 0.8s linear infinite; border-radius: 50%;
-}
-.state-cell-text { text-transform: capitalize; }
-.state-cell-text.failed, .state-cell-text.delete_failed { color: var(--error-color); }
-.state-cell-text.ready { color: var(--success-color); }
-.state-cell-text.starting, .state-cell-text.provisioning, .state-cell-text.deleting { color: var(--warning-color); }
-.error-tooltip { cursor: help; display: flex; align-items: center; }
+.icon-button.logs:hover { color: var(--text-accent); }
 
+/* --- NEW Status & Progress Bar Styles --- */
+.status-cell { min-width: 200px; }
+.status-indicator { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem; }
+.status-text { text-transform: capitalize; font-weight: 500; }
+.status-text.failed, .status-text.delete_failed, .status-text.failed_gcp, .status-text.failed_github, .status-text.failed_secrets { color: var(--error-color); }
+.status-text.ready { color: var(--success-color); }
+.status-text.provisioning_gcp, .status-text.provisioning_github, .status-text.injecting_secrets, .status-text.pending_gcp, .status-text.pending_github, .status-text.pending_secrets { color: var(--warning-color); }
+.error-tooltip { cursor: help; display: flex; align-items: center; }
+.progress-bar {
+  background-color: var(--background-dark);
+  border-radius: 4px;
+  height: 8px;
+  width: 100%;
+  overflow: hidden;
+  margin-bottom: 0.25rem;
+}
+.progress-bar-inner {
+  background-color: var(--primary-color);
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.5s ease-in-out;
+}
+.progress-text {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+.error-text {
+    font-size: 0.75rem;
+    color: var(--error-color);
+}
 /* --- Modal Styles --- */
 .modal-overlay {
   position: fixed; top: 0; left: 0; right: 0; bottom: 0;
@@ -236,6 +250,7 @@ html, body {
   background: var(--background-light); padding: 2rem; border-radius: 0.75rem;
   width: 90%; max-width: 500px; border: 1px solid var(--border-color); box-shadow: var(--shadow-md);
 }
+.modal-content.modal-lg { max-width: 900px; }
 .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
 .modal-header h3 { margin: 0; font-size: 1.25rem; font-weight: 600; }
 .close-button { background: none; border: none; color: var(--text-secondary); font-size: 1.5rem; cursor: pointer; }
@@ -247,6 +262,28 @@ html, body {
 }
 .modal-body .checkbox-item { display: flex; align-items: center; gap: 0.75rem; }
 .modal-footer { margin-top: 2rem; display: flex; justify-content: flex-end; gap: 0.75rem; }
+
+/* --- Log Modal Styles --- */
+#logsModalContent {
+  max-height: 60vh;
+  overflow-y: auto;
+  background-color: #0d1117;
+  color: #c9d1d9;
+  font-family: 'SF Mono', 'Fira Code', 'Fira Mono', 'Roboto Mono', monospace;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  padding: 1rem;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.log-entry { display: flex; gap: 1rem; border-bottom: 1px solid #2a3546; padding: 0.25rem 0; align-items: flex-start; }
+.log-timestamp { color: #8b949e; flex-shrink: 0; }
+.log-event { color: #58a6ff; font-weight: bold; flex-shrink: 0; min-width: 200px; }
+.log-event-error { color: var(--error-color); }
+.log-meta { color: #c9d1d9; white-space: pre-wrap; word-break: break-all; margin: 0; }
+.log-meta-error { color: var(--error-color); }
+
 
 @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
@@ -260,14 +297,14 @@ html, body {
   }
   .sidebar-header { padding: 1rem 0; border: none; }
   .sidebar-header h1 { font-size: 1.5rem; }
-  .sidebar-nav { display: none; /* Can be enhanced with a hamburger menu later */ }
+  .sidebar-nav { display: none; }
   .sidebar-footer { border: none; padding: 1rem 0; }
   .main-content { padding: 1.5rem 1rem; }
   .page-header { margin-bottom: 1.5rem; }
   .page-header h2 { font-size: 1.75rem; }
   .form-grid { grid-template-columns: 1fr; }
 
-  /* Transform table to card list on mobile for better readability */
+  /* Transform table to card list on mobile */
   .data-table thead { display: none; }
   .data-table, .data-table tbody, .data-table tr, .data-table td {
     display: block;
@@ -286,103 +323,13 @@ html, body {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    text-align: right;
   }
   .data-table td::before {
     content: attr(data-label);
     font-weight: 600;
     color: var(--text-secondary);
     padding-right: 1rem;
+    text-align: left;
   }
-  .data-table .actions-cell, .data-table .links-cell {
-    width: auto;
-  }
-  .actions-cell-content, .links-cell-content {
-    justify-content: flex-end;
-  }
-}
-
-/* --- Added at the end of the file --- */
-
-/* Log Modal Specific Styles */
-.modal-content.modal-lg {
-  max-width: 900px;
-}
-
-#logsModalContent {
-  max-height: 60vh;
-  overflow-y: auto;
-  background-color: #0d1117;
-  color: #c9d1d9;
-  font-family: 'SF Mono', 'Fira Code', 'Fira Mono', 'Roboto Mono', monospace;
-  font-size: 0.8rem;
-  line-height: 1.6;
-  padding: 1rem;
-  border-radius: 6px;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-.log-entry {
-  display: flex;
-  gap: 1.5rem;
-  border-bottom: 1px solid #2a3546;
-  padding: 0.25rem 0;
-}
-.log-timestamp {
-  color: #8b949e;
-  flex-shrink: 0;
-}
-.log-event {
-  color: #58a6ff;
-  font-weight: bold;
-  flex-shrink: 0;
-}
-.log-meta {
-  color: #c9d1d9;
-}
-
-/* New Icon Button for Logs */
-.icon-button.logs:hover {
-  color: #a5b4fc; /* text-accent */
-}
-
-/* --- Live Log Viewer Styles --- */
-#liveLogContainer {
-  margin-top: 2rem;
-  border-color: var(--primary-color);
-}
-#liveLogContent {
-  max-height: 400px;
-  overflow-y: auto;
-  background-color: #0d1117;
-  color: #c9d1d9;
-  font-family: 'SF Mono', 'Fira Code', 'Fira Mono', 'Roboto Mono', monospace;
-  font-size: 0.9rem;
-  line-height: 1.6;
-  padding: 1rem;
-  border-radius: 6px;
-  white-space: pre-wrap;
-  word-break: break-all;
-  margin-top: 0;
-}
-.log-entry {
-  display: flex;
-  gap: 1.5rem;
-  padding: 0.25rem 0;
-}
-.log-timestamp {
-  color: #8b949e;
-  flex-shrink: 0;
-}
-.log-event {
-  color: #58a6ff;
-  font-weight: bold;
-  flex-shrink: 0;
-}
-.log-meta {
-  color: #c9d1d9;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-.log-meta-error {
-  color: var(--error-color);
 }
