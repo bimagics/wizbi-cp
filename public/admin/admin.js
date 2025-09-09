@@ -17,6 +17,7 @@ document.addEventListener('DOMContentLoaded', () => {
         EDIT: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>`,
         ERROR: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width: 18px; height: 18px; color: var(--error-color);"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>`,
         LOGS: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>`,
+        RETRY: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5M20 19v-5h-5M4 19h5v-5M20 4h-5v5"/></svg>`,
     };
 
     const DOM = {
@@ -204,11 +205,30 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function renderProjectActions(project) {
-        if (!userProfile.roles?.superAdmin || isProjectInProcess(project.state)) return '';
-        if (project.state !== 'ready') {
-            return `<button class="btn btn-primary btn-sm" data-action="provision-all" data-id="${project.id}">Provision All</button>`;
+        if (!userProfile.roles?.superAdmin) return '';
+
+        const state = project.state;
+        const inProcess = isProjectInProcess(state);
+
+        let actionsHtml = '';
+
+        // Add Retry button for any failed state
+        if (state.startsWith('failed')) {
+            const stage = state.split('_')[1]; // gcp, github, secrets
+            actionsHtml += `<button class="btn btn-secondary btn-sm" data-action="retry" data-stage="${stage}" data-id="${project.id}" title="Retry Stage">${ICONS.RETRY} Retry</button>`;
         }
-        return `<button class="icon-button delete" data-type="project" data-id="${project.id}" title="Delete Project">${ICONS.DELETE}</button>`;
+
+        // Add "Provision All" button for the very first step
+        if (state === 'pending_gcp') {
+            actionsHtml += `<button class="btn btn-primary btn-sm" data-action="provision-all" data-id="${project.id}">Provision All</button>`;
+        }
+
+        // Add Delete button for any state that is NOT in process
+        if (!inProcess) {
+             actionsHtml += `<button class="icon-button delete" data-type="project" data-id="${project.id}" title="Delete Project">${ICONS.DELETE}</button>`;
+        }
+        
+        return actionsHtml;
     }
     
     const renderOrgsTable = (orgs) => {
@@ -296,13 +316,21 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     document.getElementById('adminPanelContainer').addEventListener('click', async (e) => {
-        const button = e.target.closest('button[data-action], button.delete');
+        const button = e.target.closest('button[data-action], button[data-type="project"], button[data-type="org"]');
         if (!button) return;
-        const { action, id, uid, type, name } = button.dataset;
-        if (action === 'provision-all') handleFullProvisioning(id);
-        else if (action === 'show-logs') showLogsForProject(id);
-        else if (action === 'edit-user') { const user = usersCache.find(u => u.uid === uid); if (user) openUserEditModal(user); }
-        else if (type === 'project' || type === 'org') {
+
+        const { action, id, uid, type, name, stage } = button.dataset;
+
+        if (action === 'provision-all') {
+            handleFullProvisioning(id);
+        } else if (action === 'retry') {
+            handleRetry(id, stage);
+        } else if (action === 'show-logs') {
+            showLogsForProject(id);
+        } else if (action === 'edit-user') {
+            const user = usersCache.find(u => u.uid === uid);
+            if (user) openUserEditModal(user);
+        } else if (type === 'project' || type === 'org') {
              if (confirm(`FINAL CONFIRMATION: Are you sure you want to delete ${type} '${name || id}'? This is irreversible.`)) {
                 try {
                     await callApi(`/${type}s/${id}`, { method: 'DELETE' });
@@ -351,7 +379,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // --- Automated Provisioning Logic ---
     function isProjectInProcess(state) {
-        return state && (state.startsWith('provisioning') || state.startsWith('injecting') || state.startsWith('pending_'));
+        return state && (state.startsWith('provisioning') || state.startsWith('injecting') || state.startsWith('pending_') || state.startsWith('deleting'));
     }
 
     function getProgressForState(state) {
@@ -387,7 +415,7 @@ document.addEventListener('DOMContentLoaded', () => {
             else projectsCache.push(project);
             
             const row = document.getElementById(`project-row-${projectId}`);
-            if (row) row.innerHTML = generateProjectRowHTML(project);
+            if (row) row.outerHTML = generateProjectRowHTML(project);
 
             if (!isProjectInProcess(project.state)) {
                 stopProjectPolling(projectId);
@@ -426,5 +454,24 @@ document.addEventListener('DOMContentLoaded', () => {
             await callApi(`/projects/${projectId}/${firstAction}`, { method: 'POST' });
             startProjectPolling(projectId);
         } catch (error) { alert(`Failed to start provisioning: ${error.message}`); }
+    }
+
+    async function handleRetry(projectId, stage) {
+        const stageToAction = {
+            'gcp': 'provision-gcp',
+            'github': 'provision-github',
+            'secrets': 'finalize'
+        };
+        const action = stageToAction[stage];
+        if (!action) {
+            alert(`Unknown stage for retry: ${stage}`);
+            return;
+        }
+        try {
+            await callApi(`/projects/${projectId}/${action}`, { method: 'POST' });
+            startProjectPolling(projectId);
+        } catch (error) {
+            alert(`Failed to retry stage ${stage}: ${error.message}`);
+        }
     }
 });
