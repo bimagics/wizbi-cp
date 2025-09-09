@@ -8,15 +8,17 @@ document.addEventListener('DOMContentLoaded', () => {
     let activeProjectPollers = {};
 
     const ICONS = {
-        PROJECTS: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>`,
+        PROJECTS: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62- nueve-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>`,
         ORGS: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg>`,
         USERS: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M15 21a6 6 0 00-9-5.197M15 11a4 4 0 110-5.292"></path></svg>`,
+        TEMPLATES: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>`,
         GITHUB: `<svg viewBox="0 0 16 16"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>`,
         GCP: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12.0001 2.00015C11.598 2.00015 11.2012 2.11265 10.8543 2.32523L3.14511 6.8249C2.45076 7.25143 2 8.02008 2 8.8471V15.1532C2 15.9802 2.45076 16.7489 3.14511 17.1754L10.8543 21.6751C11.2012 21.8876 11.598 22.0002 12.0001 22.0002C12.4022 22.0002 12.799 21.8876 13.1459 21.6751L20.8551 17.1754C21.5495 16.7489 22.0002 15.9802 22.0002 15.1532V8.8471C22.0002 8.02008 21.5495 7.25143 20.8551 6.8249L13.1459 2.32523C12.799 2.11265 12.4022 2.00015 12.0001 2.00015ZM12.0001 3.8643L19.071 8.00015L12.0001 12.1361L4.9292 8.00015L12.0001 3.8643ZM11.0001 13.2323V19.932L4.35411 15.8232L11.0001 13.2323ZM13.0001 13.2323L19.6461 15.8232L13.0001 19.932V13.2323Z"/></svg>`,
         DELETE: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>`,
         EDIT: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>`,
         ERROR: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width: 18px; height: 18px; color: var(--error-color);"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>`,
         LOGS: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>`,
+        RETRY: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5M20 19v-5h-5M4 19h5v-5M20 4h-5v5"/></svg>`,
     };
 
     const DOM = {
@@ -87,7 +89,13 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     
     function setupDashboard() {
-        const navItems = [{ id: 'Projects', icon: ICONS.PROJECTS }, { id: 'Orgs', icon: ICONS.ORGS }, { id: 'Users', icon: ICONS.USERS, adminOnly: true }];
+        const navItems = [
+            { id: 'Projects', icon: ICONS.PROJECTS },
+            { id: 'Orgs', icon: ICONS.ORGS },
+            { id: 'Templates', icon: ICONS.TEMPLATES, adminOnly: true },
+            { id: 'Users', icon: ICONS.USERS, adminOnly: true }
+        ];
+
         DOM.sidebarNav.innerHTML = '';
         navItems.forEach(item => {
             if (item.adminOnly && !userProfile.roles?.superAdmin) return;
@@ -99,6 +107,7 @@ document.addEventListener('DOMContentLoaded', () => {
             DOM.sidebarNav.appendChild(button);
             DOM.tabs[`tabContent${item.id}`] = document.getElementById(`tabContent${item.id}`);
         });
+
         switchTab('Projects');
         loadAllData();
         loadTemplates(); 
@@ -132,6 +141,7 @@ document.addEventListener('DOMContentLoaded', () => {
             renderProjectsTable(projectsCache);
         } catch(e) { console.error("Failed to load projects", e); }
     }
+
     async function loadOrgs() {
         try {
             const { items } = await callApi('/orgs');
@@ -140,6 +150,7 @@ document.addEventListener('DOMContentLoaded', () => {
             updateOrgDropdown(items);
         } catch(e) { console.error("Failed to load orgs", e); }
     }
+
     async function loadUsers() {
         if (!userProfile.roles?.superAdmin) return;
         try { usersCache = await callApi('/users'); renderUsersTable(usersCache); } catch(e) { console.error("Failed to load users", e); }
@@ -149,13 +160,12 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const { templates } = await callApi('/github/templates');
             templatesCache = templates;
-            const select = document.getElementById('projectTemplate');
-            select.innerHTML = '<option value="" disabled selected>Select a Template</option>' + 
-                templates.map(t => `<option value="${t.name}">${t.name.replace(/-/g, ' ')} (${t.description || 'No description'})</option>`).join('');
+            updateTemplateDropdown(templates);
+            renderTemplatesTable(templates);
         } catch (e) {
             console.error("Failed to load templates", e);
-            const select = document.getElementById('projectTemplate');
-            select.innerHTML = '<option value="" disabled selected>Error loading templates</option>';
+            updateTemplateDropdown([]);
+            renderTemplatesTable([]);
         }
     }
 
@@ -204,11 +214,27 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function renderProjectActions(project) {
-        if (!userProfile.roles?.superAdmin || isProjectInProcess(project.state)) return '';
-        if (project.state !== 'ready') {
-            return `<button class="btn btn-primary btn-sm" data-action="provision-all" data-id="${project.id}">Provision All</button>`;
+        if (!userProfile.roles?.superAdmin) return '';
+
+        const state = project.state;
+        const inProcess = isProjectInProcess(state);
+
+        let actionsHtml = '';
+
+        if (state.startsWith('failed')) {
+            const stage = state.split('_')[1]; // gcp, github, secrets
+            actionsHtml += `<button class="btn btn-secondary btn-sm" data-action="retry" data-stage="${stage}" data-id="${project.id}" title="Retry Stage">${ICONS.RETRY} Retry</button>`;
         }
-        return `<button class="icon-button delete" data-type="project" data-id="${project.id}" title="Delete Project">${ICONS.DELETE}</button>`;
+
+        if (state === 'pending_gcp') {
+            actionsHtml += `<button class="btn btn-primary btn-sm" data-action="provision-all" data-id="${project.id}">Provision All</button>`;
+        }
+
+        if (!inProcess) {
+             actionsHtml += `<button class="icon-button delete" data-type="project" data-id="${project.id}" title="Delete Project">${ICONS.DELETE}</button>`;
+        }
+        
+        return actionsHtml;
     }
     
     const renderOrgsTable = (orgs) => {
@@ -236,10 +262,39 @@ document.addEventListener('DOMContentLoaded', () => {
         }).join('');
     };
 
+    const renderTemplatesTable = (templates) => {
+        const tbody = document.getElementById('templatesTable').querySelector('tbody');
+        tbody.innerHTML = templates.length === 0 
+            ? `<tr><td colspan="4">No templates found. Create a private repository named <code>template-*</code> in GitHub.</td></tr>` 
+            : templates.map(t => `
+                <tr>
+                    <td data-label="Name"><strong>${t.name}</strong></td>
+                    <td data-label="Description">${t.description || 'No description provided.'}</td>
+                    <td data-label="Last Updated">${new Date(t.updatedAt).toLocaleDateString()}</td>
+                    <td data-label="Actions" class="actions-cell">
+                        <div class="actions-cell-content">
+                            <a href="${t.url}" target="_blank" class="icon-button" title="View on GitHub">${ICONS.GITHUB}</a>
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+    };
+
     const updateOrgDropdown = (orgs) => {
         const select = document.getElementById('projectOrgId');
         select.innerHTML = '<option value="" disabled selected>Select an Organization</option>' + orgs.map(org => `<option value="${org.id}">${org.name}</option>`).join('');
     };
+
+    const updateTemplateDropdown = (templates) => {
+        const select = document.getElementById('projectTemplate');
+        if (templates.length > 0) {
+            select.innerHTML = '<option value="" disabled selected>Select a Template</option>' + 
+                templates.map(t => `<option value="${t.name}">${t.name.replace(/-/g, ' ')} (${t.description || 'No description'})</option>`).join('');
+        } else {
+            select.innerHTML = '<option value="" disabled selected>No templates found</option>';
+        }
+    };
+
 
     // --- Event Listeners ---
     DOM.btnLogin.addEventListener('click', () => firebaseAuth.signInWithPopup(googleProvider));
@@ -254,7 +309,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             await callApi('/orgs', { method: 'POST', body: JSON.stringify({ name, phone: e.target.elements.orgPhone.value.trim() }) });
             e.target.reset(); document.getElementById('formCreateOrgCard').classList.add('hidden'); await loadOrgs();
-        } catch (error) { alert(`Error: ${(error as Error).message}`); }
+        } catch (error) { alert(`Error: ${error.message}`); }
     });
 
     document.getElementById('formProvisionProject').addEventListener('submit', async (e) => {
@@ -274,7 +329,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('formProvisionProjectCard').classList.add('hidden');
             await loadProjects();
         } catch (error) { 
-            alert(`Failed to create project entry: ${(error as Error).message}`);
+            alert(`Failed to create project entry: ${error.message}`);
         }
     });
 
@@ -296,18 +351,26 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     document.getElementById('adminPanelContainer').addEventListener('click', async (e) => {
-        const button = e.target.closest('button[data-action], button.delete');
+        const button = e.target.closest('button[data-action], button[data-type="project"], button[data-type="org"]');
         if (!button) return;
-        const { action, id, uid, type, name } = button.dataset;
-        if (action === 'provision-all') handleFullProvisioning(id);
-        else if (action === 'show-logs') showLogsForProject(id);
-        else if (action === 'edit-user') { const user = usersCache.find(u => u.uid === uid); if (user) openUserEditModal(user); }
-        else if (type === 'project' || type === 'org') {
+
+        const { action, id, uid, type, name, stage } = button.dataset;
+
+        if (action === 'provision-all') {
+            handleFullProvisioning(id);
+        } else if (action === 'retry') {
+            handleRetry(id, stage);
+        } else if (action === 'show-logs') {
+            showLogsForProject(id);
+        } else if (action === 'edit-user') {
+            const user = usersCache.find(u => u.uid === uid);
+            if (user) openUserEditModal(user);
+        } else if (type === 'project' || type === 'org') {
              if (confirm(`FINAL CONFIRMATION: Are you sure you want to delete ${type} '${name || id}'? This is irreversible.`)) {
                 try {
                     await callApi(`/${type}s/${id}`, { method: 'DELETE' });
                     loadAllData();
-                } catch (error) { alert(`Failed to delete ${type}: ${(error as Error).message}`); }
+                } catch (error) { alert(`Failed to delete ${type}: ${error.message}`); }
             }
         }
     });
@@ -315,21 +378,21 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Modals & State Management ---
     const openModal = (modalId) => document.getElementById(modalId).classList.remove('hidden');
     const closeModal = (modalId) => document.getElementById(modalId).classList.add('hidden');
-    document.querySelectorAll('[data-close]').forEach(el => el.addEventListener('click', () => closeModal(el.dataset.close as string)));
+    document.querySelectorAll('[data-close]').forEach(el => el.addEventListener('click', () => closeModal(el.dataset.close)));
 
     const openUserEditModal = (user) => {
         DOM.userEditModalTitle.textContent = `Edit: ${user.email}`;
-        (DOM.userEditUid as HTMLInputElement).value = user.uid;
-        (DOM.userEditSuperAdmin as HTMLInputElement).checked = user.roles?.superAdmin === true;
+        DOM.userEditUid.value = user.uid;
+        DOM.userEditSuperAdmin.checked = user.roles?.superAdmin === true;
         DOM.userEditOrgs.innerHTML = orgsCache.map(org => `<div class="checkbox-item"><input type="checkbox" id="org-${org.id}" value="${org.id}" ${user.roles?.orgAdmin?.includes(org.id) ? 'checked' : ''}><label for="org-${org.id}">${org.name}</label></div>`).join('');
         openModal('userEditModal');
     };
     
     DOM.userEditForm.addEventListener('submit', async (e) => {
         e.preventDefault();
-        const uid = (DOM.userEditUid as HTMLInputElement).value;
-        const roles = { superAdmin: (DOM.userEditSuperAdmin as HTMLInputElement).checked, orgAdmin: Array.from(DOM.userEditOrgs.querySelectorAll('input:checked')).map(input => (input as HTMLInputElement).value) };
-        try { await callApi(`/users/${uid}`, { method: 'PUT', body: JSON.stringify({ roles }) }); closeModal('userEditModal'); await loadUsers(); } catch (error) { alert(`Error: ${(error as Error).message}`); }
+        const uid = DOM.userEditUid.value;
+        const roles = { superAdmin: DOM.userEditSuperAdmin.checked, orgAdmin: Array.from(DOM.userEditOrgs.querySelectorAll('input:checked')).map(input => input.value) };
+        try { await callApi(`/users/${uid}`, { method: 'PUT', body: JSON.stringify({ roles }) }); closeModal('userEditModal'); await loadUsers(); } catch (error) { alert(`Error: ${error.message}`); }
     });
 
     async function showLogsForProject(projectId) {
@@ -345,13 +408,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 return `<div class="log-entry"><span class="log-timestamp">${new Date(ts).toLocaleTimeString()}</span><span class="log-event ${isError ? 'log-event-error' : ''}">${evt}</span><pre class="log-meta">${metaString}</pre></div>`;
             }).join('') : 'No logs found.';
         } catch (error) {
-            DOM.logsModalContent.innerHTML = `<span class="log-meta-error">Could not load logs: ${(error as Error).message}</span>`;
+            DOM.logsModalContent.innerHTML = `<span class="log-meta-error">Could not load logs: ${error.message}</span>`;
         }
     }
     
     // --- Automated Provisioning Logic ---
     function isProjectInProcess(state) {
-        return state && (state.startsWith('provisioning') || state.startsWith('injecting') || state.startsWith('pending_'));
+        return state && (state.startsWith('provisioning') || state.startsWith('injecting') || state.startsWith('pending_') || state.startsWith('deleting'));
     }
 
     function getProgressForState(state) {
@@ -387,7 +450,11 @@ document.addEventListener('DOMContentLoaded', () => {
             else projectsCache.push(project);
             
             const row = document.getElementById(`project-row-${projectId}`);
-            if (row) row.innerHTML = generateProjectRowHTML(project);
+            if (row) row.outerHTML = `
+                <tr id="project-row-${project.id}">
+                    ${generateProjectRowHTML(project)}
+                </tr>
+            `;
 
             if (!isProjectInProcess(project.state)) {
                 stopProjectPolling(projectId);
@@ -425,6 +492,25 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!firstAction) { alert('Project is in a state that cannot be actioned.'); return; }
             await callApi(`/projects/${projectId}/${firstAction}`, { method: 'POST' });
             startProjectPolling(projectId);
-        } catch (error) { alert(`Failed to start provisioning: ${(error as Error).message}`); }
+        } catch (error) { alert(`Failed to start provisioning: ${error.message}`); }
+    }
+
+    async function handleRetry(projectId, stage) {
+        const stageToAction = {
+            'gcp': 'provision-gcp',
+            'github': 'provision-github',
+            'secrets': 'finalize'
+        };
+        const action = stageToAction[stage];
+        if (!action) {
+            alert(`Unknown stage for retry: ${stage}`);
+            return;
+        }
+        try {
+            await callApi(`/projects/${projectId}/${action}`, { method: 'POST' });
+            startProjectPolling(projectId);
+        } catch (error) {
+            alert(`Failed to retry stage ${stage}: ${error.message}`);
+        }
     }
 });
