@@ -150,6 +150,11 @@ html, body {
     color: #333; padding: 12px 24px; border-radius: 8px; font-weight: bold;
     cursor: pointer; border: 1px solid #ddd; margin-top: 1.5rem;
 }
+/* *** CHANGE 1: Fix Google icon size *** */
+.login-button img {
+    width: 20px;
+    height: 20px;
+}
 
 /* --- Generic Components (Cards, Tables) --- */
 .card {
@@ -191,7 +196,14 @@ html, body {
 .data-table tbody tr:hover { background-color: rgba(79, 70, 229, 0.05); }
 
 /* --- Table Cell Specific Styles --- */
-.actions-cell-content, .links-cell-content { display: flex; gap: 0.75rem; align-items: center; justify-content: flex-end; min-height: 24px; }
+/* *** CHANGE 2: Center-align action/link buttons *** */
+.actions-cell-content, .links-cell-content { 
+  display: flex; 
+  gap: 0.75rem; 
+  align-items: center; 
+  justify-content: center; /* Changed from flex-end */
+  min-height: 24px; 
+}
 .icon-button { background: none; border: none; padding: 0.25rem; cursor: pointer; color: var(--text-secondary); display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; width: 32px; height: 32px; transition: all 0.2s; }
 .icon-button svg { width: 20px; height: 20px; }
 .icon-button:hover { color: var(--text-primary); background-color: rgba(255, 255, 255, 0.1); }
