@@ -1,3 +1,4 @@
+// --- REPLACE THE ENTIRE FILE CONTENT ---
 // File path: src/services/github.ts
 
 import { Octokit } from '@octokit/rest';
@@ -20,12 +21,7 @@ interface ProjectData {
     displayName: string;
     gcpRegion: string;
 }
-export interface TemplateInfo {
-    name: string;
-    description: string | null;
-    url: string;
-    updatedAt: string;
-}
+export interface TemplateInfo { name: string; description: string | null; }
 
 // --- Core Functions ---
 
@@ -41,24 +37,16 @@ async function getAuthenticatedClient(): Promise<Octokit> {
 }
 
 /**
- * Lists all repositories in the organization that are designated as templates.
+ * NEW: Lists all repositories in the organization that are designated as templates.
  * It identifies them by the `template-` prefix in their name.
  */
 export async function listTemplateRepos(): Promise<TemplateInfo[]> {
     const client = await getAuthenticatedClient();
     log('github.templates.list.start', { owner: GITHUB_OWNER });
     const { data: repos } = await client.repos.listForOrg({ org: GITHUB_OWNER, type: 'private' });
-    
     const templates = repos
         .filter(repo => repo.name.startsWith(TEMPLATE_PREFIX))
-        .map(repo => ({
-            name: repo.name,
-            description: repo.description,
-            url: repo.html_url,
-            // FIX: Ensure 'updatedAt' is always a string by providing a fallback.
-            updatedAt: repo.updated_at || '',
-        }));
-
+        .map(repo => ({ name: repo.name, description: repo.description }));
     log('github.templates.list.success', { count: templates.length });
     return templates;
 }
