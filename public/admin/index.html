@@ -58,8 +58,20 @@
             <h3>Provision New Project</h3>
             <form id="formProvisionProject" class="form-grid">
               <div class="form-group"><label for="projectOrgId">Organization</label><select id="projectOrgId" required></select></div>
-              <div class="form-group"><label for="projectDisplayName">Display Name</label><input type="text" id="projectDisplayName" placeholder="e.g., 'Acme Website'" required></div>
-              <div class="form-group"><label for="projectId">Project ID</label><input type="text" id="projectId" placeholder="Unique Project ID" required pattern="^[a-z0-9-]{6,}$" title="Must be at least 6 characters, and can only contain lowercase letters, numbers, and hyphens."></div>
+              <div class="form-group">
+                <label for="projectTemplate">Repository Template</label>
+                <select id="projectTemplate" required>
+                  </select>
+              </div>
+              <div class="form-group"><label for="projectDisplayName">Display Name</label><input type="text" id="projectDisplayName" placeholder="e.g., Acme Website" required></div>
+              <div class="form-group">
+                  <label for="projectShortName">Project Short Name</label>
+                  <input type="text" id="projectShortName" placeholder="e.g., acme-site" required pattern="^[a-z0-9-]{3,}$" title="Must be at least 3 characters of lowercase letters, numbers, and hyphens.">
+              </div>
+              <div class="form-group full-width">
+                  <label>Full Project ID (Auto-generated)</label>
+                  <input type="text" id="fullProjectIdPreview" readonly class="preview-field">
+              </div>
               <button type="submit" class="btn btn-primary">Create Project</button>
             </form>
         </div>
