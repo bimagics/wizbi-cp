@@ -8,13 +8,13 @@ WORKDIR /app
 # ---- Dependencies (Production) ----
 FROM base AS deps
 COPY package*.json ./
-# Use npm ci for reproducible builds from lockfile
-RUN npm ci --omit=dev
+# Use npm install because no package-lock.json is present
+RUN npm install --omit=dev
 
 # ---- Build (with Dev Dependencies) ----
 FROM base AS build
 COPY package*.json ./
-RUN npm ci
+RUN npm install
 COPY tsconfig.json ./
 COPY src ./src
 COPY public ./public
