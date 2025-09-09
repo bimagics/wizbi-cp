@@ -254,7 +254,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             await callApi('/orgs', { method: 'POST', body: JSON.stringify({ name, phone: e.target.elements.orgPhone.value.trim() }) });
             e.target.reset(); document.getElementById('formCreateOrgCard').classList.add('hidden'); await loadOrgs();
-        } catch (error) { alert(`Error: ${(error as Error).message}`); }
+        } catch (error) { alert(`Error: ${error.message}`); }
     });
 
     document.getElementById('formProvisionProject').addEventListener('submit', async (e) => {
@@ -274,7 +274,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('formProvisionProjectCard').classList.add('hidden');
             await loadProjects();
         } catch (error) { 
-            alert(`Failed to create project entry: ${(error as Error).message}`);
+            alert(`Failed to create project entry: ${error.message}`);
         }
     });
 
@@ -307,7 +307,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 try {
                     await callApi(`/${type}s/${id}`, { method: 'DELETE' });
                     loadAllData();
-                } catch (error) { alert(`Failed to delete ${type}: ${(error as Error).message}`); }
+                } catch (error) { alert(`Failed to delete ${type}: ${error.message}`); }
             }
         }
     });
@@ -315,21 +315,21 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Modals & State Management ---
     const openModal = (modalId) => document.getElementById(modalId).classList.remove('hidden');
     const closeModal = (modalId) => document.getElementById(modalId).classList.add('hidden');
-    document.querySelectorAll('[data-close]').forEach(el => el.addEventListener('click', () => closeModal(el.dataset.close as string)));
+    document.querySelectorAll('[data-close]').forEach(el => el.addEventListener('click', () => closeModal(el.dataset.close)));
 
     const openUserEditModal = (user) => {
         DOM.userEditModalTitle.textContent = `Edit: ${user.email}`;
-        (DOM.userEditUid as HTMLInputElement).value = user.uid;
-        (DOM.userEditSuperAdmin as HTMLInputElement).checked = user.roles?.superAdmin === true;
+        DOM.userEditUid.value = user.uid;
+        DOM.userEditSuperAdmin.checked = user.roles?.superAdmin === true;
         DOM.userEditOrgs.innerHTML = orgsCache.map(org => `<div class="checkbox-item"><input type="checkbox" id="org-${org.id}" value="${org.id}" ${user.roles?.orgAdmin?.includes(org.id) ? 'checked' : ''}><label for="org-${org.id}">${org.name}</label></div>`).join('');
         openModal('userEditModal');
     };
     
     DOM.userEditForm.addEventListener('submit', async (e) => {
         e.preventDefault();
-        const uid = (DOM.userEditUid as HTMLInputElement).value;
-        const roles = { superAdmin: (DOM.userEditSuperAdmin as HTMLInputElement).checked, orgAdmin: Array.from(DOM.userEditOrgs.querySelectorAll('input:checked')).map(input => (input as HTMLInputElement).value) };
-        try { await callApi(`/users/${uid}`, { method: 'PUT', body: JSON.stringify({ roles }) }); closeModal('userEditModal'); await loadUsers(); } catch (error) { alert(`Error: ${(error as Error).message}`); }
+        const uid = DOM.userEditUid.value;
+        const roles = { superAdmin: DOM.userEditSuperAdmin.checked, orgAdmin: Array.from(DOM.userEditOrgs.querySelectorAll('input:checked')).map(input => input.value) };
+        try { await callApi(`/users/${uid}`, { method: 'PUT', body: JSON.stringify({ roles }) }); closeModal('userEditModal'); await loadUsers(); } catch (error) { alert(`Error: ${error.message}`); }
     });
 
     async function showLogsForProject(projectId) {
@@ -345,7 +345,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return `<div class="log-entry"><span class="log-timestamp">${new Date(ts).toLocaleTimeString()}</span><span class="log-event ${isError ? 'log-event-error' : ''}">${evt}</span><pre class="log-meta">${metaString}</pre></div>`;
             }).join('') : 'No logs found.';
         } catch (error) {
-            DOM.logsModalContent.innerHTML = `<span class="log-meta-error">Could not load logs: ${(error as Error).message}</span>`;
+            DOM.logsModalContent.innerHTML = `<span class="log-meta-error">Could not load logs: ${error.message}</span>`;
         }
     }
     
@@ -425,6 +425,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!firstAction) { alert('Project is in a state that cannot be actioned.'); return; }
             await callApi(`/projects/${projectId}/${firstAction}`, { method: 'POST' });
             startProjectPolling(projectId);
-        } catch (error) { alert(`Failed to start provisioning: ${(error as Error).message}`); }
+        } catch (error) { alert(`Failed to start provisioning: ${error.message}`); }
     }
 });
