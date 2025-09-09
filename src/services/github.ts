@@ -185,7 +185,7 @@ async function customizeFileContent(repoName: string, filePath: string, replacem
             return;
         }
 
-        log('github.file.update.attempt', { repoName, filePath });
+        log('github.file.update.attempt', { repoName, filePath, message: `feat(wizbi): auto-customize ${filePath}` });
         await client.repos.createOrUpdateFileContents({
             owner: GITHUB_OWNER, repo: repoName, path: filePath,
             message: `feat(wizbi): auto-customize ${filePath}`,
@@ -211,8 +211,8 @@ export async function createRepoSecrets(repoName: string, secrets: RepoSecrets):
     
     await sodium.ready;
 
+    log('github.secrets.create.start', { repoName, secret_names: Object.keys(secrets) });
     for (const secretName in secrets) {
-        log('github.secret.create.attempt', { repoName, secretName });
         const secretValue = secrets[secretName];
         const messageBytes = Buffer.from(secretValue);
         const keyBytes = Buffer.from(publicKey.key, 'base64');
@@ -224,23 +224,17 @@ export async function createRepoSecrets(repoName: string, secrets: RepoSecrets):
             encrypted_value: encryptedBase64,
             key_id: publicKey.key_id,
         });
-        log('github.secret.create.success', { repoName, secretName });
     }
+    log('github.secrets.create.success', { repoName, count: Object.keys(secrets).length });
 }
 
 export async function triggerInitialDeployment(repoName: string): Promise<void> {
     const client = await getAuthenticatedClient();
     const workflow_id = 'deploy.yml';
-    log('github.workflow.dispatch.attempt', { repoName, workflow_id });
+    log('github.workflow.dispatch.attempt', { repoName, workflow_id, branches: ['main', 'dev'] });
     try {
-        // Dispatch for 'main' branch
-        log('github.workflow.dispatch.branch', { repoName, ref: 'main' });
         await client.actions.createWorkflowDispatch({ owner: GITHUB_OWNER, repo: repoName, workflow_id, ref: 'main' });
-        
-        // Dispatch for 'dev' branch
-        log('github.workflow.dispatch.branch', { repoName, ref: 'dev' });
         await client.actions.createWorkflowDispatch({ owner: GITHUB_OWNER, repo: repoName, workflow_id, ref: 'dev' });
-        
         log('github.workflow.dispatch.success', { repoName });
     } catch (error: any) {
         log('github.workflow.dispatch.error', { repoName, error: error.message });
