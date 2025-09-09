@@ -170,8 +170,9 @@ router.post('/projects/:id/provision-gcp', requireAdminAuth, async (req: Request
         });
         log('gcp.provision.success', gcpInfra);
     } catch (e: any) {
-        await PROJECTS_COLLECTION.doc(id).update({ state: 'failed_gcp', error: (e as Error).message });
-        log('gcp.provision.failed', { error: (e as Error).message, stack: (e as Error).stack });
+        const errorMessage = (e as Error).message || 'An unknown error occurred';
+        await PROJECTS_COLLECTION.doc(id).update({ state: 'failed_gcp', error: errorMessage });
+        log('gcp.provision.failed', { error: errorMessage, stack: (e as Error).stack });
     }
 });
 
@@ -190,22 +191,21 @@ router.post('/projects/:id/provision-github', requireAdminAuth, async (req: Requ
         await PROJECTS_COLLECTION.doc(id).update({ state: 'provisioning_github' });
         log('github.provision.start', { template });
 
-        // --- FIX: Construct the project object and pass all 3 arguments ---
         const projectInfo = {
             id: id, 
             displayName: displayName,
             gcpRegion: process.env.GCP_DEFAULT_REGION || 'europe-west1'
         };
         const githubRepo = await GithubService.createGithubRepoFromTemplate(projectInfo, orgDoc.data()!.githubTeamSlug, template);
-        // --- End of FIX ---
 
         await PROJECTS_COLLECTION.doc(id).update({
             state: 'pending_secrets', githubRepoUrl: githubRepo.url
         });
         log('github.provision.success', githubRepo);
     } catch (e: any) {
-        await PROJECTS_COLLECTION.doc(id).update({ state: 'failed_github', error: (e as Error).message });
-        log('github.provision.failed', { error: (e as Error).message, stack: (e as Error).stack });
+        const errorMessage = (e as Error).message || 'An unknown error occurred';
+        await PROJECTS_COLLECTION.doc(id).update({ state: 'failed_github', error: errorMessage });
+        log('github.provision.failed', { error: errorMessage, stack: (e as Error).stack });
     }
 });
 
@@ -233,8 +233,9 @@ router.post('/projects/:id/finalize', requireAdminAuth, async (req: Request, res
         await PROJECTS_COLLECTION.doc(id).update({ state: 'ready' });
         log('finalize.success');
     } catch (e: any) {
-        await PROJECTS_COLLECTION.doc(id).update({ state: 'failed_secrets', error: (e as Error).message });
-        log('finalize.failed', { error: (e as Error).message, stack: (e as Error).stack });
+        const errorMessage = (e as Error).message || 'An unknown error occurred';
+        await PROJECTS_COLLECTION.doc(id).update({ state: 'failed_secrets', error: errorMessage });
+        log('finalize.failed', { error: errorMessage, stack: (e as Error).stack });
     }
 });
 
