@@ -239,7 +239,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="progress-text ${inProcess ? '' : 'hidden'}">${progress.text}</div>
                 </td>
                 <td data-label="Links" class="links-cell"><div class="links-cell-content">
-                    ${isReady ? `<a href="https://console.cloud.google.com/home/dashboard?project=${p.gcpProjectId}" target="_blank" class="icon-button" title="GCP Console">${ICONS.GCP}</a>` : ''}
+                    ${p.gcpProjectId ? `<a href="https://console.cloud.google.com/home/dashboard?project=${p.gcpProjectId}" target="_blank" class="icon-button" title="GCP Console">${ICONS.GCP}</a>` : ''}
                     ${p.githubRepoUrl ? `<a href="${p.githubRepoUrl}" target="_blank" class="icon-button" title="GitHub Repo">${ICONS.GITHUB}</a>` : ''}
                     ${isReady ? `<a href="https://${p.id}.web.app" target="_blank" class="icon-button" title="Production Site">${ICONS.LINK}</a>` : ''}
                     ${isReady ? `<a href="https://${p.id}-qa.web.app" target="_blank" class="icon-button" title="QA Site" style="color: var(--warning-color);">${ICONS.LINK}</a>` : ''}
@@ -259,11 +259,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const inProcess = isProjectInProcess(state);
         let actionsHtml = '';
         if (state.startsWith('failed')) {
-            const stage = state.split('_')[1];
-            actionsHtml += `<button class="btn btn-secondary btn-sm" data-action="retry" data-stage="${stage}" data-id="${project.id}" title="Retry Stage">${ICONS.RETRY} Retry</button>`;
+            actionsHtml += `<button class="btn btn-secondary btn-sm" data-action="provision" data-id="${project.id}" title="Retry Stage">${ICONS.RETRY} Retry</button>`;
         }
         if (state === 'pending_gcp') {
-            actionsHtml += `<button class="btn btn-primary btn-sm" data-action="provision-all" data-id="${project.id}">Provision All</button>`;
+            actionsHtml += `<button class="btn btn-primary btn-sm" data-action="provision" data-id="${project.id}">Provision All</button>`;
         }
         if (!inProcess) {
              actionsHtml += `<button class="icon-button delete" data-type="project" data-id="${project.id}" title="Delete Project">${ICONS.DELETE}</button>`;
@@ -383,10 +382,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     await loadTemplatesForProjectForm();
                 } catch (error) { alert(`Failed to update description: ${error.message}`); }
             }
-        } else if (action === 'provision-all') {
-            handleFullProvisioning(id);
-        } else if (action === 'retry') {
-            handleRetry(id, stage);
+        } else if (action === 'provision') {
+            try {
+                await callApi(`/projects/${id}/provision`, { method: 'POST' });
+                startProjectPolling(id);
+            } catch (error) {
+                alert(`Failed to start provisioning for ${id}: ${error.message}`);
+            }
         } else if (action === 'show-logs') {
             showLogsForProject(id);
         } else if (action === 'edit-user') {
@@ -536,9 +538,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (!isProjectInProcess(project.state)) {
                 stopProjectPolling(projectId);
-            } else {
-                const nextAction = getNextActionForState(project.state);
-                if (nextAction) await callApi(`/projects/${projectId}/${nextAction}`, { method: 'POST' });
             }
         } catch (error) {
             console.error(`Polling failed for ${projectId}:`, error);
@@ -549,39 +548,5 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (statusCell) statusCell.innerHTML += `<div class="error-text">Polling failed. Refresh recommended.</div>`;
             }
         }
-    }
-    
-    function getNextActionForState(state) {
-        const transitions = {
-            'pending_gcp': 'provision-gcp',
-            'pending_github': 'provision-github',
-            'pending_secrets': 'finalize'
-        };
-        return transitions[state] || null;
-    }
-
-    async function handleFullProvisioning(projectId) {
-        try {
-            const project = projectsCache.find(p => p.id === projectId);
-            if (!project) throw new Error('Project not found in cache.');
-            const firstAction = getNextActionForState(project.state);
-            if (!firstAction) { alert('Project is in a state that cannot be actioned.'); return; }
-            await callApi(`/projects/${projectId}/${firstAction}`, { method: 'POST' });
-            startProjectPolling(projectId);
-        } catch (error) { alert(`Failed to start provisioning: ${error.message}`); }
-    }
-
-    async function handleRetry(projectId, stage) {
-        const stageToAction = {
-            'gcp': 'provision-gcp',
-            'github': 'provision-github',
-            'secrets': 'finalize'
-        };
-        const action = stageToAction[stage];
-        if (!action) { alert(`Unknown stage for retry: ${stage}`); return; }
-        try {
-            await callApi(`/projects/${projectId}/${action}`, { method: 'POST' });
-            startProjectPolling(projectId);
-        } catch (error) { alert(`Failed to retry stage ${stage}: ${error.message}`); }
     }
 });
