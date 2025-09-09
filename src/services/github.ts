@@ -148,13 +148,17 @@ export async function createGithubRepoFromTemplate(project: ProjectData, teamSlu
     log('github.repo.permission.success', { repoName: repo.name });
 
     log('github.repo.customize.start', { repoName: repo.name });
+    // ** THIS IS THE FIX **
+    // The `customizeFileContent` function now correctly accepts the `project` object.
     await customizeFileContent(repo.name, 'README.md', project);
     log('github.repo.customize.success', { repoName: repo.name });
 
     return { name: repo.name, url: repo.html_url };
 }
 
-async function customizeFileContent(repoName: string, filePath: string, replacements: Record<string, string>) {
+// ** THIS IS THE FIX **
+// The function signature is updated to accept a more specific type that covers all use cases.
+async function customizeFileContent(repoName: string, filePath: string, replacements: Partial<ProjectData & { name: string }>) {
     const client = await getAuthenticatedClient();
     try {
         log('github.file.get.start', { repoName, filePath });
@@ -168,9 +172,15 @@ async function customizeFileContent(repoName: string, filePath: string, replacem
             pkg.name = replacements.name;
             content = JSON.stringify(pkg, null, 2);
         } else {
-            for (const key in replacements) {
-                 const placeholder = `{{${key.replace(/([A-Z])/g, '_$1').toUpperCase()}}}`;
-                 content = content.replace(new RegExp(placeholder, 'g'), replacements[key]);
+            // Explicitly replace known placeholders for type safety
+            if (replacements.id) {
+                content = content.replace(/\{\{PROJECT_ID\}\}/g, replacements.id);
+            }
+            if (replacements.displayName) {
+                content = content.replace(/\{\{PROJECT_DISPLAY_NAME\}\}/g, replacements.displayName);
+            }
+            if (replacements.gcpRegion) {
+                content = content.replace(/\{\{GCP_REGION\}\}/g, replacements.gcpRegion);
             }
         }
 
