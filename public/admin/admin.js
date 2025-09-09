@@ -19,6 +19,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ERROR: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width: 18px; height: 18px; color: var(--error-color);"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>`,
         LOGS: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>`,
         RETRY: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5M20 19v-5h-5M4 19h5v-5M20 4h-5v5"/></svg>`,
+        COPY: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" width="16" height="16"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>`,
     };
 
     const DOM = {
@@ -40,11 +41,13 @@ document.addEventListener('DOMContentLoaded', () => {
         logsModal: document.getElementById('logsModal'),
         logsModalTitle: document.getElementById('logsModalTitle'),
         logsModalContent: document.getElementById('logsModalContent'),
+        btnCopyLogs: document.getElementById('btnCopyLogs'),
         projectOrgId: document.getElementById('projectOrgId'),
         projectShortName: document.getElementById('projectShortName'),
         fullProjectIdPreview: document.getElementById('fullProjectIdPreview'),
         templateName: document.getElementById('templateName'),
         fullTemplateNamePreview: document.getElementById('fullTemplateNamePreview'),
+        projectsTable: document.getElementById('projectsTable'),
     };
     
     // --- Core Functions ---
@@ -197,15 +200,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function renderProjectsTable(projects) {
-        const tbody = document.getElementById('projectsTable').querySelector('tbody');
-        tbody.innerHTML = projects.length === 0 ? `<tr><td colspan="6">No projects found.</td></tr>` : projects.map(p => {
-            const newRow = document.createElement('tr');
-            newRow.id = `project-row-${p.id}`;
-            newRow.innerHTML = generateProjectRowHTML(p);
+        const tbody = DOM.projectsTable.querySelector('tbody');
+        tbody.innerHTML = projects.length === 0 ? `<tr><td colspan="7">No projects found.</td></tr>` : projects.map(p => {
+            const org = orgsCache.find(o => o.id === p.orgId);
+            const projectWithOrg = { ...p, orgName: org ? org.name : 'N/A' };
             if (isProjectInProcess(p.state)) {
                 startProjectPolling(p.id);
             }
-            return newRow.outerHTML;
+            return generateProjectRowHTML(projectWithOrg);
         }).join('');
     }
 
@@ -214,29 +216,36 @@ document.addEventListener('DOMContentLoaded', () => {
         const isFailed = state.startsWith('failed');
         const inProcess = isProjectInProcess(state);
         const progress = getProgressForState(state);
-        
+        const createdDateTime = new Date(p.createdAt).toLocaleString(undefined, {
+            year: 'numeric', month: 'short', day: 'numeric',
+            hour: '2-digit', minute: '2-digit'
+        });
+
         return `
-            <td data-label="Display Name">${p.displayName}</td>
-            <td data-label="Project ID">${p.id}</td>
-            <td data-label="Status" class="status-cell">
-                <div class="status-indicator">
-                    <div class="status-text ${state}">${state.replace(/_/g, ' ')}</div>
-                    ${isFailed ? `<span class="error-tooltip" title="${p.error || 'Unknown error'}">${ICONS.ERROR}</span>` : ''}
-                </div>
-                <div class="progress-bar ${inProcess ? '' : 'hidden'}">
-                    <div class="progress-bar-inner" style="width: ${progress.percent}%;"></div>
-                </div>
-                <div class="progress-text ${inProcess ? '' : 'hidden'}">${progress.text}</div>
-            </td>
-            <td data-label="Links" class="links-cell"><div class="links-cell-content">
-                ${p.gcpProjectId ? `<a href="https://console.cloud.google.com/home/dashboard?project=${p.gcpProjectId}" target="_blank" class="icon-button" title="GCP Console">${ICONS.GCP}</a>` : ''}
-                ${p.githubRepoUrl ? `<a href="${p.githubRepoUrl}" target="_blank" class="icon-button" title="GitHub Repo">${ICONS.GITHUB}</a>` : ''}
-            </div></td>
-            <td data-label="Created">${new Date(p.createdAt).toLocaleDateString()}</td>
-            <td data-label="Actions" class="actions-cell"><div class="actions-cell-content">
-                <button class="icon-button logs" data-action="show-logs" data-id="${p.id}" title="Show Logs">${ICONS.LOGS}</button>
-                ${renderProjectActions(p)}
-            </div></td>
+            <tr id="project-row-${p.id}">
+                <td data-label="Display Name">${p.displayName}</td>
+                <td data-label="Organization">${p.orgName}</td>
+                <td data-label="Project ID">${p.id}</td>
+                <td data-label="Status" class="status-cell">
+                    <div class="status-indicator">
+                        <div class="status-text ${state}">${state.replace(/_/g, ' ')}</div>
+                        ${isFailed ? `<span class="error-tooltip" title="${p.error || 'Unknown error'}">${ICONS.ERROR}</span>` : ''}
+                    </div>
+                    <div class="progress-bar ${inProcess ? '' : 'hidden'}">
+                        <div class="progress-bar-inner" style="width: ${progress.percent}%;"></div>
+                    </div>
+                    <div class="progress-text ${inProcess ? '' : 'hidden'}">${progress.text}</div>
+                </td>
+                <td data-label="Links" class="links-cell"><div class="links-cell-content">
+                    ${p.gcpProjectId ? `<a href="https://console.cloud.google.com/home/dashboard?project=${p.gcpProjectId}" target="_blank" class="icon-button" title="GCP Console">${ICONS.GCP}</a>` : ''}
+                    ${p.githubRepoUrl ? `<a href="${p.githubRepoUrl}" target="_blank" class="icon-button" title="GitHub Repo">${ICONS.GITHUB}</a>` : ''}
+                </div></td>
+                <td data-label="Created">${createdDateTime}</td>
+                <td data-label="Actions" class="actions-cell"><div class="actions-cell-content">
+                    <button class="icon-button logs" data-action="show-logs" data-id="${p.id}" title="Show Logs">${ICONS.LOGS}</button>
+                    ${renderProjectActions(p)}
+                </div></td>
+            </tr>
         `;
     }
 
@@ -389,6 +398,35 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // --- Table Sorting ---
+    let sortState = { column: 'createdAt', direction: 'desc' };
+
+    DOM.projectsTable.querySelector('thead').addEventListener('click', (e) => {
+        const header = e.target.closest('th[data-sortable]');
+        if (!header) return;
+        
+        const column = header.dataset.sortable;
+        if (sortState.column === column) {
+            sortState.direction = sortState.direction === 'asc' ? 'desc' : 'asc';
+        } else {
+            sortState.column = column;
+            sortState.direction = 'asc';
+        }
+        
+        projectsCache.sort((a, b) => {
+            const valA = a[column] || '';
+            const valB = b[column] || '';
+            let comparison = 0;
+            if (valA > valB) { comparison = 1; } 
+            else if (valA < valB) { comparison = -1; }
+            return sortState.direction === 'asc' ? comparison : comparison * -1;
+        });
+
+        document.querySelectorAll('#projectsTable th[data-sortable]').forEach(th => th.removeAttribute('data-sort-dir'));
+        header.setAttribute('data-sort-dir', sortState.direction);
+        renderProjectsTable(projectsCache);
+    });
+    
     // --- Modals & State Management ---
     const openModal = (modalId) => document.getElementById(modalId).classList.remove('hidden');
     const closeModal = (modalId) => document.getElementById(modalId).classList.add('hidden');
@@ -415,12 +453,29 @@ document.addEventListener('DOMContentLoaded', () => {
         openModal('logsModal');
         try {
             const { logs } = await callApi(`/projects/${projectId}/logs`);
-            DOM.logsModalContent.innerHTML = logs.length > 0 ? logs.map(log => {
+            const formattedLogs = logs.map(log => {
+                const { ts, evt, ...meta } = log;
+                const metaString = Object.keys(meta).length > 0 ? JSON.stringify(meta, null, 2) : '';
+                return `[${new Date(ts).toLocaleTimeString()}] ${evt}\n${metaString ? metaString + '\n' : ''}`;
+            }).join('\n');
+            
+            const htmlLogs = logs.map(log => {
                 const { ts, evt, ...meta } = log;
                 const isError = evt.includes('error') || evt.includes('fail');
                 let metaString = Object.keys(meta).length > 0 ? JSON.stringify(meta, null, 2) : '';
                 return `<div class="log-entry"><span class="log-timestamp">${new Date(ts).toLocaleTimeString()}</span><span class="log-event ${isError ? 'log-event-error' : ''}">${evt}</span><pre class="log-meta">${metaString}</pre></div>`;
-            }).join('') : 'No logs found.';
+            }).join('');
+            
+            DOM.logsModalContent.innerHTML = htmlLogs || 'No logs found.';
+            DOM.btnCopyLogs.onclick = () => {
+                navigator.clipboard.writeText(formattedLogs).then(() => {
+                    const originalText = DOM.btnCopyLogs.innerHTML;
+                    DOM.btnCopyLogs.innerHTML = 'Copied!';
+                    setTimeout(() => DOM.btnCopyLogs.innerHTML = originalText, 2000);
+                });
+            };
+            DOM.btnCopyLogs.innerHTML = `${ICONS.COPY} <span>Copy Logs</span>`;
+
         } catch (error) {
             DOM.logsModalContent.innerHTML = `<span class="log-meta-error">Could not load logs: ${error.message}</span>`;
         }
@@ -446,7 +501,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function startProjectPolling(projectId) {
         if (activeProjectPollers[projectId]) return;
-        activeProjectPollers[projectId] = setInterval(() => pollProjectStatus(projectId), 5000);
+        activeProjectPollers[projectId] = setInterval(() => pollProjectStatus(projectId), 7000);
     }
 
     function stopProjectPolling(projectId) {
@@ -460,10 +515,22 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const project = await callApi(`/projects/${projectId}`);
             const index = projectsCache.findIndex(p => p.id === projectId);
-            if (index > -1) projectsCache[index] = project;
-            else projectsCache.push(project);
+            if (index > -1) {
+                projectsCache[index] = { ...projectsCache[index], ...project };
+            } else {
+                projectsCache.push(project);
+            }
+            
+            const org = orgsCache.find(o => o.id === project.orgId);
+            const projectWithOrg = { ...project, orgName: org ? org.name : 'N/A' };
+
             const row = document.getElementById(`project-row-${projectId}`);
-            if (row) row.outerHTML = generateProjectRowHTML(project);
+            if (row) {
+                const newRow = document.createElement('tr');
+                newRow.innerHTML = generateProjectRowHTML(projectWithOrg);
+                row.replaceWith(newRow.firstElementChild);
+            }
+
             if (!isProjectInProcess(project.state)) {
                 stopProjectPolling(projectId);
             } else {
@@ -476,7 +543,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const row = document.getElementById(`project-row-${projectId}`);
             if (row) {
                 const statusCell = row.querySelector('.status-cell');
-                if (statusCell) statusCell.innerHTML += `<div class="error-text">Polling failed.</div>`;
+                if (statusCell) statusCell.innerHTML += `<div class="error-text">Polling failed. Refresh recommended.</div>`;
             }
         }
     }
