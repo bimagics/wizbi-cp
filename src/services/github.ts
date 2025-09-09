@@ -1,4 +1,3 @@
-// --- REPLACE THE ENTIRE FILE CONTENT ---
 // File path: src/services/github.ts
 
 import { Octokit } from '@octokit/rest';
@@ -21,7 +20,6 @@ interface ProjectData {
     displayName: string;
     gcpRegion: string;
 }
-// MODIFICATION: Added url and updatedAt to the interface
 export interface TemplateInfo {
     name: string;
     description: string | null;
@@ -51,14 +49,14 @@ export async function listTemplateRepos(): Promise<TemplateInfo[]> {
     log('github.templates.list.start', { owner: GITHUB_OWNER });
     const { data: repos } = await client.repos.listForOrg({ org: GITHUB_OWNER, type: 'private' });
     
-    // MODIFICATION: Map additional fields from the API response
     const templates = repos
         .filter(repo => repo.name.startsWith(TEMPLATE_PREFIX))
         .map(repo => ({
             name: repo.name,
             description: repo.description,
             url: repo.html_url,
-            updatedAt: repo.updated_at,
+            // FIX: Ensure 'updatedAt' is always a string by providing a fallback.
+            updatedAt: repo.updated_at || '',
         }));
 
     log('github.templates.list.success', { count: templates.length });
