@@ -8,16 +8,15 @@ import * as GcpLegacyService from './gcp_legacy';
 // Environment variables used by the service
 const BILLING_ACCOUNT_ID = process.env.BILLING_ACCOUNT_ID || '';
 const GITHUB_OWNER = process.env.GITHUB_OWNER || 'bimagics';
-const CP_PROJECT_NUMBER = process.env.GCP_CONTROL_PLANE_PROJECT_NUMBER || '';
+const CP_PROJECT_NUMBER = process.env.GCP_CONTROL_PLANE_PROJECT_NUMBER || ''; // Project number of the control plane
 const GCP_DEFAULT_REGION = process.env.GCP_DEFAULT_REGION || 'europe-west1';
-const INITIAL_PROJECT_OWNER = 'omer.cohen@bimagics.com'; // Centralized owner email
 
 // Helper to get authenticated client
 async function getAuth() {
     return google.auth.getClient({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
 }
 
-// --- Interfaces ---
+// --- Interfaces for structured return types ---
 export interface ProvisionResult {
     projectId: string;
     projectNumber: string;
@@ -25,7 +24,10 @@ export interface ProvisionResult {
     wifProviderName: string;
 }
 
-// --- Main Orchestration Function ---
+/**
+ * A comprehensive function to provision a new GCP project with all necessary infrastructure.
+ * This function is designed to be idempotent where possible.
+ */
 export async function provisionProjectInfrastructure(projectId: string, displayName: string, folderId: string): Promise<ProvisionResult> {
     const auth = await getAuth();
     const crm = google.cloudresourcemanager({ version: 'v3', auth });
@@ -33,25 +35,29 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
     const serviceUsage = google.serviceusage({ version: 'v1', auth });
     const firebase = google.firebase({ version: 'v1beta1', auth });
 
-    log('gcp.provision.all.start', { projectId, displayName, parentFolder: folderId });
+    log('gcp.provision.all.start', { projectId, displayName, parentFolder: folderId, region: GCP_DEFAULT_REGION });
 
-    // --- STAGE 1: Create Project and Establish Access ---
-    await createProject(crm, projectId, displayName, folderId);
-    await setInitialProjectOwner(crm, projectId, INITIAL_PROJECT_OWNER);
-
-    // --- STAGE 2: Link Billing and Get Project Number ---
-    await linkBilling(projectId);
+    // --- 1. Create Project (if not exists) and Link Billing ---
+    await createProjectAndLinkBilling(crm, projectId, displayName, folderId);
     const projectNumber = await getProjectNumber(crm, projectId);
 
-    // --- STAGE 3: Configure Services ---
+    // --- 2. Enable Required APIs ---
     await enableProjectApis(serviceUsage, projectId);
+
+    // --- 3. Create Artifact Registry Repository (with built-in retry logic for IAM propagation) ---
     await createArtifactRegistryRepo(projectId, 'wizbi');
+
+    // --- 4. Add Firebase to the Project (including QA site) ---
     await addFirebase(firebase, projectId);
 
-    // --- STAGE 4: Setup CI/CD Principals ---
+    // --- 5. Create CI/CD Service Account ---
     const saEmail = `github-deployer@${projectId}.iam.gserviceaccount.com`;
     await createServiceAccount(iam, projectId, saEmail);
+
+    // --- 6. Grant IAM Roles to the new Service Account ---
     await grantRolesToServiceAccount(crm, projectId, saEmail);
+
+    // --- 7. Set up Workload Identity Federation (WIF) ---
     const wifProviderName = await setupWif(iam, projectId, saEmail);
 
     log('gcp.provision.all.success', { projectId, projectNumber, finalSa: saEmail });
@@ -63,9 +69,10 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
     };
 }
 
-// --- Helper Sub-functions (Refactored) ---
 
-async function createProject(crm: cloudresourcemanager_v3.Cloudresourcemanager, projectId: string, displayName: string, folderId: string) {
+// --- Helper Sub-functions ---
+
+async function createProjectAndLinkBilling(crm: cloudresourcemanager_v3.Cloudresourcemanager, projectId: string, displayName: string, folderId: string) {
     log('gcp.project.create.attempt', { projectId, displayName, parent: `folders/${folderId}` });
     try {
         const createOp = await crm.projects.create({
@@ -82,41 +89,7 @@ async function createProject(crm: cloudresourcemanager_v3.Cloudresourcemanager, 
             throw error;
         }
     }
-}
 
-async function setInitialProjectOwner(crm: cloudresourcemanager_v3.Cloudresourcemanager, projectId: string, ownerEmail: string) {
-    log('gcp.iam.set_initial_owner.attempt', { projectId, owner: ownerEmail });
-    try {
-        const resource = `projects/${projectId}`;
-        const { data: policy } = await crm.projects.getIamPolicy({ resource });
-        
-        const ownerBinding = { role: 'roles/owner', members: [`user:${ownerEmail}`] };
-        
-        if (!policy.bindings) {
-            policy.bindings = [ownerBinding];
-        } else {
-            const existingBinding = policy.bindings.find(b => b.role === 'roles/owner');
-            if (existingBinding) {
-                if (!existingBinding.members) existingBinding.members = [];
-                if (!existingBinding.members.includes(`user:${ownerEmail}`)) {
-                    existingBinding.members.push(`user:${ownerEmail}`);
-                }
-            } else {
-                policy.bindings.push(ownerBinding);
-            }
-        }
-
-        await crm.projects.setIamPolicy({ resource, requestBody: { policy } });
-        log('gcp.iam.set_initial_owner.success', { projectId });
-        log('gcp.iam.propagating_owner_role', { delay: 10000 });
-        await new Promise(resolve => setTimeout(resolve, 10000));
-    } catch (error: any) {
-        log('gcp.iam.set_initial_owner.error', { projectId, error: error.message });
-        throw new Error(`Failed to set initial owner for project ${projectId}: ${error.message}`);
-    }
-}
-
-async function linkBilling(projectId: string) {
     log('gcp.billing.link.attempt', { projectId, billingAccount: BILLING_ACCOUNT_ID });
     const billing = google.cloudbilling({ version: 'v1', auth: await getAuth() });
     await billing.projects.updateBillingInfo({
@@ -190,6 +163,7 @@ async function createArtifactRegistryRepo(projectId: string, repoId: string) {
     }
 }
 
+
 async function addFirebase(firebase: firebase_v1beta1.Firebase, projectId: string) {
     log('gcp.firebase.add.attempt', { projectId });
     try {
@@ -215,7 +189,8 @@ async function createHostingSite(hosting: any, projectId: string, siteId: string
             await hosting.projects.sites.create({ parent: `projects/${projectId}`, siteId: siteId });
             log('gcp.firebase.hosting.create.success', { projectId, siteId });
             return;
-        } catch (error: any) {
+        } catch (error: any)
+        {
             if (error.code === 409) {
                 log('gcp.firebase.hosting.create.already_exists', { projectId, siteId });
                 return;
