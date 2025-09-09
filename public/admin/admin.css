@@ -150,7 +150,6 @@ html, body {
     color: #333; padding: 12px 24px; border-radius: 8px; font-weight: bold;
     cursor: pointer; border: 1px solid #ddd; margin-top: 1.5rem;
 }
-/* *** CHANGE 1: Fix Google icon size *** */
 .login-button img {
     width: 20px;
     height: 20px;
@@ -167,10 +166,12 @@ html, body {
 .card h3 { margin-top: 0; font-size: 1.25rem; font-weight: 600; }
 .table-wrapper { overflow-x: auto; }
 .data-table { width: 100%; border-collapse: collapse; }
+
+/* *** NEW: Center all table content by default *** */
 .data-table th, .data-table td {
   border-bottom: 1px solid var(--border-color);
   padding: 1rem 1.25rem;
-  text-align: left;
+  text-align: center; /* This is the main change */
   vertical-align: middle;
   white-space: nowrap;
 }
@@ -196,12 +197,11 @@ html, body {
 .data-table tbody tr:hover { background-color: rgba(79, 70, 229, 0.05); }
 
 /* --- Table Cell Specific Styles --- */
-/* *** CHANGE 2: Center-align action/link buttons *** */
 .actions-cell-content, .links-cell-content { 
   display: flex; 
   gap: 0.75rem; 
   align-items: center; 
-  justify-content: center; /* Changed from flex-end */
+  justify-content: center;
   min-height: 24px; 
 }
 .icon-button { background: none; border: none; padding: 0.25rem; cursor: pointer; color: var(--text-secondary); display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; width: 32px; height: 32px; transition: all 0.2s; }
@@ -210,12 +210,13 @@ html, body {
 .icon-button.delete:hover { color: var(--error-color); }
 .icon-button.logs:hover { color: var(--text-accent); }
 .status-cell { min-width: 200px; }
-.status-indicator { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem; }
+/* The container for status now needs to be an inline-flex to center correctly */
+.status-indicator { display: inline-flex; flex-direction: column; align-items: center; gap: 0.5rem; } 
 .status-text { text-transform: capitalize; font-weight: 500; }
 .status-text.failed, .status-text.delete_failed, .status-text.failed_gcp, .status-text.failed_github, .status-text.failed_secrets { color: var(--error-color); }
 .status-text.ready { color: var(--success-color); }
 .status-text.provisioning_gcp, .status-text.provisioning_github, .status-text.injecting_secrets, .status-text.pending_gcp, .status-text.pending_github, .status-text.pending_secrets { color: var(--warning-color); }
-.progress-bar { background-color: var(--background-dark); border-radius: 4px; height: 8px; width: 100%; overflow: hidden; margin-bottom: 0.25rem; }
+.progress-bar { background-color: var(--background-dark); border-radius: 4px; height: 8px; width: 100%; min-width: 120px; overflow: hidden; margin: 0.25rem auto; }
 .progress-bar-inner { background-color: var(--primary-color); height: 100%; border-radius: 4px; transition: width 0.5s ease-in-out; }
 .progress-text { font-size: 0.75rem; color: var(--text-secondary); }
 .error-text { font-size: 0.75rem; color: var(--error-color); }
@@ -229,7 +230,7 @@ html, body {
 .modal-header h3 { margin: 0; font-size: 1.25rem; font-weight: 600; }
 .modal-header > div { display: flex; gap: 1rem; align-items: center; }
 .close-button { background: none; border: none; color: var(--text-secondary); font-size: 1.5rem; cursor: pointer; padding: 0; line-height: 1; }
-.modal-body .form-group { margin-bottom: 1rem; }
+.modal-body .form-group { margin-bottom: 1rem; text-align: left; }
 .modal-body label { font-weight: bold; }
 .modal-body .checkbox-group { display: flex; flex-direction: column; gap: 0.75rem; max-height: 200px; overflow-y: auto; padding: 1rem; border: 1px solid var(--border-color); border-radius: 0.5rem; }
 .modal-body .checkbox-item { display: flex; align-items: center; gap: 0.75rem; }
@@ -247,6 +248,7 @@ html, body {
   border-radius: 6px;
   white-space: pre-wrap;
   word-break: break-all;
+  text-align: left; /* Keep logs left-aligned */
 }
 .log-entry { display: flex; gap: 1rem; border-bottom: 1px solid #2a3546; padding: 0.25rem 0; align-items: flex-start; }
 .log-timestamp { color: #8b949e; flex-shrink: 0; }
@@ -269,4 +271,7 @@ html, body {
   .data-table tr { margin-bottom: 1rem; border: 1px solid var(--border-color); border-radius: 0.5rem; padding: 1rem; }
   .data-table td { border: none; padding: 0.5rem 0; white-space: normal; display: flex; justify-content: space-between; align-items: center; text-align: right; }
   .data-table td::before { content: attr(data-label); font-weight: 600; color: var(--text-secondary); padding-right: 1rem; text-align: left; }
+  .data-table td:last-child .actions-cell-content {
+    justify-content: flex-end; /* On mobile, align actions to the right for clarity */
+  }
 }
