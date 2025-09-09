@@ -11,31 +11,10 @@ const GITHUB_OWNER = process.env.GITHUB_OWNER || 'bimagics';
 const CP_PROJECT_NUMBER = process.env.GCP_CONTROL_PLANE_PROJECT_NUMBER || ''; // Project number of the control plane
 const GCP_DEFAULT_REGION = process.env.GCP_DEFAULT_REGION || 'europe-west1';
 
-// --- MODIFICATION: ADDED A FLAG TO LOG IDENTITY ONLY ONCE ---
-let identityLogged = false;
-
 // Helper to get authenticated client
 async function getAuth() {
-    const auth = google.auth;
-    const client = await auth.getClient({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
-
-    // --- MODIFICATION: LOG THE CALLER'S IDENTITY ---
-    if (!identityLogged) {
-        try {
-            const credentials = await (client as any).getCredentials();
-            if (credentials && credentials.client_email) {
-                log('gcp.auth.identity_check', { identity: credentials.client_email });
-            } else {
-                 log('gcp.auth.identity_check', { identity: 'Could not determine service account email, but auth is active.' });
-            }
-            identityLogged = true; // Set flag to prevent re-logging
-        } catch (e: any) {
-            log('gcp.auth.identity_check.error', { error: e.message });
-        }
-    }
-    // --- END MODIFICATION ---
-
-    return client;
+    // This function correctly fetches the default credentials of the Cloud Run service account.
+    return google.auth.getClient({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
 }
 
 // --- Interfaces for structured return types ---
