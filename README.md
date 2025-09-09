@@ -25,11 +25,35 @@ The platform is structured in a clear hierarchy, mapping business concepts to cl
 
 1.  **The Control Plane:** The central "brain" of the system. It's a GCP project (`wizbi-cp`) running a Node.js/Express application on **Cloud Run**, with **Firestore** as its database.
 2.  **Organization:** Represents a customer. This maps to a **GCP Folder** for resource isolation and a **GitHub Team** for access control.
-3.  **Project:** Represents a specific digital product or infrastructure for a customer. This maps to a dedicated **GCP Project** and a private **GitHub Repository**.
+3.  **Project:** Represents a specific digital product. This maps to a dedicated **GCP Project** and a private **GitHub Repository**, generated from a chosen template.
 
 ---
 
-## 3. Technology Stack
+## 3. The Automated Provisioning Workflow
+
+The core of WIZBI is its ability to automate the entire lifecycle of a new project from a single interface.
+
+1.  **Initiation (Admin Panel):** An administrator selects an Organization and a **Project Template** from a dynamic list fetched directly from GitHub. They provide a display name and a short name for the new project.
+2.  **Smart ID Generation:** The system automatically generates a unique, standardized Project ID based on the organization and short name (e.g., `wizbi-orgname-projectname`).
+3.  **Automated Provisioning:** Once confirmed, the Control Plane executes a series of steps in the background, with live status updates in the UI:
+    * **GCP Setup:** Creates a new, isolated GCP project, links it to billing, and enables all necessary APIs.
+    * **Firebase Integration:** Adds Firebase services, including Firestore and Hosting, to the new project.
+    * **Secure CI/CD Setup:** Provisions a dedicated Service Account and configures Workload Identity Federation (WIF) for secure, keyless deployments from GitHub.
+    * **GitHub Repo Creation:** Clones the selected template into a new private GitHub repository.
+    * **Dynamic Customization:** Automatically scans files like `README.md` and `firebase.json` in the new repo, replacing placeholders (`{{PROJECT_ID}}`) with the actual project details.
+    * **Secret Injection:** Securely injects all necessary deployment secrets (like `GCP_PROJECT_ID`, `WIF_PROVIDER`, etc.) into the new repository's GitHub Actions secrets.
+4.  **Ready to Develop:** Within minutes, the new project is fully configured and ready. Developers can push code to the `dev` or `main` branches to trigger automated, secure deployments to their QA and Production environments.
+
+### Managing Project Templates
+
+To make a new repository available as a template in the admin panel, simply:
+1. Create a new repository in your GitHub organization.
+2. Name it following the convention: `template-<your-template-name>` (e.g., `template-nextjs-blog`).
+The Control Plane will automatically discover it and add it to the selection list.
+
+---
+
+## 4. Technology Stack
 
 -   **Backend:** Node.js, Express.js, TypeScript
 -   **Database:** Google Firestore (Native Mode)
@@ -37,40 +61,9 @@ The platform is structured in a clear hierarchy, mapping business concepts to cl
 -   **Authentication:** Firebase Authentication (for the admin panel)
 -   **Cloud Infrastructure:** Google Cloud Platform (Resource Manager, Billing, IAM)
 -   **Source Control & CI/CD:** GitHub, GitHub Actions, GitHub Apps
--   **Infrastructure as Code:** Google Cloud CLI (`gcloud`) within shell scripts.
+-   **Infrastructure as Code:** Google APIs and Shell Scripts.
 
 ---
-
-## 4. ✨ The AI-First Development Workflow
-
-**Important:** We operate in a modern, cloud-native environment. **There is no local development.**
-
--   **No Local IDE:** We do not run or test code on our personal machines. This eliminates environment inconsistencies and streamlines development.
--   **Primary Interfaces: GitHub & Cloud Shell:** All code changes are made directly in the GitHub web interface. All infrastructure commands, tests, and bootstrap operations are executed via **Google Cloud Shell**.
--   **AI-Driven Development:** Our core development process is a conversation with an AI partner (like Google's Gemini). We describe requirements in natural language, receive complete code snippets, and paste them into the appropriate files on GitHub. The AI is our pair programmer.
-
-This methodology ensures development velocity, code uniformity, and allows us to focus on solving business problems instead of managing development environments.
-
-### Working with an AI Partner (like me)
-
-To ensure maximum efficiency when collaborating:
-
-1.  **Be Specific:** Clearly state your goal (e.g., "Add a delete button to the projects table").
-2.  **Provide Full Context:** Always provide the complete, most recent versions of the files you want to modify. This is crucial as I have no memory of past files.
-3.  **Work in Logical Steps:** Break down large features into smaller, testable steps (e.g., 1. Add UI button, 2. Create backend endpoint, 3. Implement deletion logic).
-4.  **Request Full Code:** Always ask for the "full code for the file" to replace, not just a diff or a snippet. This prevents errors.
-5.  **Test and Report Back:** After deploying a change, report the results. If there are errors, provide the full logs from Cloud Run. This creates a tight feedback loop.
-
----
-### A Note on TypeScript Strictness
-
-Our project uses TypeScript's strict mode (`"strict": true` in `tsconfig.json`) to write safer, more reliable code. This means the compiler is very picky about data types.
-
-A common issue arises when fetching data from external sources like Firestore. TypeScript often infers the data as a generic object, leading to build errors like `Property 'X' does not exist on type 'Y'`.
-
-**To solve this:**
-1.  **Define an `interface`:** Always create a TypeScript `interface` that describes the exact shape of the data you're working with.
-2.  **Be Explicit:** When mapping or handling this data, explicitly cast it to your new interface (e.g., `const items: MyItem[] = docs.map(...)`). This tells the compiler, "I guarantee the data looks like this," resolving the build error and preventing future bugs.
 
 ## 5. 🚀 Getting Started: Bootstrapping the Control Plane
 
@@ -79,13 +72,13 @@ This process sets up the entire WIZBI Control Plane project from scratch in your
 ### Prerequisites
 
 -   A Google Cloud Organization with a Billing Account.
--   A GitHub Organization or user account.
+-   A GitHub Organization or user account where you have admin permissions.
 -   Permissions to create GCP projects, folders, and manage billing.
--   `gcloud` CLI and `firebase-tools` installed, or access to Google Cloud Shell.
+-   Access to Google Cloud Shell or a local machine with `gcloud` and `firebase-tools` installed.
 
 ### Step 1: Run the Bootstrap Script
 
-Open **Cloud Shell** in your GCP account and run the command below after filling in your details. This script performs all the initial setup.
+Open **Cloud Shell** in your GCP account and run the command below after filling in your details. This script performs all the initial setup for the Control Plane itself.
 
 ```bash
 # Replace placeholder values before running
@@ -96,28 +89,41 @@ AR_REPO="wizbi" \
 BILLING_ACCOUNT="XXXXXX-XXXXXX-XXXXXX" \
 GITHUB_OWNER="YOUR_GH_ORG_OR_USER" \
 GITHUB_REPO="wizbi-cp" \
-bash -c 'git clone [https://github.com/$](https://github.com/$){GITHUB_OWNER}/${GITHUB_REPO}.git && cd ${GITHUB_REPO} && chmod +x tools/bootstrap_cp.sh && ./tools/bootstrap_cp.sh'
+bash -c 'git clone [https://github.com/$](https://github.com/$){GITHUB_OWNER}/${GITHUB_REPO}.git && cd ${GITHUB_REPO} && chmod +x tools/bootstrap_cp.sh && ./tools/bootstrap_cp.sh' 
 ````
 
 ### Step 2: Configure GitHub Secrets
 
-The bootstrap script will output a list of secrets. Add them to your GitHub repository under `Settings` -\> `Secrets and variables` -\> `Actions`:
+The bootstrap script will output a list of secrets. Add them to your `wizbi-cp` repository under `Settings` -\> `Secrets and variables` -\> `Actions`:
 
   - `GCP_PROJECT_ID`: The ID of your control plane project (e.g., `wizbi-cp`).
   - `GCP_REGION`: The region for Cloud Run deployments (e.g., `europe-west1`).
   - `WIF_PROVIDER`: The full path of the Workload Identity Provider.
   - `DEPLOYER_SA`: The email of the `wizbi-deployer` service account.
+  - `GCP_CONTROL_PLANE_PROJECT_NUMBER`: The project *number* of the control plane (output by the script).
   - `BILLING_ACCOUNT_ID`: The ID of your GCP Billing Account.
 
-### Step 3: Push to Deploy
+### Step 3: Grant Permissions Manually
+
+The service account used by the Control Plane (`wizbi-runner@wizbi-cp.iam.gserviceaccount.com`) needs permission to create projects and folders in your GCP Organization. This must be done manually for security reasons.
+
+Run the following commands in Cloud Shell, replacing `YOUR_FOLDER_ID` with the ID of the GCP Folder where new customer organizations will be created:
+
+```bash
+gcloud resource-manager folders add-iam-policy-binding YOUR_FOLDER_ID \
+  --member="serviceAccount:wizbi-runner@wizbi-cp.iam.gserviceaccount.com" --role="roles/resourcemanager.projectCreator"
+
+gcloud resource-manager folders add-iam-policy-binding YOUR_FOLDER_ID \
+  --member="serviceAccount:wizbi-runner@wizbi-cp.iam.gserviceaccount.com" --role="roles/billing.user"
+```
+
+### Step 4: Push to Deploy
 
 Commit and push any changes to the `dev` branch to deploy to the QA environment, or to the `main` branch to deploy to production. The GitHub Actions workflow will handle the rest.
 
 -----
 
 ## 6\. Project Roadmap
-
-This section outlines the planned development for the WIZBI platform.
 
   - [x] **Phase 1: Core Provisioning:**
 
@@ -126,25 +132,28 @@ This section outlines the planned development for the WIZBI platform.
       - [x] Link to billing and assign permissions.
       - [x] Basic Admin UI for creation.
 
-  - [x] **Phase 2: UI/UX Enhancements:**
+  - [x] **Phase 2: UI/UX & Workflow Enhancements:**
 
-      - [x] Smart Project ID generation.
-      - [x] Direct links to GCP and GitHub resources.
-      - [x] In-UI error display and status polling.
+      - [x] Fully automated, multi-stage provisioning process.
+      - [x] Smart, standardized project ID generation.
+      - [x] Live in-UI status polling and progress bars.
+      - [x] Direct links to newly created GCP and GitHub resources.
+      - [x] In-UI log viewer.
 
-  - [ ] **Phase 3: Lifecycle Management:**
+  - [x] **Phase 3: Template-Driven Architecture:**
 
-      - [ ] Implement secure deletion for Projects.
-      - [ ] Implement secure deletion for Organizations.
-      - [ ] Live progress updates during provisioning.
+      - [x] Defined a starter template (`template-wizbi-mono`) for new projects.
+      - [x] Integrated dynamic template discovery from GitHub.
+      - [x] Implemented automatic customization of template files post-creation.
 
-  - [ ] **Phase 4: The "Perfect Repo" Template:**
+  - [ ] **Phase 4: Lifecycle Management:**
 
-      - [ ] Define a starter template for new projects.
-      - [ ] Include pre-configured Firebase, CI/CD, Logging, and basic auth.
-      - [ ] Integrate template cloning into the provisioning process.
+      - [ ] Implement secure, multi-stage deletion for Projects.
+      - [ ] Implement secure, multi-stage deletion for Organizations.
+      - [ ] Add role-based access control (Org Admin vs Super Admin) refinements.
 
 <!-- end list -->
 
-```
-```
+[ ] Implement secure, multi-stage deletion for Organizations.
+
+[ ] Add role-based access control (Org Admin vs Super Admin) refinements.
