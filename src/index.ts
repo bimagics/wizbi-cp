@@ -12,6 +12,7 @@ import userRouter from './routes/user';
 import projectsRouter from './routes/projects';
 import orgsRouter from './routes/orgs';
 import whatsappRouter from './routes/whatsapp';
+import githubRouter from './routes/github'; // <-- NEW: Import github router
 
 async function main() {
   // --- Initialize libsodium ---
@@ -37,9 +38,10 @@ async function main() {
   // --- Register all API routes ---
   console.log("[wizbi-cp] Registering routes...");
   app.use('/api', healthRouter);
-  app.use('/api', userRouter); // Now includes all user-related endpoints
+  app.use('/api', userRouter);
   app.use('/api', projectsRouter);
   app.use('/api', orgsRouter);
+  app.use('/api', githubRouter); // <-- NEW: Register github router
   console.log("   -> Core routers registered under /api.");
 
   if (WHATSAPP_ENABLED) {
