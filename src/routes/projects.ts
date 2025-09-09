@@ -230,6 +230,10 @@ router.post('/projects/:id/finalize', requireAdminAuth, async (req: Request, res
             DEPLOYER_SA: projectData.gcpServiceAccount,
         };
         await GithubService.createRepoSecrets(id, secretsToCreate);
+        
+        // ** THIS IS THE NEW LINE **
+        await GithubService.triggerInitialDeployment(id);
+
         await PROJECTS_COLLECTION.doc(id).update({ state: 'ready' });
         log('finalize.success');
     } catch (e: any) {
