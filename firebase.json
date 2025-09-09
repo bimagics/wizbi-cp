@@ -8,13 +8,6 @@
         "**/.*",
         "**/node_modules/**"
       ],
-      "redirects": [
-        {
-          "source": "/",
-          "destination": "/admin/",
-          "type": 301
-        }
-      ],
       "headers": [
         {
           "source": "/admin/**",
@@ -58,13 +51,6 @@
         "firebase.json",
         "**/.*",
         "**/node_modules/**"
-      ],
-      "redirects": [
-        {
-          "source": "/",
-          "destination": "/admin/",
-          "type": 301
-        }
       ],
       "headers": [
         {
