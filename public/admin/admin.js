@@ -194,6 +194,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <td data-label="Actions" class="actions-cell">
                     <div class="actions-cell-content">
                         <button class="icon-button" data-action="edit-template" data-name="${t.name}" data-description="${t.description || ''}" title="Edit Description">${ICONS.EDIT}</button>
+                        <button class="icon-button delete" data-type="template" data-name="${t.name}" title="Delete Template">${ICONS.DELETE}</button>
                     </div>
                 </td>
             </tr>
@@ -368,10 +369,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     document.getElementById('adminPanelContainer').addEventListener('click', async (e) => {
-        const button = e.target.closest('button[data-action], button[data-type="project"], button[data-type="org"]');
+        const button = e.target.closest('button[data-action], button[data-type]');
         if (!button) return;
 
-        const { action, id, uid, type, name, stage, description } = button.dataset;
+        const { action, id, uid, type, name, description } = button.dataset;
 
         if (action === 'edit-template') {
             const newDescription = prompt(`Enter new description for:\n${name}`, description);
@@ -394,11 +395,20 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if (action === 'edit-user') {
             const user = usersCache.find(u => u.uid === uid);
             if (user) openUserEditModal(user);
-        } else if (type === 'project' || type === 'org') {
+        } else if (type === 'project' || type === 'org' || type === 'template') {
+             const entityId = type === 'template' ? name : id;
              if (confirm(`FINAL CONFIRMATION: Are you sure you want to delete ${type} '${name || id}'? This is irreversible.`)) {
                 try {
-                    await callApi(`/${type}s/${id}`, { method: 'DELETE' });
-                    loadAllData();
+                    // For templates, the API path uses the name, not an ID
+                    const path = type === 'template' ? `/github/templates/${entityId}` : `/${type}s/${entityId}`;
+                    await callApi(path, { method: 'DELETE' });
+                    // Reload the relevant data
+                    if (type === 'template') {
+                        await loadTemplatesData();
+                        await loadTemplatesForProjectForm();
+                    } else {
+                        await loadAllData();
+                    }
                 } catch (error) { alert(`Failed to delete ${type}: ${error.message}`); }
             }
         }
@@ -532,7 +542,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const row = document.getElementById(`project-row-${projectId}`);
             if (row) {
-                // *** BUG FIX: Replace the entire row's HTML content, not the element itself ***
                 row.outerHTML = generateProjectRowHTML(projectWithOrg);
             }
 
