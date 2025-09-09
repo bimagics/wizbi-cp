@@ -5,7 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const googleProvider = new firebase.auth.GoogleAuthProvider();
     let idToken = null;
     let userProfile = null;
-    let activeProjectPollers = {}; // Object to hold polling intervals for projects
+    let activeProjectPollers = {};
 
     const ICONS = {
         PROJECTS: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>`,
@@ -38,6 +38,9 @@ document.addEventListener('DOMContentLoaded', () => {
         logsModal: document.getElementById('logsModal'),
         logsModalTitle: document.getElementById('logsModalTitle'),
         logsModalContent: document.getElementById('logsModalContent'),
+        projectOrgId: document.getElementById('projectOrgId'),
+        projectShortName: document.getElementById('projectShortName'),
+        fullProjectIdPreview: document.getElementById('fullProjectIdPreview'),
     };
     
     // --- Core Functions ---
@@ -98,6 +101,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         switchTab('Projects');
         loadAllData();
+        loadTemplates(); 
     }
     
     function switchTab(tabId) {
@@ -108,7 +112,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     // --- Data Loading & Rendering ---
-    let projectsCache = [], orgsCache = [], usersCache = [];
+    let projectsCache = [], orgsCache = [], usersCache = [], templatesCache = [];
 
     async function loadAllData() {
         await Promise.all([loadOrgs(), loadProjects()]);
@@ -118,7 +122,6 @@ document.addEventListener('DOMContentLoaded', () => {
     async function loadProjects() {
         try {
             const newProjects = await callApi('/projects');
-            // Stop polling for projects that no longer exist
             const newProjectIds = new Set(newProjects.map(p => p.id));
             Object.keys(activeProjectPollers).forEach(projectId => {
                 if (!newProjectIds.has(projectId)) {
@@ -142,13 +145,26 @@ document.addEventListener('DOMContentLoaded', () => {
         try { usersCache = await callApi('/users'); renderUsersTable(usersCache); } catch(e) { console.error("Failed to load users", e); }
     }
 
+    async function loadTemplates() {
+        try {
+            const { templates } = await callApi('/github/templates');
+            templatesCache = templates;
+            const select = document.getElementById('projectTemplate');
+            select.innerHTML = '<option value="" disabled selected>Select a Template</option>' + 
+                templates.map(t => `<option value="${t.name}">${t.name.replace(/-/g, ' ')} (${t.description || 'No description'})</option>`).join('');
+        } catch (e) {
+            console.error("Failed to load templates", e);
+            const select = document.getElementById('projectTemplate');
+            select.innerHTML = '<option value="" disabled selected>Error loading templates</option>';
+        }
+    }
+
     function renderProjectsTable(projects) {
         const tbody = document.getElementById('projectsTable').querySelector('tbody');
         tbody.innerHTML = projects.length === 0 ? `<tr><td colspan="6">No projects found.</td></tr>` : projects.map(p => {
             const newRow = document.createElement('tr');
             newRow.id = `project-row-${p.id}`;
             newRow.innerHTML = generateProjectRowHTML(p);
-            // After rendering, check if we need to start or continue polling for this project
             if (isProjectInProcess(p.state)) {
                 startProjectPolling(p.id);
             }
@@ -189,7 +205,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderProjectActions(project) {
         if (!userProfile.roles?.superAdmin || isProjectInProcess(project.state)) return '';
-        // The "Run All Steps" button is the new primary action
         if (project.state !== 'ready') {
             return `<button class="btn btn-primary btn-sm" data-action="provision-all" data-id="${project.id}">Provision All</button>`;
         }
@@ -239,43 +254,60 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             await callApi('/orgs', { method: 'POST', body: JSON.stringify({ name, phone: e.target.elements.orgPhone.value.trim() }) });
             e.target.reset(); document.getElementById('formCreateOrgCard').classList.add('hidden'); await loadOrgs();
-        } catch (error) { console.error("Failed to create org", error); alert(`Error: ${error.message}`); }
+        } catch (error) { alert(`Error: ${(error as Error).message}`); }
     });
 
     document.getElementById('formProvisionProject').addEventListener('submit', async (e) => {
         e.preventDefault();
-        const { projectOrgId, projectId, projectDisplayName } = e.target.elements;
-        if (!projectOrgId.value || !projectId.value || !projectDisplayName.value) return;
-        
-        const body = { orgId: projectOrgId.value, projectId: projectId.value.trim().toLowerCase(), displayName: projectDisplayName.value.trim() };
-        
+        const { projectOrgId, projectShortName, projectDisplayName, projectTemplate } = e.target.elements;
+        if (!projectOrgId.value || !projectShortName.value || !projectDisplayName.value || !projectTemplate.value) return;
+        const body = { 
+            orgId: projectOrgId.value, 
+            shortName: projectShortName.value.trim(), 
+            displayName: projectDisplayName.value.trim(),
+            template: projectTemplate.value
+        };
         try {
             await callApi('/projects', { method: 'POST', body: JSON.stringify(body) });
-            e.target.reset(); document.getElementById('formProvisionProjectCard').classList.add('hidden');
-            await loadProjects(); // Refresh the list to show the new project
+            e.target.reset();
+            DOM.fullProjectIdPreview.value = '';
+            document.getElementById('formProvisionProjectCard').classList.add('hidden');
+            await loadProjects();
         } catch (error) { 
-            alert(`Failed to create project entry: ${error.message}`);
+            alert(`Failed to create project entry: ${(error as Error).message}`);
         }
     });
+
+    [DOM.projectOrgId, DOM.projectShortName].forEach(el => {
+        el.addEventListener('input', updateProjectIdPreview);
+    });
+
+    function updateProjectIdPreview() {
+        const orgId = DOM.projectOrgId.value;
+        const shortName = DOM.projectShortName.value.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
+        if (!orgId || !shortName) {
+            DOM.fullProjectIdPreview.value = '';
+            return;
+        }
+        const selectedOrg = orgsCache.find(o => o.id === orgId);
+        if (!selectedOrg) return;
+        const orgSlug = (selectedOrg.name || 'unknown').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+        DOM.fullProjectIdPreview.value = `wizbi-${orgSlug}-${shortName}`;
+    }
     
     document.getElementById('adminPanelContainer').addEventListener('click', async (e) => {
         const button = e.target.closest('button[data-action], button.delete');
         if (!button) return;
-        
         const { action, id, uid, type, name } = button.dataset;
-
-        if (action === 'provision-all') {
-            handleFullProvisioning(id);
-        } else if (action === 'show-logs') {
-            showLogsForProject(id);
-        } else if (action === 'edit-user') {
-            const user = usersCache.find(u => u.uid === uid); if (user) openUserEditModal(user);
-        } else if (type === 'project' || type === 'org') {
+        if (action === 'provision-all') handleFullProvisioning(id);
+        else if (action === 'show-logs') showLogsForProject(id);
+        else if (action === 'edit-user') { const user = usersCache.find(u => u.uid === uid); if (user) openUserEditModal(user); }
+        else if (type === 'project' || type === 'org') {
              if (confirm(`FINAL CONFIRMATION: Are you sure you want to delete ${type} '${name || id}'? This is irreversible.`)) {
                 try {
                     await callApi(`/${type}s/${id}`, { method: 'DELETE' });
                     loadAllData();
-                } catch (error) { alert(`Failed to delete ${type}: ${error.message}`); }
+                } catch (error) { alert(`Failed to delete ${type}: ${(error as Error).message}`); }
             }
         }
     });
@@ -283,21 +315,21 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Modals & State Management ---
     const openModal = (modalId) => document.getElementById(modalId).classList.remove('hidden');
     const closeModal = (modalId) => document.getElementById(modalId).classList.add('hidden');
-    document.querySelectorAll('[data-close]').forEach(el => el.addEventListener('click', () => closeModal(el.dataset.close)));
+    document.querySelectorAll('[data-close]').forEach(el => el.addEventListener('click', () => closeModal(el.dataset.close as string)));
 
     const openUserEditModal = (user) => {
         DOM.userEditModalTitle.textContent = `Edit: ${user.email}`;
-        DOM.userEditUid.value = user.uid;
-        DOM.userEditSuperAdmin.checked = user.roles?.superAdmin === true;
+        (DOM.userEditUid as HTMLInputElement).value = user.uid;
+        (DOM.userEditSuperAdmin as HTMLInputElement).checked = user.roles?.superAdmin === true;
         DOM.userEditOrgs.innerHTML = orgsCache.map(org => `<div class="checkbox-item"><input type="checkbox" id="org-${org.id}" value="${org.id}" ${user.roles?.orgAdmin?.includes(org.id) ? 'checked' : ''}><label for="org-${org.id}">${org.name}</label></div>`).join('');
         openModal('userEditModal');
     };
     
     DOM.userEditForm.addEventListener('submit', async (e) => {
         e.preventDefault();
-        const uid = DOM.userEditUid.value;
-        const roles = { superAdmin: DOM.userEditSuperAdmin.checked, orgAdmin: Array.from(DOM.userEditOrgs.querySelectorAll('input:checked')).map(input => input.value) };
-        try { await callApi(`/users/${uid}`, { method: 'PUT', body: JSON.stringify({ roles }) }); closeModal('userEditModal'); await loadUsers(); } catch (error) { alert(`Error: ${error.message}`); }
+        const uid = (DOM.userEditUid as HTMLInputElement).value;
+        const roles = { superAdmin: (DOM.userEditSuperAdmin as HTMLInputElement).checked, orgAdmin: Array.from(DOM.userEditOrgs.querySelectorAll('input:checked')).map(input => (input as HTMLInputElement).value) };
+        try { await callApi(`/users/${uid}`, { method: 'PUT', body: JSON.stringify({ roles }) }); closeModal('userEditModal'); await loadUsers(); } catch (error) { alert(`Error: ${(error as Error).message}`); }
     });
 
     async function showLogsForProject(projectId) {
@@ -307,17 +339,17 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const { logs } = await callApi(`/projects/${projectId}/logs`);
             DOM.logsModalContent.innerHTML = logs.length > 0 ? logs.map(log => {
-                const { ts, evt, serverTimestamp, ...meta } = log;
+                const { ts, evt, ...meta } = log;
                 const isError = evt.includes('error') || evt.includes('fail');
                 let metaString = Object.keys(meta).length > 0 ? JSON.stringify(meta, null, 2) : '';
                 return `<div class="log-entry"><span class="log-timestamp">${new Date(ts).toLocaleTimeString()}</span><span class="log-event ${isError ? 'log-event-error' : ''}">${evt}</span><pre class="log-meta">${metaString}</pre></div>`;
             }).join('') : 'No logs found.';
         } catch (error) {
-            DOM.logsModalContent.innerHTML = `<span class="log-meta-error">Could not load logs: ${error.message}</span>`;
+            DOM.logsModalContent.innerHTML = `<span class="log-meta-error">Could not load logs: ${(error as Error).message}</span>`;
         }
     }
     
-    // --- New Automated Provisioning Logic ---
+    // --- Automated Provisioning Logic ---
     function isProjectInProcess(state) {
         return state && (state.startsWith('provisioning') || state.startsWith('injecting') || state.startsWith('pending_'));
     }
@@ -336,14 +368,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function startProjectPolling(projectId) {
-        if (activeProjectPollers[projectId]) return; // Poller already active
-        console.log(`Starting poller for ${projectId}`);
+        if (activeProjectPollers[projectId]) return;
         activeProjectPollers[projectId] = setInterval(() => pollProjectStatus(projectId), 5000);
     }
 
     function stopProjectPolling(projectId) {
         if (activeProjectPollers[projectId]) {
-            console.log(`Stopping poller for ${projectId}`);
             clearInterval(activeProjectPollers[projectId]);
             delete activeProjectPollers[projectId];
         }
@@ -352,36 +382,24 @@ document.addEventListener('DOMContentLoaded', () => {
     async function pollProjectStatus(projectId) {
         try {
             const project = await callApi(`/projects/${projectId}`);
-            // Update cache
             const index = projectsCache.findIndex(p => p.id === projectId);
-            if (index > -1) {
-                projectsCache[index] = project;
-            } else {
-                projectsCache.push(project);
-            }
+            if (index > -1) projectsCache[index] = project;
+            else projectsCache.push(project);
             
-            // Update UI
             const row = document.getElementById(`project-row-${projectId}`);
-            if (row) {
-                row.innerHTML = generateProjectRowHTML(project);
-            }
+            if (row) row.innerHTML = generateProjectRowHTML(project);
 
             if (!isProjectInProcess(project.state)) {
                 stopProjectPolling(projectId);
-                // If the state was pending, it means the process is complete, so we just stop.
-                // If it was another state, it means we can trigger the next step.
             } else {
-                // If state is pending, automatically trigger next step
                 const nextAction = getNextActionForState(project.state);
                 if (nextAction) {
                     await callApi(`/projects/${projectId}/${nextAction}`, { method: 'POST' });
                 }
             }
-
         } catch (error) {
             console.error(`Polling failed for ${projectId}:`, error);
             stopProjectPolling(projectId);
-            // Optionally update the row to show a polling error
             const row = document.getElementById(`project-row-${projectId}`);
             if (row) {
                 const statusCell = row.querySelector('.status-cell');
@@ -400,23 +418,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function handleFullProvisioning(projectId) {
-        // This function simply kicks off the process. The poller will handle the rest.
         try {
             const project = projectsCache.find(p => p.id === projectId);
             if (!project) throw new Error('Project not found in cache.');
-
             const firstAction = getNextActionForState(project.state);
-            if (!firstAction) {
-                alert('Project is in a state that cannot be actioned.');
-                return;
-            }
-            
+            if (!firstAction) { alert('Project is in a state that cannot be actioned.'); return; }
             await callApi(`/projects/${projectId}/${firstAction}`, { method: 'POST' });
-            // The API call returns a 202, we immediately start polling.
             startProjectPolling(projectId);
-
-        } catch (error) {
-            alert(`Failed to start provisioning: ${error.message}`);
-        }
+        } catch (error) { alert(`Failed to start provisioning: ${(error as Error).message}`); }
     }
 });
