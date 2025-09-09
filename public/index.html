@@ -1,22 +1,119 @@
-<!doctype html>
-<html lang="he" dir="rtl">
+<!DOCTYPE html>
+<html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>WIZBI Control Plane</title>
-  <link rel="stylesheet" href="/styles.css" />
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WIZBI - The Operating System for Your Business</title>
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>">
 </head>
 <body>
-  <main class="container">
-    <h1>WIZBI.AI — Control Plane</h1>
-    <p>השירות רץ ב-Cloud Run. כפתור הבדיקה קורא ל-<code>/health</code>.</p>
-    <button id="check">בדוק /health</button>
-    <pre id="out">לחץ "בדוק /health"</pre>
 
-    <section class="links">
-      <a id="healthLink" href="/health" target="_blank" rel="noreferrer">פתח /health בלשונית</a>
-    </section>
-  </main>
-  <script src="/script.js" defer></script>
+    <header class="main-header">
+        <div class="container">
+            <a href="#" class="logo">WIZBI 🚀</a>
+            <nav class="main-nav">
+                <a href="/admin/" class="btn btn-primary">Get Started</a>
+            </nav>
+        </div>
+    </header>
+
+    <main>
+        <section class="hero">
+            <div class="container">
+                <h1>The Operating System for Your Business</h1>
+                <p class="subtitle">Instantly provision complete, modern, and secure cloud infrastructure on GCP. We turn your ideas into reality, powered by AI and automation.</p>
+                <a href="/admin/" class="btn btn-primary btn-lg">Start Using WIZBI</a>
+            </div>
+        </section>
+
+        <section class="features">
+            <div class="container">
+                <div class="section-header">
+                    <h2>A Platform Built on Three Core Principles</h2>
+                    <p>Every technical decision is driven by our mission to empower businesses.</p>
+                </div>
+                <div class="features-grid">
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z" /></svg>
+                        </div>
+                        <h3>Automated Provisioning</h3>
+                        <p>From a GCP project to a GitHub repo with a secure CI/CD pipeline, everything is set up for you in minutes.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
+                        </div>
+                        <h3>Template-Driven</h3>
+                        <p>Ensure uniformity and prevent configuration drift. New project templates are discovered automatically from GitHub.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                        </div>
+                        <h3>Secure by Design</h3>
+                        <p>Fully isolated environments for each project, with keyless deployments using Workload Identity Federation (WIF).</p>
+                    </div>
+                     <div class="feature-card">
+                        <div class="feature-icon">
+                           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" /></svg>
+                        </div>
+                        <h3>Lean & Cost-Effective</h3>
+                        <p>A Serverless-first architecture using Cloud Run and Firestore that minimizes fixed costs and scales with your usage.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2 1m0 0l-2-1m2 1V2M4 7l2 1M4 7l2-1M4 7v2.5M12 21.5v-2.5M12 18.5l-2-1m2 1l2-1m-2 1v-2.5m-8-5l2 1m-2-1l2-1m-2 1V9.5" /></svg>
+                        </div>
+                        <h3>Radical Simplicity</h3>
+                        <p>Interact with a clean, intuitive interface. All the complex cloud management is abstracted away and handled for you.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7.014A8.003 8.003 0 0122 12c0 3-1 7-7.343 6.657z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.879 16.121A3 3 0 1014.12 11.88l-4.242 4.242z" /></svg>
+                        </div>
+                        <h3>AI-Powered Vision</h3>
+                        <p>Our long-term vision is to enable product development using natural language. The platform handles all the plumbing.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="tech-stack">
+            <div class="container">
+                <div class="section-header">
+                    <h2>Powered by a Modern, Scalable Tech Stack</h2>
+                </div>
+                <div class="tech-logos">
+                    <span>Google Cloud</span>
+                    <span>GitHub</span>
+                    <span>Firebase</span>
+                    <span>Node.js</span>
+                    <span>Docker</span>
+                    <span>TypeScript</span>
+                </div>
+            </div>
+        </section>
+
+        <section class="cta">
+            <div class="container">
+                <h2>Ready to Build?</h2>
+                <p>Get your next digital product up and running in minutes, not months.</p>
+                <a href="/admin/" class="btn btn-light btn-lg">Access the Control Plane</a>
+            </div>
+        </section>
+
+    </main>
+
+    <footer class="main-footer">
+        <div class="container">
+            <p>&copy; 2025 WIZBI. All rights reserved.</p>
+        </div>
+    </footer>
+
 </body>
 </html>
