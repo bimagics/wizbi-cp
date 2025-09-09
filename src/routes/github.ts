@@ -1,15 +1,14 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
 // File path: src/routes/github.ts
 
-import { Router, Request, Response } from 'express'; // <-- FIX: Import Request and Response
+import { Router, Request, Response } from 'express';
 import { requireAdminAuth, log } from './projects';
 import * as GithubService from '../services/github';
 
 const router = Router();
 
 // Endpoint to dynamically fetch available template repositories
-// It finds all repos in the org with a name starting with "template-"
-router.get('/github/templates', requireAdminAuth, async (req: Request, res: Response) => { // <-- FIX: Add types
+router.get('/github/templates', requireAdminAuth, async (req: Request, res: Response) => {
     try {
         log('github.templates.list.received');
         const templates = await GithubService.listTemplateRepos();
@@ -17,6 +16,39 @@ router.get('/github/templates', requireAdminAuth, async (req: Request, res: Resp
     } catch (error: any) {
         log('github.templates.list.error', { error: error.message });
         res.status(500).json({ ok: false, error: 'Failed to fetch templates', detail: error.message });
+    }
+});
+
+// NEW: Endpoint to create a new template repository
+router.post('/github/templates', requireAdminAuth, async (req: Request, res: Response) => {
+    try {
+        const { name, description } = req.body;
+        if (!name || !description) {
+            return res.status(400).json({ ok: false, error: 'Missing name or description' });
+        }
+        log('github.templates.create.received', { name });
+        const newRepo = await GithubService.createNewTemplate(name, description);
+        res.status(201).json({ ok: true, repo: newRepo });
+    } catch (error: any) {
+        log('github.templates.create.error', { error: error.message });
+        res.status(500).json({ ok: false, error: 'Failed to create template', detail: error.message });
+    }
+});
+
+// NEW: Endpoint to update a template's description
+router.put('/github/templates/:repoName', requireAdminAuth, async (req: Request, res: Response) => {
+    try {
+        const { repoName } = req.params;
+        const { description } = req.body;
+        if (description === undefined) { // Allow empty description
+            return res.status(400).json({ ok: false, error: 'Missing description field' });
+        }
+        log('github.templates.update.received', { repoName });
+        await GithubService.updateTemplateDescription(repoName, description);
+        res.status(200).json({ ok: true });
+    } catch (error: any) {
+        log('github.templates.update.error', { error: error.message });
+        res.status(500).json({ ok: false, error: 'Failed to update template', detail: error.message });
     }
 });
 

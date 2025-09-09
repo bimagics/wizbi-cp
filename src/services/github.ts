@@ -17,13 +17,13 @@ interface GitHubTeam { id: number; slug: string; }
 interface GitHubRepo { name: string; url: string; }
 interface RepoSecrets { [key: string]: string; }
 interface ProjectData {
-    id: string; // The final, formatted ID: wizbi-{org-slug}-{short-name}
+    id: string;
     displayName: string;
     gcpRegion: string;
 }
-export interface TemplateInfo { name: string; description: string | null; }
+export interface TemplateInfo { name: string; description: string | null; url: string; }
 
-// --- Core Functions ---
+// --- Helper Functions ---
 
 async function getAuthenticatedClient(): Promise<Octokit> {
     if (octokit) return octokit;
@@ -36,19 +36,113 @@ async function getAuthenticatedClient(): Promise<Octokit> {
     return octokit;
 }
 
-/**
- * NEW: Lists all repositories in the organization that are designated as templates.
- * It identifies them by the `template-` prefix in their name.
- */
+// ** NEW HELPER for polling **
+async function pollUntilRepoIsReady(client: Octokit, repoName: string, maxRetries = 5, delay = 2000) {
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            // We try to get a file that we know must exist, like the README.
+            await client.repos.getContent({
+                owner: GITHUB_OWNER,
+                repo: repoName,
+                path: 'README.md',
+            });
+            log('github.repo.poll.success', { repoName, attempt: i + 1 });
+            return; // Success, repository is ready
+        } catch (error: any) {
+            if (error.status === 404) {
+                log('github.repo.poll.not_ready', { repoName, attempt: i + 1, delay });
+                await new Promise(resolve => setTimeout(resolve, delay));
+            } else {
+                throw error; // A different error occurred
+            }
+        }
+    }
+    throw new Error(`Repository ${repoName} was not ready after ${maxRetries} attempts.`);
+}
+
+
+// --- Core Functions ---
+
 export async function listTemplateRepos(): Promise<TemplateInfo[]> {
     const client = await getAuthenticatedClient();
     log('github.templates.list.start', { owner: GITHUB_OWNER });
     const { data: repos } = await client.repos.listForOrg({ org: GITHUB_OWNER, type: 'private' });
     const templates = repos
         .filter(repo => repo.name.startsWith(TEMPLATE_PREFIX))
-        .map(repo => ({ name: repo.name, description: repo.description }));
+        .map(repo => ({
+            name: repo.name,
+            description: repo.description,
+            url: repo.html_url
+        }));
     log('github.templates.list.success', { count: templates.length });
     return templates;
+}
+
+export async function createNewTemplate(newTemplateName: string, description: string): Promise<GitHubRepo> {
+    const client = await getAuthenticatedClient();
+    const baseTemplateRepo = 'template-base';
+    const newRepoName = `template-${newTemplateName}`;
+
+    try {
+        log('github.template.create.start', { newRepoName, baseTemplate: baseTemplateRepo });
+        const { data: repo } = await client.repos.createUsingTemplate({
+            template_owner: GITHUB_OWNER,
+            template_repo: baseTemplateRepo,
+            owner: GITHUB_OWNER,
+            name: newRepoName,
+            description: description,
+            private: true,
+        });
+        log('github.template.create.success', { repoName: repo.name });
+
+        // ** THIS IS THE FIX **
+        // Wait until the new repository's files are populated.
+        await pollUntilRepoIsReady(client, newRepoName);
+
+        log('github.template.update.start', { repoName: newRepoName });
+        await client.repos.update({
+            owner: GITHUB_OWNER,
+            repo: newRepoName,
+            is_template: true,
+        });
+        log('github.template.update.success', { repoName: newRepoName });
+
+        await customizeFileContent(newRepoName, 'package.json', { name: newRepoName });
+
+        log('github.branch.create.start', { repoName: newRepoName, branch: 'dev' });
+        const { data: mainBranch } = await client.git.getRef({
+            owner: GITHUB_OWNER,
+            repo: newRepoName,
+            ref: 'heads/main',
+        });
+        await client.git.createRef({
+            owner: GITHUB_OWNER,
+            repo: newRepoName,
+            ref: 'refs/heads/dev',
+            sha: mainBranch.object.sha,
+        });
+        log('github.branch.create.success', { repoName: newRepoName, branch: 'dev' });
+
+        return { name: repo.name, url: repo.html_url };
+    } catch (error: any) {
+        if (error.status === 404) {
+            log('github.template.create.error.not_found', { baseTemplateRepo });
+            throw new Error(`Base template repository '${baseTemplateRepo}' not found or the GitHub App does not have permission to access it.`);
+        }
+        log('github.template.create.error.unknown', { error: error.message });
+        throw error;
+    }
+}
+
+export async function updateTemplateDescription(repoName: string, newDescription: string): Promise<void> {
+    const client = await getAuthenticatedClient();
+    log('github.template.update.start', { repoName });
+    await client.repos.update({
+        owner: GITHUB_OWNER,
+        repo: repoName,
+        description: newDescription,
+    });
+    log('github.template.update.success', { repoName });
 }
 
 export async function createGithubTeam(orgName: string): Promise<GitHubTeam> {
@@ -62,7 +156,7 @@ export async function createGithubTeam(orgName: string): Promise<GitHubTeam> {
 
 export async function createGithubRepoFromTemplate(project: ProjectData, teamSlug: string, templateRepo: string): Promise<GitHubRepo> {
     const client = await getAuthenticatedClient();
-    const newRepoName = project.id; // Use the new standardized name
+    const newRepoName = project.id;
 
     log('github.repo.create_from_template.start', { newRepoName, template: templateRepo });
     const { data: repo } = await client.repos.createUsingTemplate({
@@ -73,6 +167,10 @@ export async function createGithubRepoFromTemplate(project: ProjectData, teamSlu
         private: true,
     });
     log('github.repo.create_from_template.success', { repoName: repo.name });
+
+    // ** THIS IS THE FIX **
+    // Wait until the new repository's files are populated before proceeding.
+    await pollUntilRepoIsReady(client, newRepoName);
 
     log('github.repo.permission.start', { repoName: repo.name, teamSlug });
     await client.teams.addOrUpdateRepoPermissionsInOrg({
@@ -86,14 +184,12 @@ export async function createGithubRepoFromTemplate(project: ProjectData, teamSlu
 
     log('github.repo.customize.start', { repoName: repo.name });
     await customizeFileContent(repo.name, 'README.md', project);
-    await customizeFileContent(repo.name, 'packages/web/firebase.json', project);
-    await customizeFileContent(repo.name, 'packages/web/public/index.html', project);
     log('github.repo.customize.success', { repoName: repo.name });
 
     return { name: repo.name, url: repo.html_url };
 }
 
-async function customizeFileContent(repoName: string, filePath: string, project: ProjectData) {
+async function customizeFileContent(repoName: string, filePath: string, replacements: Partial<ProjectData & { name: string }>) {
     const client = await getAuthenticatedClient();
     try {
         log('github.file.get.start', { repoName, filePath });
@@ -101,20 +197,36 @@ async function customizeFileContent(repoName: string, filePath: string, project:
         if (!('content' in file)) throw new Error(`Could not read content of ${filePath}`);
 
         let content = Buffer.from(file.content, 'base64').toString('utf8');
-        content = content.replace(/\{\{PROJECT_ID\}\}/g, project.id);
-        content = content.replace(/\{\{PROJECT_DISPLAY_NAME\}\}/g, project.displayName);
-        content = content.replace(/\{\{GCP_REGION\}\}/g, project.gcpRegion);
+        
+        if (filePath === 'package.json' && replacements.name) {
+            const pkg = JSON.parse(content);
+            pkg.name = replacements.name;
+            content = JSON.stringify(pkg, null, 2);
+        } else {
+            if (replacements.id) {
+                content = content.replace(/\{\{PROJECT_ID\}\}/g, replacements.id);
+            }
+            if (replacements.displayName) {
+                content = content.replace(/\{\{PROJECT_DISPLAY_NAME\}\}/g, replacements.displayName);
+            }
+            if (replacements.gcpRegion) {
+                content = content.replace(/\{\{GCP_REGION\}\}/g, replacements.gcpRegion);
+            }
+        }
 
         log('github.file.update.start', { repoName, filePath });
         await client.repos.createOrUpdateFileContents({
             owner: GITHUB_OWNER, repo: repoName, path: filePath,
-            message: `feat(wizbi): customize template for project ${project.id}`,
+            message: `feat(wizbi): auto-customize ${filePath}`,
             content: Buffer.from(content).toString('base64'),
             sha: file.sha,
         });
         log('github.file.update.success', { repoName, filePath });
     } catch (error: any) {
-        log('github.file.customize.error', { repoName, filePath, error: error.message });
+        if (error.status !== 404) {
+             log('github.file.customize.error', { repoName, filePath, error: error.message });
+             throw error;
+        }
     }
 }
 
@@ -138,7 +250,6 @@ export async function createRepoSecrets(repoName: string, secrets: RepoSecrets):
     }
 }
 
-// --- Deletion Functions ---
 export async function deleteGithubRepo(repoName: string): Promise<void> {
     const client = await getAuthenticatedClient();
     log('github.repo.delete.start', { repoName });
