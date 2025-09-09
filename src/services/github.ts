@@ -124,7 +124,6 @@ export async function createGithubTeam(orgName: string): Promise<GitHubTeam> {
     return { id: team.id, slug: team.slug };
 }
 
-// --- MODIFIED FUNCTION ---
 export async function createGithubRepoFromTemplate(project: ProjectData, teamSlug: string, templateRepo: string): Promise<GitHubRepo> {
     const client = await getAuthenticatedClient();
     const newRepoName = project.id;
@@ -154,10 +153,8 @@ export async function createGithubRepoFromTemplate(project: ProjectData, teamSlu
     const branchesToUpdate = ['main', 'dev'];
 
     log('github.repo.customize.start', { repoName: repo.name, files: filesToCustomize, branches: branchesToUpdate });
-    // Loop through each branch and apply the same customizations.
     for (const branch of branchesToUpdate) {
         for (const file of filesToCustomize) {
-            // Pass the branch name to the customize function
             await customizeFileContent(repo.name, file, project, branch);
         }
     }
@@ -166,12 +163,10 @@ export async function createGithubRepoFromTemplate(project: ProjectData, teamSlu
     return { name: repo.name, url: repo.html_url };
 }
 
-// --- MODIFIED FUNCTION ---
 async function customizeFileContent(repoName: string, filePath: string, replacements: Partial<ProjectData & { name: string }>, branch: string = 'main') {
     const client = await getAuthenticatedClient();
     try {
         log('github.file.get.attempt', { repoName, filePath, branch });
-        // Get content specifically from the target branch
         const { data: file } = await client.repos.getContent({ owner: GITHUB_OWNER, repo: repoName, path: filePath, ref: branch });
         if (!('content' in file) || !file.sha) throw new Error(`Could not read content or SHA of ${filePath} on branch ${branch}`);
         log('github.file.get.success', { repoName, filePath, sha: file.sha, branch });
@@ -200,7 +195,7 @@ async function customizeFileContent(repoName: string, filePath: string, replacem
             message: `feat(wizbi): auto-customize ${filePath}`,
             content: Buffer.from(content).toString('base64'),
             sha: file.sha,
-            branch: branch // Specify the branch to commit to
+            branch: branch
         });
         log('github.file.update.success', { repoName, filePath, branch });
     } catch (error: any) {
