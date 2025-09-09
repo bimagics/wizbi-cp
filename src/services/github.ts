@@ -38,16 +38,17 @@ async function getAuthenticatedClient(): Promise<Octokit> {
     return octokit;
 }
 
-async function pollUntilRepoIsReady(client: Octokit, repoName: string, maxRetries = 5, delay = 3000) {
+async function pollUntilRepoIsReady(client: Octokit, repoName: string, maxRetries = 10, delay = 5000) {
     log('github.repo.poll.start', { repoName, maxRetries, delay });
     for (let i = 0; i < maxRetries; i++) {
         try {
-            await client.repos.get({ owner: GITHUB_OWNER, repo: repoName });
-            log('github.repo.poll.success', { repoName, attempt: i + 1 });
+            // More robust check: try to get the main branch. This fails if the repo is still empty.
+            await client.git.getRef({ owner: GITHUB_OWNER, repo: repoName, ref: 'heads/main' });
+            log('github.repo.poll.success_content_ready', { repoName, attempt: i + 1 });
             return;
         } catch (error: any) {
-            if (error.status === 404) {
-                log('github.repo.poll.not_ready_retrying', { repoName, attempt: i + 1 });
+            if (error.status === 404 || error.status === 409) { // 404 = repo not found, 409 = repo empty
+                log('github.repo.poll.not_ready_retrying', { repoName, attempt: i + 1, status: error.status });
                 await new Promise(resolve => setTimeout(resolve, delay));
             } else {
                 log('github.repo.poll.error', { repoName, error: error.message });
@@ -85,6 +86,7 @@ export async function createNewTemplate(newTemplateName: string, description: st
         });
         log('github.template.create.success', { repoName: repo.name, url: repo.html_url });
         
+        // **BUG FIX**: Use the improved polling function to wait for content
         await pollUntilRepoIsReady(client, newRepoName);
 
         log('github.template.update_to_template.attempt', { repoName: newRepoName });
@@ -258,6 +260,23 @@ export async function deleteGithubRepo(repoName: string): Promise<void> {
         } else {
             log('github.repo.delete.error', { repoName, error: error.message });
             throw new Error(`Failed to delete GitHub repo '${repoName}': ${error.message}`);
+        }
+    }
+}
+
+// --- NEW ---
+export async function deleteTemplateRepo(repoName: string): Promise<void> {
+    const client = await getAuthenticatedClient();
+    log('github.template.delete.attempt', { repoName });
+    try {
+        await client.repos.delete({ owner: GITHUB_OWNER, repo: repoName });
+        log('github.template.delete.success', { repoName });
+    } catch (error: any) {
+        if (error.status === 404) {
+            log('github.template.delete.already_gone', { repoName });
+        } else {
+            log('github.template.delete.error', { repoName, error: error.message });
+            throw new Error(`Failed to delete GitHub template repo '${repoName}': ${error.message}`);
         }
     }
 }
