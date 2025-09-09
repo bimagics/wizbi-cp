@@ -21,7 +21,8 @@ interface ProjectData {
     displayName: string;
     gcpRegion: string;
 }
-export interface TemplateInfo { name: string; description: string | null; }
+// MODIFIED: Added URL to the interface
+export interface TemplateInfo { name: string; description: string | null; url: string; }
 
 // --- Core Functions ---
 
@@ -37,7 +38,7 @@ async function getAuthenticatedClient(): Promise<Octokit> {
 }
 
 /**
- * NEW: Lists all repositories in the organization that are designated as templates.
+ * Lists all repositories in the organization that are designated as templates.
  * It identifies them by the `template-` prefix in their name.
  */
 export async function listTemplateRepos(): Promise<TemplateInfo[]> {
@@ -46,10 +47,66 @@ export async function listTemplateRepos(): Promise<TemplateInfo[]> {
     const { data: repos } = await client.repos.listForOrg({ org: GITHUB_OWNER, type: 'private' });
     const templates = repos
         .filter(repo => repo.name.startsWith(TEMPLATE_PREFIX))
-        .map(repo => ({ name: repo.name, description: repo.description }));
+        .map(repo => ({ 
+            name: repo.name, 
+            description: repo.description,
+            url: repo.html_url // <-- MODIFIED: Return the repo URL
+        }));
     log('github.templates.list.success', { count: templates.length });
     return templates;
 }
+
+/**
+ * NEW: Creates a new template repository by cloning a base template.
+ * @param newTemplateName The short name for the new template (e.g., "nextjs-blog").
+ * @param description A description for the new repository.
+ */
+export async function createNewTemplate(newTemplateName: string, description: string): Promise<GitHubRepo> {
+    const client = await getAuthenticatedClient();
+    const baseTemplateRepo = 'template-base'; // The name of our meta-template
+    const newRepoName = `template-${newTemplateName}`; // Enforce naming convention
+
+    log('github.template.create.start', { newRepoName, baseTemplate: baseTemplateRepo });
+
+    // Step 1: Create the new repo from the base template
+    const { data: repo } = await client.repos.createUsingTemplate({
+        template_owner: GITHUB_OWNER,
+        template_repo: baseTemplateRepo,
+        owner: GITHUB_OWNER,
+        name: newRepoName,
+        description: description,
+        private: true,
+    });
+
+    // Step 2: Mark the new repository as a template repository itself
+    await client.repos.update({
+        owner: GITHUB_OWNER,
+        repo: newRepoName,
+        is_template: true,
+    });
+    
+    log('github.template.create.success', { repoName: repo.name });
+    return { name: repo.name, url: repo.html_url };
+}
+
+/**
+ * NEW: Updates the description of an existing template repository.
+ * @param repoName The full name of the template repo (e.g., "template-wizbi-chat-ai").
+ * @param newDescription The new description text.
+ */
+export async function updateTemplateDescription(repoName: string, newDescription: string): Promise<void> {
+    const client = await getAuthenticatedClient();
+    log('github.template.update.start', { repoName });
+    await client.repos.update({
+        owner: GITHUB_OWNER,
+        repo: repoName,
+        description: newDescription,
+    });
+    log('github.template.update.success', { repoName });
+}
+
+
+// --- Existing Functions (Unchanged) ---
 
 export async function createGithubTeam(orgName: string): Promise<GitHubTeam> {
     const client = await getAuthenticatedClient();
@@ -62,7 +119,7 @@ export async function createGithubTeam(orgName: string): Promise<GitHubTeam> {
 
 export async function createGithubRepoFromTemplate(project: ProjectData, teamSlug: string, templateRepo: string): Promise<GitHubRepo> {
     const client = await getAuthenticatedClient();
-    const newRepoName = project.id; // Use the new standardized name
+    const newRepoName = project.id;
 
     log('github.repo.create_from_template.start', { newRepoName, template: templateRepo });
     const { data: repo } = await client.repos.createUsingTemplate({
@@ -114,7 +171,9 @@ async function customizeFileContent(repoName: string, filePath: string, project:
         });
         log('github.file.update.success', { repoName, filePath });
     } catch (error: any) {
-        log('github.file.customize.error', { repoName, filePath, error: error.message });
+        if (error.code !== 404) { // Only log if the file is not found, which is ok for optional files
+             log('github.file.customize.error', { repoName, filePath, error: error.message });
+        }
     }
 }
 
@@ -138,7 +197,6 @@ export async function createRepoSecrets(repoName: string, secrets: RepoSecrets):
     }
 }
 
-// --- Deletion Functions ---
 export async function deleteGithubRepo(repoName: string): Promise<void> {
     const client = await getAuthenticatedClient();
     log('github.repo.delete.start', { repoName });
