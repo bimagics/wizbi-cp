@@ -42,13 +42,7 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
     // --- 2. Enable Required APIs ---
     await enableProjectApis(serviceUsage, projectId);
 
-    // --- FIX: Add a strategic delay to allow IAM policies to propagate to the new project ---
-    const propagationDelay = 15000; // 15 seconds
-    log('gcp.iam.propagation_delay', { projectId, delay: propagationDelay });
-    await new Promise(resolve => setTimeout(resolve, propagationDelay));
-    // --- END OF FIX ---
-
-    // --- 3. Create Artifact Registry Repository ---
+    // --- 3. Create Artifact Registry Repository (with built-in retry logic for IAM propagation) ---
     await createArtifactRegistryRepo(projectId, 'wizbi');
 
     // --- 4. Add Firebase to the Project (including QA site) ---
@@ -131,25 +125,51 @@ async function createArtifactRegistryRepo(projectId: string, repoId: string) {
     const artifactRegistry = google.artifactregistry({ version: 'v1', auth });
     const parent = `projects/${projectId}/locations/${GCP_DEFAULT_REGION}`;
 
-    try {
-        const createOp = await artifactRegistry.projects.locations.repositories.create({
-            parent,
-            repositoryId: repoId,
-            requestBody: {
-                format: 'DOCKER',
-                description: 'Default repository for WIZBI project containers',
-            },
-        });
-        await pollOperation(artifactRegistry.projects.locations.operations, createOp.data.name!);
-        log('gcp.ar.repo.create.success', { repoId });
-    } catch (error: any) {
-        if (error.code === 409) {
-            log('gcp.ar.repo.create.already_exists', { repoId });
-        } else {
-            throw error;
+    const maxRetries = 5;
+    let delay = 10000; // Start with a 10-second delay
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            const createOp = await artifactRegistry.projects.locations.repositories.create({
+                parent,
+                repositoryId: repoId,
+                requestBody: {
+                    format: 'DOCKER',
+                    description: 'Default repository for WIZBI project containers',
+                },
+            });
+            await pollOperation(artifactRegistry.projects.locations.operations, createOp.data.name!);
+            log('gcp.ar.repo.create.success', { repoId });
+            return; // Success, exit the function
+        } catch (error: any) {
+            // Case 1: Repo already exists, which is a success for us (idempotency)
+            if (error.code === 409) {
+                log('gcp.ar.repo.create.already_exists', { repoId });
+                return;
+            }
+
+            // Case 2: Permission denied (403), likely due to IAM propagation delay. Retry.
+            if (error.code === 403 && attempt < maxRetries) {
+                log('gcp.ar.repo.create.permission_denied_retry', {
+                    projectId,
+                    attempt,
+                    maxRetries,
+                    delay,
+                });
+                await new Promise(resolve => setTimeout(resolve, delay));
+                delay *= 1.5; // Use a backoff factor for subsequent retries
+            } else {
+                // Case 3: A different error, or we've run out of retries. Fail the process.
+                log('gcp.ar.repo.create.fatal_error', { projectId, error: error.message });
+                throw error;
+            }
         }
     }
+
+    // This line is reached only if all retries fail.
+    throw new Error(`Failed to create Artifact Registry repo for ${projectId} after ${maxRetries} attempts due to persistent permission issues.`);
 }
+
 
 async function addFirebase(firebase: firebase_v1beta1.Firebase, projectId: string) {
     log('gcp.firebase.add.start', { projectId });
