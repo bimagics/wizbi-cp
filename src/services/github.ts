@@ -17,11 +17,10 @@ interface GitHubTeam { id: number; slug: string; }
 interface GitHubRepo { name: string; url: string; }
 interface RepoSecrets { [key: string]: string; }
 interface ProjectData {
-    id: string; // The final, formatted ID: wizbi-{org-slug}-{short-name}
+    id: string;
     displayName: string;
     gcpRegion: string;
 }
-// MODIFIED: Added URL to the interface
 export interface TemplateInfo { name: string; description: string | null; url: string; }
 
 // --- Core Functions ---
@@ -37,38 +36,27 @@ async function getAuthenticatedClient(): Promise<Octokit> {
     return octokit;
 }
 
-/**
- * Lists all repositories in the organization that are designated as templates.
- * It identifies them by the `template-` prefix in their name.
- */
 export async function listTemplateRepos(): Promise<TemplateInfo[]> {
     const client = await getAuthenticatedClient();
     log('github.templates.list.start', { owner: GITHUB_OWNER });
     const { data: repos } = await client.repos.listForOrg({ org: GITHUB_OWNER, type: 'private' });
     const templates = repos
         .filter(repo => repo.name.startsWith(TEMPLATE_PREFIX))
-        .map(repo => ({ 
-            name: repo.name, 
+        .map(repo => ({
+            name: repo.name,
             description: repo.description,
-            url: repo.html_url // <-- MODIFIED: Return the repo URL
+            url: repo.html_url
         }));
     log('github.templates.list.success', { count: templates.length });
     return templates;
 }
 
-/**
- * NEW: Creates a new template repository by cloning a base template.
- * @param newTemplateName The short name for the new template (e.g., "nextjs-blog").
- * @param description A description for the new repository.
- */
 export async function createNewTemplate(newTemplateName: string, description: string): Promise<GitHubRepo> {
     const client = await getAuthenticatedClient();
-    const baseTemplateRepo = 'template-base'; // The name of our meta-template
-    const newRepoName = `template-${newTemplateName}`; // Enforce naming convention
+    const baseTemplateRepo = 'template-base';
+    const newRepoName = `template-${newTemplateName}`;
 
     log('github.template.create.start', { newRepoName, baseTemplate: baseTemplateRepo });
-
-    // Step 1: Create the new repo from the base template
     const { data: repo } = await client.repos.createUsingTemplate({
         template_owner: GITHUB_OWNER,
         template_repo: baseTemplateRepo,
@@ -77,23 +65,35 @@ export async function createNewTemplate(newTemplateName: string, description: st
         description: description,
         private: true,
     });
+    log('github.template.create.success', { repoName: repo.name });
 
-    // Step 2: Mark the new repository as a template repository itself
+    log('github.template.update.start', { repoName: newRepoName });
     await client.repos.update({
         owner: GITHUB_OWNER,
         repo: newRepoName,
         is_template: true,
     });
-    
-    log('github.template.create.success', { repoName: repo.name });
+    log('github.template.update.success', { repoName: newRepoName });
+
+    await customizeFileContent(newRepoName, 'package.json', { name: newRepoName });
+
+    log('github.branch.create.start', { repoName: newRepoName, branch: 'dev' });
+    const { data: mainBranch } = await client.git.getRef({
+        owner: GITHUB_OWNER,
+        repo: newRepoName,
+        ref: 'heads/main',
+    });
+    await client.git.createRef({
+        owner: GITHUB_OWNER,
+        repo: newRepoName,
+        ref: 'refs/heads/dev',
+        sha: mainBranch.object.sha,
+    });
+    log('github.branch.create.success', { repoName: newRepoName, branch: 'dev' });
+
     return { name: repo.name, url: repo.html_url };
 }
 
-/**
- * NEW: Updates the description of an existing template repository.
- * @param repoName The full name of the template repo (e.g., "template-wizbi-chat-ai").
- * @param newDescription The new description text.
- */
 export async function updateTemplateDescription(repoName: string, newDescription: string): Promise<void> {
     const client = await getAuthenticatedClient();
     log('github.template.update.start', { repoName });
@@ -104,9 +104,6 @@ export async function updateTemplateDescription(repoName: string, newDescription
     });
     log('github.template.update.success', { repoName });
 }
-
-
-// --- Existing Functions (Unchanged) ---
 
 export async function createGithubTeam(orgName: string): Promise<GitHubTeam> {
     const client = await getAuthenticatedClient();
@@ -142,15 +139,17 @@ export async function createGithubRepoFromTemplate(project: ProjectData, teamSlu
     log('github.repo.permission.success', { repoName: repo.name });
 
     log('github.repo.customize.start', { repoName: repo.name });
-    await customizeFileContent(repo.name, 'README.md', project);
-    await customizeFileContent(repo.name, 'packages/web/firebase.json', project);
-    await customizeFileContent(repo.name, 'packages/web/public/index.html', project);
+    await customizeFileContent(repo.name, 'README.md', {
+        id: project.id,
+        displayName: project.displayName,
+        gcpRegion: project.gcpRegion
+    });
     log('github.repo.customize.success', { repoName: repo.name });
 
     return { name: repo.name, url: repo.html_url };
 }
 
-async function customizeFileContent(repoName: string, filePath: string, project: ProjectData) {
+async function customizeFileContent(repoName: string, filePath: string, replacements: Record<string, string>) {
     const client = await getAuthenticatedClient();
     try {
         log('github.file.get.start', { repoName, filePath });
@@ -158,20 +157,27 @@ async function customizeFileContent(repoName: string, filePath: string, project:
         if (!('content' in file)) throw new Error(`Could not read content of ${filePath}`);
 
         let content = Buffer.from(file.content, 'base64').toString('utf8');
-        content = content.replace(/\{\{PROJECT_ID\}\}/g, project.id);
-        content = content.replace(/\{\{PROJECT_DISPLAY_NAME\}\}/g, project.displayName);
-        content = content.replace(/\{\{GCP_REGION\}\}/g, project.gcpRegion);
+
+        if (filePath === 'package.json' && replacements.name) {
+            const pkg = JSON.parse(content);
+            pkg.name = replacements.name;
+            content = JSON.stringify(pkg, null, 2);
+        } else {
+            content = content.replace(/\{\{PROJECT_ID\}\}/g, replacements.id || '');
+            content = content.replace(/\{\{PROJECT_DISPLAY_NAME\}\}/g, replacements.displayName || '');
+            content = content.replace(/\{\{GCP_REGION\}\}/g, replacements.gcpRegion || '');
+        }
 
         log('github.file.update.start', { repoName, filePath });
         await client.repos.createOrUpdateFileContents({
             owner: GITHUB_OWNER, repo: repoName, path: filePath,
-            message: `feat(wizbi): customize template for project ${project.id}`,
+            message: `feat(wizbi): auto-customize ${filePath}`,
             content: Buffer.from(content).toString('base64'),
             sha: file.sha,
         });
         log('github.file.update.success', { repoName, filePath });
     } catch (error: any) {
-        if (error.code !== 404) { // Only log if the file is not found, which is ok for optional files
+        if (error.code !== 404) {
              log('github.file.customize.error', { repoName, filePath, error: error.message });
         }
     }
