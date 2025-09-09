@@ -1,11 +1,11 @@
+// --- REPLACE THE ENTIRE FILE CONTENT ---
 // This is the full and final code for admin.js
 document.addEventListener('DOMContentLoaded', () => {
     const firebaseAuth = firebase.auth();
     const googleProvider = new firebase.auth.GoogleAuthProvider();
     let idToken = null;
     let userProfile = null;
-    let logsRefreshInterval = null;
-    let currentlyTrackedProjectId = null;
+    let activeProjectPollers = {}; // Object to hold polling intervals for projects
 
     const ICONS = {
         PROJECTS: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>`,
@@ -16,6 +16,7 @@ document.addEventListener('DOMContentLoaded', () => {
         DELETE: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>`,
         EDIT: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>`,
         ERROR: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width: 18px; height: 18px; color: var(--error-color);"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>`,
+        LOGS: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>`,
     };
 
     const DOM = {
@@ -34,9 +35,9 @@ document.addEventListener('DOMContentLoaded', () => {
         userEditUid: document.getElementById('userEditUid'),
         userEditSuperAdmin: document.getElementById('userEditSuperAdmin'),
         userEditOrgs: document.getElementById('userEditOrgs'),
-        liveLogContainer: document.getElementById('liveLogContainer'),
-        liveLogTitle: document.getElementById('liveLogTitle'),
-        liveLogContent: document.getElementById('liveLogContent'),
+        logsModal: document.getElementById('logsModal'),
+        logsModalTitle: document.getElementById('logsModalTitle'),
+        logsModalContent: document.getElementById('logsModalContent'),
     };
     
     // --- Core Functions ---
@@ -58,7 +59,8 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     
     firebaseAuth.onAuthStateChanged(async (user) => {
-        stopLiveLogs();
+        Object.values(activeProjectPollers).forEach(clearInterval);
+        activeProjectPollers = {};
         if (user) {
             idToken = await user.getIdToken();
             try {
@@ -103,20 +105,27 @@ document.addEventListener('DOMContentLoaded', () => {
         document.querySelectorAll('.nav-button').forEach(btn => btn.classList.remove('active'));
         DOM.tabs[`tabContent${tabId}`].classList.remove('hidden');
         document.getElementById(`btnTab${tabId}`).classList.add('active');
-        DOM.liveLogContainer.classList.toggle('hidden', tabId !== 'Projects');
     }
     
     // --- Data Loading & Rendering ---
     let projectsCache = [], orgsCache = [], usersCache = [];
 
     async function loadAllData() {
-        await Promise.all([loadProjects(), loadOrgs()]);
+        await Promise.all([loadOrgs(), loadProjects()]);
         if (userProfile.roles?.superAdmin) await loadUsers();
     }
     
     async function loadProjects() {
         try {
-            projectsCache = await callApi('/projects');
+            const newProjects = await callApi('/projects');
+            // Stop polling for projects that no longer exist
+            const newProjectIds = new Set(newProjects.map(p => p.id));
+            Object.keys(activeProjectPollers).forEach(projectId => {
+                if (!newProjectIds.has(projectId)) {
+                    stopProjectPolling(projectId);
+                }
+            });
+            projectsCache = newProjects;
             renderProjectsTable(projectsCache);
         } catch(e) { console.error("Failed to load projects", e); }
     }
@@ -136,41 +145,57 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderProjectsTable(projects) {
         const tbody = document.getElementById('projectsTable').querySelector('tbody');
         tbody.innerHTML = projects.length === 0 ? `<tr><td colspan="6">No projects found.</td></tr>` : projects.map(p => {
-            const state = p.state || 'N/A';
-            const isFailed = state.startsWith('failed');
-            const isProcessing = state.startsWith('provisioning') || state.startsWith('injecting');
-            
-            return `
-            <tr>
-                <td data-label="Display Name">${p.displayName}</td>
-                <td data-label="Project ID">${p.id}</td>
-                <td data-label="State" class="state-cell">
-                    <div class="state-cell-text ${state}">${state.replace(/_/g, ' ')}</div>
-                    ${isProcessing ? '<div class="spinner spinner-inline" style="display: block;"></div>' : ''}
-                    ${isFailed ? `<span class="error-tooltip" title="${p.error || 'Unknown error'}">${ICONS.ERROR}</span>` : ''}
-                </td>
-                <td data-label="Links" class="links-cell"><div class="links-cell-content">
-                    ${p.gcpProjectId ? `<a href="https://console.cloud.google.com/home/dashboard?project=${p.gcpProjectId}" target="_blank" class="icon-button" title="GCP Console">${ICONS.GCP}</a>` : ''}
-                    ${p.githubRepoUrl ? `<a href="${p.githubRepoUrl}" target="_blank" class="icon-button" title="GitHub Repo">${ICONS.GITHUB}</a>` : ''}
-                </div></td>
-                <td data-label="Created">${new Date(p.createdAt).toLocaleDateString()}</td>
-                <td data-label="Actions" class="actions-cell"><div class="actions-cell-content">
-                    ${renderProjectActions(p)}
-                </div></td>
-            </tr>`;
+            const newRow = document.createElement('tr');
+            newRow.id = `project-row-${p.id}`;
+            newRow.innerHTML = generateProjectRowHTML(p);
+            // After rendering, check if we need to start or continue polling for this project
+            if (isProjectInProcess(p.state)) {
+                startProjectPolling(p.id);
+            }
+            return newRow.outerHTML;
         }).join('');
     }
 
-    function renderProjectActions(project) {
-        if (!userProfile.roles?.superAdmin) return '';
-        const state = project.state;
-        if (state === 'pending_gcp') return `<button class="btn btn-primary" data-action="provision-gcp" data-id="${project.id}">1. Provision GCP</button>`;
-        if (state === 'pending_github') return `<button class="btn btn-primary" data-action="provision-github" data-id="${project.id}">2. Create Repo</button>`;
-        if (state === 'pending_secrets') return `<button class="btn btn-primary" data-action="finalize" data-id="${project.id}">3. Finalize</button>`;
-        if (state.startsWith('provisioning') || state.startsWith('injecting')) return 'In Progress...';
-        return `<button class="icon-button delete" data-type="project" data-id="${project.id}" title="Delete Project">${ICONS.DELETE}</button>`;
+    function generateProjectRowHTML(p) {
+        const state = p.state || 'N/A';
+        const isFailed = state.startsWith('failed');
+        const inProcess = isProjectInProcess(state);
+        const progress = getProgressForState(state);
+        
+        return `
+            <td data-label="Display Name">${p.displayName}</td>
+            <td data-label="Project ID">${p.id}</td>
+            <td data-label="Status" class="status-cell">
+                <div class="status-indicator">
+                    <div class="status-text ${state}">${state.replace(/_/g, ' ')}</div>
+                    ${isFailed ? `<span class="error-tooltip" title="${p.error || 'Unknown error'}">${ICONS.ERROR}</span>` : ''}
+                </div>
+                <div class="progress-bar ${inProcess ? '' : 'hidden'}">
+                    <div class="progress-bar-inner" style="width: ${progress.percent}%;"></div>
+                </div>
+                <div class="progress-text ${inProcess ? '' : 'hidden'}">${progress.text}</div>
+            </td>
+            <td data-label="Links" class="links-cell"><div class="links-cell-content">
+                ${p.gcpProjectId ? `<a href="https://console.cloud.google.com/home/dashboard?project=${p.gcpProjectId}" target="_blank" class="icon-button" title="GCP Console">${ICONS.GCP}</a>` : ''}
+                ${p.githubRepoUrl ? `<a href="${p.githubRepoUrl}" target="_blank" class="icon-button" title="GitHub Repo">${ICONS.GITHUB}</a>` : ''}
+            </div></td>
+            <td data-label="Created">${new Date(p.createdAt).toLocaleDateString()}</td>
+            <td data-label="Actions" class="actions-cell"><div class="actions-cell-content">
+                <button class="icon-button logs" data-action="show-logs" data-id="${p.id}" title="Show Logs">${ICONS.LOGS}</button>
+                ${renderProjectActions(p)}
+            </div></td>
+        `;
     }
 
+    function renderProjectActions(project) {
+        if (!userProfile.roles?.superAdmin || isProjectInProcess(project.state)) return '';
+        // The "Run All Steps" button is the new primary action
+        if (project.state !== 'ready') {
+            return `<button class="btn btn-primary btn-sm" data-action="provision-all" data-id="${project.id}">Provision All</button>`;
+        }
+        return `<button class="icon-button delete" data-type="project" data-id="${project.id}" title="Delete Project">${ICONS.DELETE}</button>`;
+    }
+    
     const renderOrgsTable = (orgs) => {
         const tbody = document.getElementById('orgsTable').querySelector('tbody');
         tbody.innerHTML = orgs.length === 0 ? `<tr><td colspan="5">No organizations found.</td></tr>` : orgs.map(org => `
@@ -214,7 +239,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             await callApi('/orgs', { method: 'POST', body: JSON.stringify({ name, phone: e.target.elements.orgPhone.value.trim() }) });
             e.target.reset(); document.getElementById('formCreateOrgCard').classList.add('hidden'); await loadOrgs();
-        } catch (error) { console.error("Failed to create org", error); }
+        } catch (error) { console.error("Failed to create org", error); alert(`Error: ${error.message}`); }
     });
 
     document.getElementById('formProvisionProject').addEventListener('submit', async (e) => {
@@ -223,14 +248,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!projectOrgId.value || !projectId.value || !projectDisplayName.value) return;
         
         const body = { orgId: projectOrgId.value, projectId: projectId.value.trim().toLowerCase(), displayName: projectDisplayName.value.trim() };
-        startLiveLogs(body.projectId, `Creating project entry for ${body.projectId}...`);
+        
         try {
             await callApi('/projects', { method: 'POST', body: JSON.stringify(body) });
             e.target.reset(); document.getElementById('formProvisionProjectCard').classList.add('hidden');
-            loadAllData();
+            await loadProjects(); // Refresh the list to show the new project
         } catch (error) { 
-            DOM.liveLogContent.innerHTML += `\n\n<span class="log-meta-error">Failed to create project entry: ${error.message}</span>`;
-            stopLiveLogs(false); // Stop polling but keep logs visible
+            alert(`Failed to create project entry: ${error.message}`);
         }
     });
     
@@ -240,15 +264,10 @@ document.addEventListener('DOMContentLoaded', () => {
         
         const { action, id, uid, type, name } = button.dataset;
 
-        if (action?.startsWith('provision-') || action === 'finalize') {
-            startLiveLogs(id, `Starting stage: ${action}...`);
-            try {
-                await callApi(`/projects/${id}/${action}`, { method: 'POST' });
-                loadAllData(); // Refresh table to show next step
-            } catch (error) { 
-                DOM.liveLogContent.innerHTML += `\n\n<span class="log-meta-error">Action failed: ${error.message}</span>`;
-                stopLiveLogs(false);
-            }
+        if (action === 'provision-all') {
+            handleFullProvisioning(id);
+        } else if (action === 'show-logs') {
+            showLogsForProject(id);
         } else if (action === 'edit-user') {
             const user = usersCache.find(u => u.uid === uid); if (user) openUserEditModal(user);
         } else if (type === 'project' || type === 'org') {
@@ -256,12 +275,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 try {
                     await callApi(`/${type}s/${id}`, { method: 'DELETE' });
                     loadAllData();
-                } catch (error) { console.error(`Failed to delete ${type}`, error); }
+                } catch (error) { alert(`Failed to delete ${type}: ${error.message}`); }
             }
         }
     });
 
-    // --- Modals & Logs ---
+    // --- Modals & State Management ---
     const openModal = (modalId) => document.getElementById(modalId).classList.remove('hidden');
     const closeModal = (modalId) => document.getElementById(modalId).classList.add('hidden');
     document.querySelectorAll('[data-close]').forEach(el => el.addEventListener('click', () => closeModal(el.dataset.close)));
@@ -278,49 +297,126 @@ document.addEventListener('DOMContentLoaded', () => {
         e.preventDefault();
         const uid = DOM.userEditUid.value;
         const roles = { superAdmin: DOM.userEditSuperAdmin.checked, orgAdmin: Array.from(DOM.userEditOrgs.querySelectorAll('input:checked')).map(input => input.value) };
-        try { await callApi(`/users/${uid}`, { method: 'PUT', body: JSON.stringify({ roles }) }); closeModal('userEditModal'); await loadUsers(); } catch (error) {}
+        try { await callApi(`/users/${uid}`, { method: 'PUT', body: JSON.stringify({ roles }) }); closeModal('userEditModal'); await loadUsers(); } catch (error) { alert(`Error: ${error.message}`); }
     });
 
-    function startLiveLogs(projectId, initialMessage = 'Fetching logs...') {
-        if (currentlyTrackedProjectId === projectId && logsRefreshInterval) return;
-        stopLiveLogs();
-        currentlyTrackedProjectId = projectId;
-        DOM.liveLogContainer.classList.remove('hidden');
-        DOM.liveLogTitle.textContent = `Live Logs: ${projectId}`;
-        DOM.liveLogContent.innerHTML = initialMessage;
-        fetchAndRenderLogs();
-        logsRefreshInterval = setInterval(fetchAndRenderLogs, 4000);
-    }
-
-    function stopLiveLogs(hide = true) {
-        clearInterval(logsRefreshInterval);
-        logsRefreshInterval = null;
-        currentlyTrackedProjectId = null;
-        if (hide) DOM.liveLogContainer.classList.add('hidden');
-    }
-
-    async function fetchAndRenderLogs() {
-        if (!currentlyTrackedProjectId) return;
+    async function showLogsForProject(projectId) {
+        DOM.logsModalTitle.textContent = `Logs for: ${projectId}`;
+        DOM.logsModalContent.innerHTML = '<div class="spinner" style="display:block;"></div>';
+        openModal('logsModal');
         try {
-            const { ok, logs } = await callApi(`/projects/${currentlyTrackedProjectId}/logs`);
-            if (!ok) throw new Error('Logs API call failed');
-
-            DOM.liveLogContent.innerHTML = logs.map(log => {
+            const { logs } = await callApi(`/projects/${projectId}/logs`);
+            DOM.logsModalContent.innerHTML = logs.length > 0 ? logs.map(log => {
                 const { ts, evt, serverTimestamp, ...meta } = log;
                 const isError = evt.includes('error') || evt.includes('fail');
                 let metaString = Object.keys(meta).length > 0 ? JSON.stringify(meta, null, 2) : '';
-                return `<div class="log-entry"><span class="log-timestamp">${new Date(ts).toLocaleTimeString()}</span><span class="log-event">${evt}</span><span class="log-meta ${isError ? 'log-meta-error' : ''}">${metaString}</span></div>`;
-            }).join('');
-            DOM.liveLogContent.scrollTop = DOM.liveLogContent.scrollHeight;
-
-            const project = projectsCache.find(p => p.id === currentlyTrackedProjectId);
-            if (project && !['pending_gcp', 'pending_github', 'pending_secrets', 'provisioning_gcp', 'provisioning_github', 'injecting_secrets'].includes(project.state)) {
-                stopLiveLogs(false); // Stop polling but keep logs visible
-                loadAllData(); // Final refresh
-            }
+                return `<div class="log-entry"><span class="log-timestamp">${new Date(ts).toLocaleTimeString()}</span><span class="log-event ${isError ? 'log-event-error' : ''}">${evt}</span><pre class="log-meta">${metaString}</pre></div>`;
+            }).join('') : 'No logs found.';
         } catch (error) {
-            DOM.liveLogContent.innerHTML += `\n\n<span class="log-meta-error">Could not refresh logs: ${error.message}</span>`;
-            stopLiveLogs(false);
+            DOM.logsModalContent.innerHTML = `<span class="log-meta-error">Could not load logs: ${error.message}</span>`;
         }
-    };
+    }
+    
+    // --- New Automated Provisioning Logic ---
+    function isProjectInProcess(state) {
+        return state && (state.startsWith('provisioning') || state.startsWith('injecting') || state.startsWith('pending_'));
+    }
+
+    function getProgressForState(state) {
+        const states = {
+            'pending_gcp': { percent: 10, text: 'Queued for GCP setup' },
+            'provisioning_gcp': { percent: 25, text: 'Provisioning GCP Project...' },
+            'pending_github': { percent: 50, text: 'Queued for GitHub setup' },
+            'provisioning_github': { percent: 65, text: 'Creating GitHub Repo...' },
+            'pending_secrets': { percent: 80, text: 'Queued for finalization' },
+            'injecting_secrets': { percent: 90, text: 'Injecting secrets...' },
+            'ready': { percent: 100, text: 'Completed' },
+        };
+        return states[state] || { percent: 0, text: 'Status unknown' };
+    }
+
+    function startProjectPolling(projectId) {
+        if (activeProjectPollers[projectId]) return; // Poller already active
+        console.log(`Starting poller for ${projectId}`);
+        activeProjectPollers[projectId] = setInterval(() => pollProjectStatus(projectId), 5000);
+    }
+
+    function stopProjectPolling(projectId) {
+        if (activeProjectPollers[projectId]) {
+            console.log(`Stopping poller for ${projectId}`);
+            clearInterval(activeProjectPollers[projectId]);
+            delete activeProjectPollers[projectId];
+        }
+    }
+
+    async function pollProjectStatus(projectId) {
+        try {
+            const project = await callApi(`/projects/${projectId}`);
+            // Update cache
+            const index = projectsCache.findIndex(p => p.id === projectId);
+            if (index > -1) {
+                projectsCache[index] = project;
+            } else {
+                projectsCache.push(project);
+            }
+            
+            // Update UI
+            const row = document.getElementById(`project-row-${projectId}`);
+            if (row) {
+                row.innerHTML = generateProjectRowHTML(project);
+            }
+
+            if (!isProjectInProcess(project.state)) {
+                stopProjectPolling(projectId);
+                // If the state was pending, it means the process is complete, so we just stop.
+                // If it was another state, it means we can trigger the next step.
+            } else {
+                // If state is pending, automatically trigger next step
+                const nextAction = getNextActionForState(project.state);
+                if (nextAction) {
+                    await callApi(`/projects/${projectId}/${nextAction}`, { method: 'POST' });
+                }
+            }
+
+        } catch (error) {
+            console.error(`Polling failed for ${projectId}:`, error);
+            stopProjectPolling(projectId);
+            // Optionally update the row to show a polling error
+            const row = document.getElementById(`project-row-${projectId}`);
+            if (row) {
+                const statusCell = row.querySelector('.status-cell');
+                if (statusCell) statusCell.innerHTML += `<div class="error-text">Polling failed.</div>`;
+            }
+        }
+    }
+    
+    function getNextActionForState(state) {
+        const transitions = {
+            'pending_gcp': 'provision-gcp',
+            'pending_github': 'provision-github',
+            'pending_secrets': 'finalize'
+        };
+        return transitions[state] || null;
+    }
+
+    async function handleFullProvisioning(projectId) {
+        // This function simply kicks off the process. The poller will handle the rest.
+        try {
+            const project = projectsCache.find(p => p.id === projectId);
+            if (!project) throw new Error('Project not found in cache.');
+
+            const firstAction = getNextActionForState(project.state);
+            if (!firstAction) {
+                alert('Project is in a state that cannot be actioned.');
+                return;
+            }
+            
+            await callApi(`/projects/${projectId}/${firstAction}`, { method: 'POST' });
+            // The API call returns a 202, we immediately start polling.
+            startProjectPolling(projectId);
+
+        } catch (error) {
+            alert(`Failed to start provisioning: ${error.message}`);
+        }
+    }
 });

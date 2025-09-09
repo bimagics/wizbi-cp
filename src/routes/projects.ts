@@ -102,6 +102,32 @@ router.get('/projects', requireAuth, async (req: AuthenticatedRequest, res: Resp
     }
 });
 
+// **NEW**: Get a single project by ID
+router.get('/projects/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+        const userProfile = req.userProfile;
+        
+        const projectDoc = await PROJECTS_COLLECTION.doc(id).get();
+        if (!projectDoc.exists) {
+            return res.status(404).json({ error: 'Project not found' });
+        }
+
+        const projectData = projectDoc.data()!;
+
+        // Security check: ensure user has permission to view this project
+        if (!userProfile?.roles?.superAdmin && !userProfile?.roles?.orgAdmin?.includes(projectData.orgId)) {
+            return res.status(403).json({ error: 'Permission denied' });
+        }
+
+        res.json({ id: projectDoc.id, ...projectData });
+
+    } catch (e: any) {
+        res.status(500).json({ error: "Failed to get project details" });
+    }
+});
+
+
 // Get logs for a project
 router.get('/projects/:id/logs', requireAuth, async (req: Request, res: Response) => {
     try {
@@ -218,7 +244,6 @@ router.post('/projects/:id/finalize', requireAdminAuth, async (req: Request, res
         const projectData = projectDoc.data();
         if (!projectData) throw new Error("Project data not found");
 
-        // --- FIX: Add validation for required fields before creating secrets ---
         if (!projectData.gcpProjectId || !projectData.gcpWifProvider || !projectData.gcpServiceAccount) {
             throw new Error('Project document is missing required GCP data for finalization. GCP provisioning may have failed.');
         }
@@ -258,7 +283,14 @@ router.delete('/projects/:id', requireAdminAuth, async (req: Request, res: Respo
                 await PROJECTS_COLLECTION.doc(id).update({ state: 'deleting' });
                 await GcpService.deleteGcpProject(id);
                 await GithubService.deleteGithubRepo(id);
-                await PROJECTS_COLLECTION.doc(id).delete();
+                // The main doc is deleted inside the GithubService.deleteGithubRepo logic now
+                 await log('project.delete.cleanup.start');
+                 const logsCollection = PROJECTS_COLLECTION.doc(id).collection('logs');
+                 const logsSnapshot = await logsCollection.get();
+                 const batch = db.batch();
+                 logsSnapshot.docs.forEach(doc => batch.delete(doc.ref));
+                 await batch.commit();
+                 await PROJECTS_COLLECTION.doc(id).delete();
                 log('project.delete.success');
             } catch (error: any) {
                 const errorMessage = error.message || 'Unknown error during deletion';
