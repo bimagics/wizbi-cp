@@ -35,6 +35,8 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
     const serviceUsage = google.serviceusage({ version: 'v1', auth });
     const firebase = google.firebase({ version: 'v1beta1', auth });
 
+    log('gcp.provision.all.start', { projectId, displayName, folderId });
+
     // --- 1. Create Project (if not exists) and Link Billing ---
     await createProjectAndLinkBilling(crm, projectId, displayName, folderId);
     const projectNumber = await getProjectNumber(crm, projectId);
@@ -58,7 +60,7 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
     // --- 7. Set up Workload Identity Federation (WIF) ---
     const wifProviderName = await setupWif(iam, projectId, saEmail);
 
-    log('gcp.provision.success', { projectId });
+    log('gcp.provision.all.success', { projectId });
     return {
         projectId,
         projectNumber,
@@ -71,22 +73,24 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
 // --- Helper Sub-functions ---
 
 async function createProjectAndLinkBilling(crm: cloudresourcemanager_v3.Cloudresourcemanager, projectId: string, displayName: string, folderId: string) {
-    log('gcp.project.create.start', { projectId, parent: folderId });
+    log('gcp.project.create.attempt', { projectId, displayName, parent: folderId });
     try {
         const createOp = await crm.projects.create({
             requestBody: { projectId, displayName, parent: `folders/${folderId}` },
         });
+        log('gcp.project.create.operation_sent', { operationName: createOp.data.name });
         await pollOperation(crm.operations, createOp.data.name!);
-        log('gcp.project.create.success', { projectId });
+        log('gcp.project.create.operation_success', { projectId });
     } catch (error: any) {
         if (error.code === 409) {
             log('gcp.project.create.already_exists', { projectId });
         } else {
+            log('gcp.project.create.error', { projectId, error: error.message });
             throw error;
         }
     }
 
-    log('gcp.billing.link.start', { projectId });
+    log('gcp.billing.link.attempt', { projectId, billingAccount: BILLING_ACCOUNT_ID });
     const billing = google.cloudbilling({ version: 'v1', auth: await getAuth() });
     await billing.projects.updateBillingInfo({
         name: `projects/${projectId}`,
@@ -96,9 +100,14 @@ async function createProjectAndLinkBilling(crm: cloudresourcemanager_v3.Cloudres
 }
 
 async function getProjectNumber(crm: cloudresourcemanager_v3.Cloudresourcemanager, projectId: string): Promise<string> {
+    log('gcp.project.number.get', { projectId });
     const project = await crm.projects.get({ name: `projects/${projectId}` });
     const projectNumber = project.data.name?.split('/')[1];
-    if (!projectNumber) throw new Error(`Could not retrieve project number for ${projectId}`);
+    if (!projectNumber) {
+        log('gcp.project.number.error', { projectId });
+        throw new Error(`Could not retrieve project number for ${projectId}`);
+    }
+    log('gcp.project.number.success', { projectId, projectNumber });
     return projectNumber;
 }
 
@@ -109,24 +118,25 @@ async function enableProjectApis(serviceUsage: serviceusage_v1.Serviceusage, pro
         'cloudresourcemanager.googleapis.com', 'iamcredentials.googleapis.com',
         'serviceusage.googleapis.com', 'firebasehosting.googleapis.com'
     ];
-    log('gcp.api.enable.start', { projectId, apis });
+    log('gcp.api.enable.attempt', { projectId, apis_to_enable: apis.length });
     const parent = `projects/${projectId}`;
     const enableOp = await serviceUsage.services.batchEnable({
         parent,
         requestBody: { serviceIds: apis },
     });
+    log('gcp.api.enable.operation_sent', { operationName: enableOp.data.name });
     await pollOperation(serviceUsage.operations, enableOp.data.name!);
-    log('gcp.api.enable.success', { projectId });
+    log('gcp.api.enable.operation_success', { projectId, enabled_apis: apis });
 }
 
 async function createArtifactRegistryRepo(projectId: string, repoId: string) {
-    log('gcp.ar.repo.create.start', { projectId, repoId });
+    log('gcp.ar.repo.create.attempt', { projectId, repoId, region: GCP_DEFAULT_REGION });
     const auth = await getAuth();
     const artifactRegistry = google.artifactregistry({ version: 'v1', auth });
     const parent = `projects/${projectId}/locations/${GCP_DEFAULT_REGION}`;
 
     const maxRetries = 5;
-    let delay = 10000; // Start with a 10-second delay
+    let delay = 10000; 
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
@@ -138,48 +148,39 @@ async function createArtifactRegistryRepo(projectId: string, repoId: string) {
                     description: 'Default repository for WIZBI project containers',
                 },
             });
+            log('gcp.ar.repo.create.operation_sent', { operationName: createOp.data.name });
             await pollOperation(artifactRegistry.projects.locations.operations, createOp.data.name!);
-            log('gcp.ar.repo.create.success', { repoId });
-            return; // Success, exit the function
+            log('gcp.ar.repo.create.operation_success', { repoId });
+            return;
         } catch (error: any) {
-            // Case 1: Repo already exists, which is a success for us (idempotency)
             if (error.code === 409) {
                 log('gcp.ar.repo.create.already_exists', { repoId });
                 return;
             }
-
-            // Case 2: Permission denied (403), likely due to IAM propagation delay. Retry.
             if (error.code === 403 && attempt < maxRetries) {
-                log('gcp.ar.repo.create.permission_denied_retry', {
-                    projectId,
-                    attempt,
-                    maxRetries,
-                    delay,
-                });
+                log('gcp.ar.repo.create.permission_denied_retrying', { attempt, maxRetries, delay });
                 await new Promise(resolve => setTimeout(resolve, delay));
-                delay *= 1.5; // Use a backoff factor for subsequent retries
+                delay *= 1.5;
             } else {
-                // Case 3: A different error, or we've run out of retries. Fail the process.
                 log('gcp.ar.repo.create.fatal_error', { projectId, error: error.message });
                 throw error;
             }
         }
     }
-
-    // This line is reached only if all retries fail.
-    throw new Error(`Failed to create Artifact Registry repo for ${projectId} after ${maxRetries} attempts due to persistent permission issues.`);
+    throw new Error(`Failed to create Artifact Registry repo for ${projectId} after ${maxRetries} attempts.`);
 }
 
 
 async function addFirebase(firebase: firebase_v1beta1.Firebase, projectId: string) {
-    log('gcp.firebase.add.start', { projectId });
+    log('gcp.firebase.add.attempt', { projectId });
     try {
-        await firebase.projects.addFirebase({ project: `projects/${projectId}` });
-        log('gcp.firebase.add.success', { projectId });
+        const op = await firebase.projects.addFirebase({ project: `projects/${projectId}` });
+        log('gcp.firebase.add.success', { projectId, operationName: op.data.name });
     } catch (error: any) {
         if (error.code === 409) {
             log('gcp.firebase.add.already_exists', { projectId });
         } else {
+            log('gcp.firebase.add.error', { projectId, error: error.message });
             throw error;
         }
     }
@@ -196,19 +197,19 @@ async function createHostingSite(hosting: any, projectId: string, siteId: string
 
     for (let i = 0; i < maxRetries; i++) {
         try {
-            log('gcp.firebase.hosting_site.create.attempt', { projectId, siteId, attempt: i + 1 });
+            log('gcp.firebase.hosting.create.attempt', { projectId, siteId, attempt: i + 1 });
             await hosting.projects.sites.create({
                 parent: `projects/${projectId}`,
                 siteId: siteId,
             });
-            log('gcp.firebase.hosting_site.create.success', { projectId, siteId });
+            log('gcp.firebase.hosting.create.success', { projectId, siteId });
             return;
         } catch (error: any) {
             if (error.code === 409) {
-                log('gcp.firebase.hosting_site.create.already_exists', { projectId, siteId });
+                log('gcp.firebase.hosting.create.already_exists', { projectId, siteId });
                 return;
             }
-            log('gcp.firebase.hosting_site.create.error', { projectId, siteId, error: error.message, attempt: i + 1 });
+            log('gcp.firebase.hosting.create.error_retrying', { projectId, siteId, error: error.message, attempt: i + 1 });
             if (i === maxRetries - 1) throw new Error(`Failed to create Firebase Hosting site ${siteId} after ${maxRetries} attempts.`);
             await new Promise(resolve => setTimeout(resolve, delay));
         }
@@ -216,46 +217,58 @@ async function createHostingSite(hosting: any, projectId: string, siteId: string
 }
 
 async function createServiceAccount(iam: iam_v1.Iam, projectId: string, saEmail: string) {
-    log('gcp.sa.create.start', { saEmail });
+    const accountId = saEmail.split('@')[0];
+    log('gcp.sa.create.attempt', { projectId, accountId });
     try {
         await iam.projects.serviceAccounts.create({
             name: `projects/${projectId}`,
             requestBody: {
-                accountId: saEmail.split('@')[0],
+                accountId: accountId,
                 serviceAccount: { displayName: 'GitHub Actions Deployer' },
             },
         });
         log('gcp.sa.create.success', { saEmail });
         
-        log('gcp.sa.create.propagating', { delay: 10000 });
+        log('gcp.sa.iam.propagating', { delay: 10000 });
         await new Promise(resolve => setTimeout(resolve, 10000));
     } catch (error: any) {
         if (error.code === 409) log('gcp.sa.create.already_exists', { saEmail });
-        else throw error;
+        else {
+             log('gcp.sa.create.error', { saEmail, error: error.message });
+             throw error;
+        }
     }
 }
 
 async function grantRolesToServiceAccount(crm: cloudresourcemanager_v3.Cloudresourcemanager, projectId: string, saEmail: string) {
     const roles = ['roles/run.admin', 'roles/artifactregistry.writer', 'roles/firebase.admin', 'roles/iam.serviceAccountUser'];
-    log('gcp.iam.grant.start', { saEmail, roles });
+    log('gcp.iam.grant.attempt', { saEmail, roles_to_grant: roles.length });
     const resource = `projects/${projectId}`;
     const { data: policy } = await crm.projects.getIamPolicy({ resource });
     
     if (!policy.bindings) policy.bindings = [];
+    let updated = false;
 
     roles.forEach(role => {
         let binding = policy.bindings!.find(b => b.role === role);
+        const member = `serviceAccount:${saEmail}`;
         if (binding) {
-            if (!binding.members?.includes(`serviceAccount:${saEmail}`)) {
-                 binding.members?.push(`serviceAccount:${saEmail}`);
+            if (!binding.members?.includes(member)) {
+                 binding.members?.push(member);
+                 updated = true;
             }
         } else {
-            policy.bindings!.push({ role, members: [`serviceAccount:${saEmail}`] });
+            policy.bindings!.push({ role, members: [member] });
+            updated = true;
         }
     });
 
-    await crm.projects.setIamPolicy({ resource, requestBody: { policy } });
-    log('gcp.iam.grant.success', { saEmail });
+    if (updated) {
+        await crm.projects.setIamPolicy({ resource, requestBody: { policy } });
+        log('gcp.iam.grant.success', { saEmail, roles_granted: roles });
+    } else {
+        log('gcp.iam.grant.already_exists', { saEmail });
+    }
 }
 
 async function setupWif(iam: iam_v1.Iam, newProjectId: string, saEmail: string): Promise<string> {
@@ -266,7 +279,7 @@ async function setupWif(iam: iam_v1.Iam, newProjectId: string, saEmail: string):
     const providerId = newProjectId;
     const poolPath = `${controlPlaneProject}/locations/global/workloadIdentityPools/${poolId}`;
 
-    log('gcp.wif.provider.create.start', { providerId, pool: poolPath });
+    log('gcp.wif.provider.create.attempt', { providerId, pool: poolPath, repo: `${GITHUB_OWNER}/${newProjectId}` });
     try {
         await iam.projects.locations.workloadIdentityPools.providers.create({
             parent: poolPath,
@@ -283,11 +296,14 @@ async function setupWif(iam: iam_v1.Iam, newProjectId: string, saEmail: string):
         });
         log('gcp.wif.provider.create.success', { providerId });
     } catch (error: any) {
-        if (error.code !== 409) throw error;
+        if (error.code !== 409) {
+             log('gcp.wif.provider.create.error', { providerId, error: error.message });
+             throw error;
+        }
         log('gcp.wif.provider.already_exists', { providerId });
     }
 
-    log('gcp.wif.sa_binding.start', { saEmail, newProjectId });
+    log('gcp.wif.binding.attempt', { saEmail, newProjectId });
     const saResource = `projects/${newProjectId}/serviceAccounts/${saEmail}`;
     const wifMember = `principalSet://iam.googleapis.com/${poolPath}/attribute.repository/${GITHUB_OWNER}/${newProjectId}`;
     const { data: saPolicy } = await iam.projects.serviceAccounts.getIamPolicy({ resource: saResource });
@@ -309,9 +325,9 @@ async function setupWif(iam: iam_v1.Iam, newProjectId: string, saEmail: string):
     
     if (needsUpdate) {
         await iam.projects.serviceAccounts.setIamPolicy({ resource: saResource, requestBody: { policy: saPolicy } });
-        log('gcp.wif.sa_binding.updated', { saEmail });
+        log('gcp.wif.binding.updated', { saEmail, wifMember });
     } else {
-        log('gcp.wif.sa_binding.already_exists', { saEmail });
+        log('gcp.wif.binding.already_exists', { saEmail });
     }
 
     const providerName = `${poolPath}/providers/${providerId}`;
@@ -327,10 +343,9 @@ async function pollOperation(operationsClient: any, operationName: string, maxRe
         const op = await operationsClient.get({ name: operationName });
         isDone = op.data.done || false;
         retries++;
-        log('gcp.operation.polling', { name: operationName, done: isDone, attempt: retries });
+        log('gcp.operation.polling', { name: operationName, done: isDone, attempt: retries, maxRetries });
     }
     if (!isDone) throw new Error(`Operation ${operationName} did not complete in time.`);
 }
 
 export const { createGcpFolderForOrg, deleteGcpFolder, deleteGcpProject } = GcpLegacyService;
-
