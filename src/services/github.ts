@@ -23,7 +23,7 @@ interface ProjectData {
 }
 export interface TemplateInfo { name: string; description: string | null; url: string; }
 
-// --- Core Functions ---
+// --- Helper Functions ---
 
 async function getAuthenticatedClient(): Promise<Octokit> {
     if (octokit) return octokit;
@@ -35,6 +35,33 @@ async function getAuthenticatedClient(): Promise<Octokit> {
     octokit = new Octokit({ auth: token });
     return octokit;
 }
+
+// ** NEW HELPER for polling **
+async function pollUntilRepoIsReady(client: Octokit, repoName: string, maxRetries = 5, delay = 2000) {
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            // We try to get a file that we know must exist, like the README.
+            await client.repos.getContent({
+                owner: GITHUB_OWNER,
+                repo: repoName,
+                path: 'README.md',
+            });
+            log('github.repo.poll.success', { repoName, attempt: i + 1 });
+            return; // Success, repository is ready
+        } catch (error: any) {
+            if (error.status === 404) {
+                log('github.repo.poll.not_ready', { repoName, attempt: i + 1, delay });
+                await new Promise(resolve => setTimeout(resolve, delay));
+            } else {
+                throw error; // A different error occurred
+            }
+        }
+    }
+    throw new Error(`Repository ${repoName} was not ready after ${maxRetries} attempts.`);
+}
+
+
+// --- Core Functions ---
 
 export async function listTemplateRepos(): Promise<TemplateInfo[]> {
     const client = await getAuthenticatedClient();
@@ -67,6 +94,10 @@ export async function createNewTemplate(newTemplateName: string, description: st
             private: true,
         });
         log('github.template.create.success', { repoName: repo.name });
+
+        // ** THIS IS THE FIX **
+        // Wait until the new repository's files are populated.
+        await pollUntilRepoIsReady(client, newRepoName);
 
         log('github.template.update.start', { repoName: newRepoName });
         await client.repos.update({
@@ -137,6 +168,10 @@ export async function createGithubRepoFromTemplate(project: ProjectData, teamSlu
     });
     log('github.repo.create_from_template.success', { repoName: repo.name });
 
+    // ** THIS IS THE FIX **
+    // Wait until the new repository's files are populated before proceeding.
+    await pollUntilRepoIsReady(client, newRepoName);
+
     log('github.repo.permission.start', { repoName: repo.name, teamSlug });
     await client.teams.addOrUpdateRepoPermissionsInOrg({
         org: GITHUB_OWNER,
@@ -148,16 +183,12 @@ export async function createGithubRepoFromTemplate(project: ProjectData, teamSlu
     log('github.repo.permission.success', { repoName: repo.name });
 
     log('github.repo.customize.start', { repoName: repo.name });
-    // ** THIS IS THE FIX **
-    // The `customizeFileContent` function now correctly accepts the `project` object.
     await customizeFileContent(repo.name, 'README.md', project);
     log('github.repo.customize.success', { repoName: repo.name });
 
     return { name: repo.name, url: repo.html_url };
 }
 
-// ** THIS IS THE FIX **
-// The function signature is updated to accept a more specific type that covers all use cases.
 async function customizeFileContent(repoName: string, filePath: string, replacements: Partial<ProjectData & { name: string }>) {
     const client = await getAuthenticatedClient();
     try {
@@ -172,7 +203,6 @@ async function customizeFileContent(repoName: string, filePath: string, replacem
             pkg.name = replacements.name;
             content = JSON.stringify(pkg, null, 2);
         } else {
-            // Explicitly replace known placeholders for type safety
             if (replacements.id) {
                 content = content.replace(/\{\{PROJECT_ID\}\}/g, replacements.id);
             }
