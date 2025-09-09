@@ -36,24 +36,18 @@ async function getAuthenticatedClient(): Promise<Octokit> {
     return octokit;
 }
 
-// ** NEW HELPER for polling **
 async function pollUntilRepoIsReady(client: Octokit, repoName: string, maxRetries = 5, delay = 2000) {
     for (let i = 0; i < maxRetries; i++) {
         try {
-            // We try to get a file that we know must exist, like the README.
-            await client.repos.getContent({
-                owner: GITHUB_OWNER,
-                repo: repoName,
-                path: 'README.md',
-            });
+            await client.repos.getContent({ owner: GITHUB_OWNER, repo: repoName, path: 'README.md' });
             log('github.repo.poll.success', { repoName, attempt: i + 1 });
-            return; // Success, repository is ready
+            return;
         } catch (error: any) {
             if (error.status === 404) {
                 log('github.repo.poll.not_ready', { repoName, attempt: i + 1, delay });
                 await new Promise(resolve => setTimeout(resolve, delay));
             } else {
-                throw error; // A different error occurred
+                throw error;
             }
         }
     }
@@ -69,11 +63,7 @@ export async function listTemplateRepos(): Promise<TemplateInfo[]> {
     const { data: repos } = await client.repos.listForOrg({ org: GITHUB_OWNER, type: 'private' });
     const templates = repos
         .filter(repo => repo.name.startsWith(TEMPLATE_PREFIX))
-        .map(repo => ({
-            name: repo.name,
-            description: repo.description,
-            url: repo.html_url
-        }));
+        .map(repo => ({ name: repo.name, description: repo.description, url: repo.html_url }));
     log('github.templates.list.success', { count: templates.length });
     return templates;
 }
@@ -86,41 +76,22 @@ export async function createNewTemplate(newTemplateName: string, description: st
     try {
         log('github.template.create.start', { newRepoName, baseTemplate: baseTemplateRepo });
         const { data: repo } = await client.repos.createUsingTemplate({
-            template_owner: GITHUB_OWNER,
-            template_repo: baseTemplateRepo,
-            owner: GITHUB_OWNER,
-            name: newRepoName,
-            description: description,
-            private: true,
+            template_owner: GITHUB_OWNER, template_repo: baseTemplateRepo,
+            owner: GITHUB_OWNER, name: newRepoName, description: description, private: true,
         });
         log('github.template.create.success', { repoName: repo.name });
-
-        // ** THIS IS THE FIX **
-        // Wait until the new repository's files are populated.
+        
         await pollUntilRepoIsReady(client, newRepoName);
 
         log('github.template.update.start', { repoName: newRepoName });
-        await client.repos.update({
-            owner: GITHUB_OWNER,
-            repo: newRepoName,
-            is_template: true,
-        });
+        await client.repos.update({ owner: GITHUB_OWNER, repo: newRepoName, is_template: true });
         log('github.template.update.success', { repoName: newRepoName });
 
         await customizeFileContent(newRepoName, 'package.json', { name: newRepoName });
 
         log('github.branch.create.start', { repoName: newRepoName, branch: 'dev' });
-        const { data: mainBranch } = await client.git.getRef({
-            owner: GITHUB_OWNER,
-            repo: newRepoName,
-            ref: 'heads/main',
-        });
-        await client.git.createRef({
-            owner: GITHUB_OWNER,
-            repo: newRepoName,
-            ref: 'refs/heads/dev',
-            sha: mainBranch.object.sha,
-        });
+        const { data: mainBranch } = await client.git.getRef({ owner: GITHUB_OWNER, repo: newRepoName, ref: 'heads/main' });
+        await client.git.createRef({ owner: GITHUB_OWNER, repo: newRepoName, ref: 'refs/heads/dev', sha: mainBranch.object.sha });
         log('github.branch.create.success', { repoName: newRepoName, branch: 'dev' });
 
         return { name: repo.name, url: repo.html_url };
@@ -137,11 +108,7 @@ export async function createNewTemplate(newTemplateName: string, description: st
 export async function updateTemplateDescription(repoName: string, newDescription: string): Promise<void> {
     const client = await getAuthenticatedClient();
     log('github.template.update.start', { repoName });
-    await client.repos.update({
-        owner: GITHUB_OWNER,
-        repo: repoName,
-        description: newDescription,
-    });
+    await client.repos.update({ owner: GITHUB_OWNER, repo: repoName, description: newDescription });
     log('github.template.update.success', { repoName });
 }
 
@@ -160,30 +127,28 @@ export async function createGithubRepoFromTemplate(project: ProjectData, teamSlu
 
     log('github.repo.create_from_template.start', { newRepoName, template: templateRepo });
     const { data: repo } = await client.repos.createUsingTemplate({
-        template_owner: GITHUB_OWNER,
-        template_repo: templateRepo,
-        owner: GITHUB_OWNER,
-        name: newRepoName,
-        private: true,
+        template_owner: GITHUB_OWNER, template_repo: templateRepo,
+        owner: GITHUB_OWNER, name: newRepoName, private: true,
     });
     log('github.repo.create_from_template.success', { repoName: repo.name });
 
-    // ** THIS IS THE FIX **
-    // Wait until the new repository's files are populated before proceeding.
     await pollUntilRepoIsReady(client, newRepoName);
 
     log('github.repo.permission.start', { repoName: repo.name, teamSlug });
     await client.teams.addOrUpdateRepoPermissionsInOrg({
-        org: GITHUB_OWNER,
-        team_slug: teamSlug,
-        owner: GITHUB_OWNER,
-        repo: repo.name,
-        permission: 'admin',
+        org: GITHUB_OWNER, team_slug: teamSlug, owner: GITHUB_OWNER,
+        repo: repo.name, permission: 'admin',
     });
     log('github.repo.permission.success', { repoName: repo.name });
+    
+    log('github.branch.create.start', { repoName: newRepoName, branch: 'dev' });
+    const { data: mainBranch } = await client.git.getRef({ owner: GITHUB_OWNER, repo: newRepoName, ref: 'heads/main' });
+    await client.git.createRef({ owner: GITHUB_OWNER, repo: newRepoName, ref: 'refs/heads/dev', sha: mainBranch.object.sha });
+    log('github.branch.create.success', { repoName: newRepoName, branch: 'dev' });
 
     log('github.repo.customize.start', { repoName: repo.name });
     await customizeFileContent(repo.name, 'README.md', project);
+    await customizeFileContent(repo.name, 'firebase.json', project);
     log('github.repo.customize.success', { repoName: repo.name });
 
     return { name: repo.name, url: repo.html_url };
@@ -203,15 +168,9 @@ async function customizeFileContent(repoName: string, filePath: string, replacem
             pkg.name = replacements.name;
             content = JSON.stringify(pkg, null, 2);
         } else {
-            if (replacements.id) {
-                content = content.replace(/\{\{PROJECT_ID\}\}/g, replacements.id);
-            }
-            if (replacements.displayName) {
-                content = content.replace(/\{\{PROJECT_DISPLAY_NAME\}\}/g, replacements.displayName);
-            }
-            if (replacements.gcpRegion) {
-                content = content.replace(/\{\{GCP_REGION\}\}/g, replacements.gcpRegion);
-            }
+            if (replacements.id) content = content.replace(/\{\{PROJECT_ID\}\}/g, replacements.id);
+            if (replacements.displayName) content = content.replace(/\{\{PROJECT_DISPLAY_NAME\}\}/g, replacements.displayName);
+            if (replacements.gcpRegion) content = content.replace(/\{\{GCP_REGION\}\}/g, replacements.gcpRegion);
         }
 
         log('github.file.update.start', { repoName, filePath });
@@ -247,6 +206,30 @@ export async function createRepoSecrets(repoName: string, secrets: RepoSecrets):
             key_id: publicKey.key_id,
         });
         log('github.secrets.create.success', { repoName, secretName });
+    }
+}
+
+export async function triggerInitialDeployment(repoName: string): Promise<void> {
+    const client = await getAuthenticatedClient();
+    log('github.workflow.trigger.start', { repoName });
+    try {
+        await client.actions.createWorkflowDispatch({
+            owner: GITHUB_OWNER,
+            repo: repoName,
+            workflow_id: 'deploy.yml',
+            ref: 'main'
+        });
+        log('github.workflow.trigger.success', { repoName, branch: 'main' });
+        
+        await client.actions.createWorkflowDispatch({
+            owner: GITHUB_OWNER,
+            repo: repoName,
+            workflow_id: 'deploy.yml',
+            ref: 'dev'
+        });
+        log('github.workflow.trigger.success', { repoName, branch: 'dev' });
+    } catch (error: any) {
+        log('github.workflow.trigger.error', { repoName, error: error.message });
     }
 }
 
