@@ -1,5 +1,5 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
-// This is the full and final code for admin.js
+// This is the full and final code for admin.js, for the unified backend process.
 document.addEventListener('DOMContentLoaded', () => {
     const firebaseAuth = firebase.auth();
     const googleProvider = new firebase.auth.GoogleAuthProvider();
@@ -260,10 +260,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const inProcess = isProjectInProcess(state);
         let actionsHtml = '';
         if (state.startsWith('failed')) {
-            actionsHtml += `<button class="btn btn-secondary btn-sm" data-action="provision" data-id="${project.id}" title="Retry Stage">${ICONS.RETRY} Retry</button>`;
-        }
-        if (state === 'pending_gcp') {
-            actionsHtml += `<button class="btn btn-primary btn-sm" data-action="provision" data-id="${project.id}">Provision All</button>`;
+            actionsHtml += `<button class="btn btn-secondary btn-sm" data-action="provision" data-id="${project.id}" title="Retry Full Provisioning">${ICONS.RETRY} Retry</button>`;
         }
         if (!inProcess) {
              actionsHtml += `<button class="icon-button delete" data-type="project" data-id="${project.id}" title="Delete Project">${ICONS.DELETE}</button>`;
@@ -329,10 +326,11 @@ document.addEventListener('DOMContentLoaded', () => {
             template: projectTemplate.value
         };
         try {
-            await callApi('/projects', { method: 'POST', body: JSON.stringify(body) });
+            const newProject = await callApi('/projects', { method: 'POST', body: JSON.stringify(body) });
             e.target.reset(); DOM.fullProjectIdPreview.value = '';
             document.getElementById('formProvisionProjectCard').classList.add('hidden');
             await loadProjects();
+            startProjectPolling(newProject.id); // Start polling immediately
         } catch (error) { alert(`Failed to create project entry: ${error.message}`); }
     });
 
@@ -373,6 +371,16 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!button) return;
 
         const { action, id, uid, type, name, description } = button.dataset;
+        
+        if (action === 'provision') { // This is the single unified action now
+             try {
+                await callApi(`/projects/${id}/provision`, { method: 'POST' });
+                startProjectPolling(id);
+            } catch (error) {
+                alert(`Failed to start provisioning for ${id}: ${error.message}`);
+            }
+            return;
+        }
 
         if (action === 'edit-template') {
             const newDescription = prompt(`Enter new description for:\n${name}`, description);
@@ -383,13 +391,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     await loadTemplatesForProjectForm();
                 } catch (error) { alert(`Failed to update description: ${error.message}`); }
             }
-        } else if (action === 'provision') {
-            try {
-                await callApi(`/projects/${id}/provision`, { method: 'POST' });
-                startProjectPolling(id);
-            } catch (error) {
-                alert(`Failed to start provisioning for ${id}: ${error.message}`);
-            }
         } else if (action === 'show-logs') {
             showLogsForProject(id);
         } else if (action === 'edit-user') {
@@ -399,10 +400,8 @@ document.addEventListener('DOMContentLoaded', () => {
              const entityId = type === 'template' ? name : id;
              if (confirm(`FINAL CONFIRMATION: Are you sure you want to delete ${type} '${name || id}'? This is irreversible.`)) {
                 try {
-                    // For templates, the API path uses the name, not an ID
                     const path = type === 'template' ? `/github/templates/${entityId}` : `/${type}s/${entityId}`;
                     await callApi(path, { method: 'DELETE' });
-                    // Reload the relevant data
                     if (type === 'template') {
                         await loadTemplatesData();
                         await loadTemplatesForProjectForm();
@@ -506,10 +505,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const states = {
             'pending_gcp': { percent: 10, text: 'Queued for GCP setup' },
             'provisioning_gcp': { percent: 25, text: 'Provisioning GCP Project...' },
+            'failed_gcp': { percent: 40, text: 'GCP setup failed' },
             'pending_github': { percent: 50, text: 'Queued for GitHub setup' },
             'provisioning_github': { percent: 65, text: 'Creating GitHub Repo...' },
+            'failed_github': { percent: 75, text: 'GitHub setup failed' },
             'pending_secrets': { percent: 80, text: 'Queued for finalization' },
             'injecting_secrets': { percent: 90, text: 'Injecting secrets...' },
+            'failed_secrets': { percent: 95, text: 'Finalization failed' },
             'ready': { percent: 100, text: 'Completed' },
         };
         return states[state] || { percent: 0, text: 'Status unknown' };

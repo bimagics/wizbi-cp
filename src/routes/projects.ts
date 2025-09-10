@@ -1,5 +1,6 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
 // File path: src/routes/projects.ts
+// FINAL VERSION: Uses the robust, unified provisioning process.
 
 import { Router, Request, Response, NextFunction } from 'express';
 import admin from 'firebase-admin';
@@ -141,7 +142,7 @@ async function runFullProvisioning(projectId: string) {
         const failedState = `failed_${currentState.replace('provisioning_', '').replace('injecting_', '')}`;
         
         await PROJECTS_COLLECTION.doc(projectId).update({ state: failedState, error: errorMessage });
-        await log(`stage.${currentState}.failed`, { error: errorMessage, stack: (e as Error).stack });
+        await log(`stage.${currentState.replace('pending_','provisioning_')}.failed`, { error: errorMessage, stack: (e as Error).stack });
     }
 }
 
@@ -211,7 +212,13 @@ router.post('/projects', requireAdminAuth, async (req: AuthenticatedRequest, res
             state: 'pending_gcp',
         });
         await projectLogger(projectId, 'project.create.success', { finalProjectId: projectId });
+        
+        // Acknowledge the request immediately
         res.status(201).json({ ok: true, id: projectId });
+
+        // Run the long process in the background
+        runFullProvisioning(projectId);
+
     } catch (error: any) {
         const eid = projectId || 'unknown-project';
         await projectLogger(eid, 'project.create.fatal', { error: (error as Error).message, stack: (error as Error).stack });
@@ -219,22 +226,17 @@ router.post('/projects', requireAdminAuth, async (req: AuthenticatedRequest, res
     }
 });
 
-// --- UNIFIED PROVISIONING ENDPOINT ---
-// This single endpoint starts or retries the entire provisioning flow.
+// --- UNIFIED PROVISIONING/RETRY ENDPOINT ---
 router.post('/projects/:id/provision', requireAdminAuth, async (req: Request, res: Response) => {
     const { id } = req.params;
     const projectDoc = await PROJECTS_COLLECTION.doc(id).get();
     const state = projectDoc.data()?.state;
 
-    // Prevent re-triggering if already in progress
     if (state && (state.startsWith('provisioning') || state.startsWith('injecting'))) {
         return res.status(409).json({ ok: false, error: 'Provisioning is already in progress.'});
     }
 
-    // Acknowledge the request immediately
     res.status(202).json({ ok: true, message: 'Full provisioning process initiated.' });
-
-    // Run the long process in the background
     runFullProvisioning(id);
 });
 
