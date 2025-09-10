@@ -1,8 +1,9 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
 // File path: src/services/gcp.ts
-// FINAL VERSION: Includes a fix for the TypeScript strict null check error (TS18049).
+// FINAL VERSION: The problematic grantCloudRunInvokerToFirebase function has been removed. 
+// This responsibility is now correctly handled by the CI/CD pipeline in the template repository.
 
-import { google, cloudresourcemanager_v3, iam_v1, serviceusage_v1, firebase_v1beta1, artifactregistry_v1, run_v2 } from 'googleapis';
+import { google, cloudresourcemanager_v3, iam_v1, serviceusage_v1, firebase_v1beta1, artifactregistry_v1 } from 'googleapis';
 import { log } from '../routes/projects';
 import * as GcpLegacyService from './gcp_legacy';
 
@@ -45,7 +46,7 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
     await grantRolesToServiceAccount(crm, projectId, saEmail);
     const wifProviderName = await setupWif(iam, projectId, saEmail);
 
-    await grantCloudRunInvokerToFirebase(projectId, projectNumber);
+    // The grantCloudRunInvokerToFirebase function was removed from here.
 
     log('gcp.provision.all.success', { projectId, projectNumber, finalSa: saEmail });
     return {
@@ -331,82 +332,6 @@ async function setupWif(iam: iam_v1.Iam, newProjectId: string, saEmail: string):
     const providerName = `${poolPath}/providers/${providerId}`;
     log('gcp.wif.setup.success', { providerName });
     return providerName;
-}
-
-async function grantCloudRunInvokerToFirebase(projectId: string, projectNumber: string) {
-    const auth = await getAuth();
-    const run = google.run({ version: 'v2', auth });
-    const firebaseHostingSA = `serviceAccount:service-${projectNumber}@gcp-sa-firebasehosting.iam.gserviceaccount.com`;
-    const invokerRole = 'roles/run.invoker';
-    const maxRetries = 5;
-    const initialDelay = 15000;
-
-    log('gcp.iam.firebase_invoker.grant.start', { projectId, firebaseSA: firebaseHostingSA, role: invokerRole });
-
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        try {
-            const delay = (attempt > 1) ? initialDelay * attempt : initialDelay;
-            log('gcp.iam.firebase_invoker.grant.delay', { attempt, delay });
-            await new Promise(resolve => setTimeout(resolve, delay));
-            
-            const services = await run.projects.locations.services.list({
-                parent: `projects/${projectId}/locations/${GCP_DEFAULT_REGION}`,
-            });
-
-            if (!services.data.services || services.data.services.length === 0) {
-                 log('gcp.iam.firebase_invoker.grant.no_services_found_yet', { attempt });
-                 continue;
-            }
-
-            let policiesUpdated = 0;
-            for (const service of services.data.services) {
-                if (!service.name) continue;
-                
-                log('gcp.iam.firebase_invoker.grant.get_policy', { service: service.name });
-                const { data: policy } = await run.projects.locations.services.getIamPolicy({ resource: service.name });
-                if (!policy.bindings) policy.bindings = [];
-
-                let binding = policy.bindings.find(b => b.role === invokerRole);
-                let updated = false;
-
-                if (binding) {
-                    // --- THE FIX IS HERE ---
-                    if (binding.members) {
-                        if (!binding.members.includes(firebaseHostingSA)) {
-                            binding.members.push(firebaseHostingSA);
-                            updated = true;
-                        }
-                    } else {
-                        binding.members = [firebaseHostingSA];
-                        updated = true;
-                    }
-                } else {
-                    policy.bindings.push({ role: invokerRole, members: [firebaseHostingSA] });
-                    updated = true;
-                }
-
-                if (updated) {
-                    log('gcp.iam.firebase_invoker.grant.set_policy', { service: service.name });
-                    await run.projects.locations.services.setIamPolicy({
-                        resource: service.name,
-                        requestBody: { policy },
-                    });
-                    policiesUpdated++;
-                }
-            }
-             if (policiesUpdated > 0) {
-                log('gcp.iam.firebase_invoker.grant.success', { projectId, services_updated: policiesUpdated });
-                return;
-            } else {
-                log('gcp.iam.firebase_invoker.grant.already_set', { projectId });
-                return; // Also a success condition
-            }
-
-        } catch (error: any) {
-            log('gcp.iam.firebase_invoker.grant.error', { projectId, attempt, error: error.message });
-        }
-    }
-    throw new Error(`Failed to grant Cloud Run Invoker role to Firebase Hosting SA for project ${projectId} after ${maxRetries} attempts.`);
 }
 
 async function pollOperation(operationsClient: any, operationName: string, maxRetries = 20, delay = 5000) {
