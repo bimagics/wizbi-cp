@@ -1,6 +1,6 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
 // File path: src/services/gcp.ts
-// FINAL VERSION: Includes the critical fix for Firebase Hosting to Cloud Run IAM binding.
+// FINAL VERSION: Includes a fix for the TypeScript strict null check error (TS18049).
 
 import { google, cloudresourcemanager_v3, iam_v1, serviceusage_v1, firebase_v1beta1, artifactregistry_v1, run_v2 } from 'googleapis';
 import { log } from '../routes/projects';
@@ -45,10 +45,7 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
     await grantRolesToServiceAccount(crm, projectId, saEmail);
     const wifProviderName = await setupWif(iam, projectId, saEmail);
 
-    // --- 🚀 THE FIX IS HERE ---
-    // Grant Firebase Hosting the permission to invoke the private Cloud Run services.
     await grantCloudRunInvokerToFirebase(projectId, projectNumber);
-    // -------------------------
 
     log('gcp.provision.all.success', { projectId, projectNumber, finalSa: saEmail });
     return {
@@ -336,40 +333,29 @@ async function setupWif(iam: iam_v1.Iam, newProjectId: string, saEmail: string):
     return providerName;
 }
 
-// --- NEW FUNCTION TO GRANT INVOKER ROLE ---
 async function grantCloudRunInvokerToFirebase(projectId: string, projectNumber: string) {
     const auth = await getAuth();
     const run = google.run({ version: 'v2', auth });
     const firebaseHostingSA = `serviceAccount:service-${projectNumber}@gcp-sa-firebasehosting.iam.gserviceaccount.com`;
     const invokerRole = 'roles/run.invoker';
     const maxRetries = 5;
-    const initialDelay = 15000; // 15 seconds
+    const initialDelay = 15000;
 
     log('gcp.iam.firebase_invoker.grant.start', { projectId, firebaseSA: firebaseHostingSA, role: invokerRole });
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
-            // Wait for propagation, especially on the first try
-            if (attempt > 1) {
-                const delay = initialDelay * attempt;
-                log('gcp.iam.firebase_invoker.grant.retry_delay', { attempt, delay });
-                await new Promise(resolve => setTimeout(resolve, delay));
-            } else {
-                log('gcp.iam.firebase_invoker.grant.initial_delay', { delay: initialDelay });
-                await new Promise(resolve => setTimeout(resolve, initialDelay));
-            }
-
-            // The services might not exist yet, but we can set the policy at the project level
-            // This is not ideal, but simpler than trying to grant it to each service individually
-            // as they are created. A better approach is to grant it to each service.
-
+            const delay = (attempt > 1) ? initialDelay * attempt : initialDelay;
+            log('gcp.iam.firebase_invoker.grant.delay', { attempt, delay });
+            await new Promise(resolve => setTimeout(resolve, delay));
+            
             const services = await run.projects.locations.services.list({
                 parent: `projects/${projectId}/locations/${GCP_DEFAULT_REGION}`,
             });
 
             if (!services.data.services || services.data.services.length === 0) {
                  log('gcp.iam.firebase_invoker.grant.no_services_found_yet', { attempt });
-                 continue; // Retry, maybe services aren't listed yet
+                 continue;
             }
 
             let policiesUpdated = 0;
@@ -378,27 +364,42 @@ async function grantCloudRunInvokerToFirebase(projectId: string, projectNumber: 
                 
                 log('gcp.iam.firebase_invoker.grant.get_policy', { service: service.name });
                 const { data: policy } = await run.projects.locations.services.getIamPolicy({ resource: service.name });
+                if (!policy.bindings) policy.bindings = [];
 
-                let binding = policy.bindings?.find(b => b.role === invokerRole);
+                let binding = policy.bindings.find(b => b.role === invokerRole);
+                let updated = false;
+
                 if (binding) {
-                    if (!binding.members?.includes(firebaseHostingSA)) {
-                        binding.members.push(firebaseHostingSA);
+                    // --- THE FIX IS HERE ---
+                    if (binding.members) {
+                        if (!binding.members.includes(firebaseHostingSA)) {
+                            binding.members.push(firebaseHostingSA);
+                            updated = true;
+                        }
+                    } else {
+                        binding.members = [firebaseHostingSA];
+                        updated = true;
                     }
                 } else {
-                    if (!policy.bindings) policy.bindings = [];
                     policy.bindings.push({ role: invokerRole, members: [firebaseHostingSA] });
+                    updated = true;
                 }
 
-                log('gcp.iam.firebase_invoker.grant.set_policy', { service: service.name });
-                await run.projects.locations.services.setIamPolicy({
-                    resource: service.name,
-                    requestBody: { policy },
-                });
-                policiesUpdated++;
+                if (updated) {
+                    log('gcp.iam.firebase_invoker.grant.set_policy', { service: service.name });
+                    await run.projects.locations.services.setIamPolicy({
+                        resource: service.name,
+                        requestBody: { policy },
+                    });
+                    policiesUpdated++;
+                }
             }
              if (policiesUpdated > 0) {
                 log('gcp.iam.firebase_invoker.grant.success', { projectId, services_updated: policiesUpdated });
-                return; // Success
+                return;
+            } else {
+                log('gcp.iam.firebase_invoker.grant.already_set', { projectId });
+                return; // Also a success condition
             }
 
         } catch (error: any) {
