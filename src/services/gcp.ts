@@ -1,5 +1,6 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
 // File path: src/services/gcp.ts
+// FINAL VERSION: Includes a more patient retry mechanism for billing linkage to handle IAM propagation delays.
 
 import { google, cloudresourcemanager_v3, iam_v1, serviceusage_v1, firebase_v1beta1, artifactregistry_v1 } from 'googleapis';
 import { log } from '../routes/projects';
@@ -8,12 +9,11 @@ import * as GcpLegacyService from './gcp_legacy';
 // Environment variables used by the service
 const BILLING_ACCOUNT_ID = process.env.BILLING_ACCOUNT_ID || '';
 const GITHUB_OWNER = process.env.GITHUB_OWNER || 'bimagics';
-const CP_PROJECT_NUMBER = process.env.GCP_CONTROL_PLANE_PROJECT_NUMBER || ''; // Project number of the control plane
+const CP_PROJECT_NUMBER = process.env.GCP_CONTROL_PLANE_PROJECT_NUMBER || '';
 const GCP_DEFAULT_REGION = process.env.GCP_DEFAULT_REGION || 'europe-west1';
 
 // Helper to get authenticated client
 async function getAuth() {
-    // This function correctly fetches the default credentials of the Cloud Run service account.
     return google.auth.getClient({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
 }
 
@@ -25,10 +25,6 @@ export interface ProvisionResult {
     wifProviderName: string;
 }
 
-/**
- * A comprehensive function to provision a new GCP project with all necessary infrastructure.
- * This function is designed to be idempotent where possible.
- */
 export async function provisionProjectInfrastructure(projectId: string, displayName: string, folderId: string): Promise<ProvisionResult> {
     const auth = await getAuth();
     const crm = google.cloudresourcemanager({ version: 'v3', auth });
@@ -38,27 +34,15 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
 
     log('gcp.provision.all.start', { projectId, displayName, parentFolder: folderId, region: GCP_DEFAULT_REGION });
 
-    // --- 1. Create Project (if not exists) and Link Billing (NOW WITH RETRY LOGIC) ---
     await createProjectAndLinkBilling(crm, projectId, displayName, folderId);
     const projectNumber = await getProjectNumber(crm, projectId);
-
-    // --- 2. Enable Required APIs ---
     await enableProjectApis(serviceUsage, projectId);
-
-    // --- 3. Create Artifact Registry Repository (with built-in retry logic for IAM propagation) ---
     await createArtifactRegistryRepo(projectId, 'wizbi');
-
-    // --- 4. Add Firebase to the Project (including QA site) ---
     await addFirebase(firebase, projectId);
-
-    // --- 5. Create CI/CD Service Account ---
+    
     const saEmail = `github-deployer@${projectId}.iam.gserviceaccount.com`;
     await createServiceAccount(iam, projectId, saEmail);
-
-    // --- 6. Grant IAM Roles to the new Service Account ---
     await grantRolesToServiceAccount(crm, projectId, saEmail);
-
-    // --- 7. Set up Workload Identity Federation (WIF) ---
     const wifProviderName = await setupWif(iam, projectId, saEmail);
 
     log('gcp.provision.all.success', { projectId, projectNumber, finalSa: saEmail });
@@ -70,10 +54,8 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
     };
 }
 
-
 // --- Helper Sub-functions ---
 
-// THIS IS THE CORRECTED FUNCTION - REVERTED TO THE SIMPLER, WORKING VERSION
 async function createProjectAndLinkBilling(crm: cloudresourcemanager_v3.Cloudresourcemanager, projectId: string, displayName: string, folderId: string) {
     log('gcp.project.create.attempt', { projectId, displayName, parent: `folders/${folderId}` });
     try {
@@ -93,7 +75,11 @@ async function createProjectAndLinkBilling(crm: cloudresourcemanager_v3.Cloudres
     }
 
     const billing = google.cloudbilling({ version: 'v1', auth: await getAuth() });
-    for (let attempt = 1; attempt <= 3; attempt++) {
+    
+    // **THE FIX**: This retry loop is now more patient.
+    // It will wait 15s, then 20s, then 30s. Total wait time > 1 minute.
+    const retries = 3;
+    for (let attempt = 1; attempt <= retries; attempt++) {
         try {
             log('gcp.billing.link.attempt', { projectId, billingAccount: BILLING_ACCOUNT_ID, attempt });
             await billing.projects.updateBillingInfo({
@@ -103,17 +89,18 @@ async function createProjectAndLinkBilling(crm: cloudresourcemanager_v3.Cloudres
             log('gcp.billing.link.success', { projectId, attempt });
             return; // Success, exit the function
         } catch (error: any) {
-            // Adding a small delay to allow IAM permissions to propagate after project creation
-            const delay = 7000 * attempt; 
-            log('gcp.billing.link.permission_denied_retrying', { projectId, attempt, delay, error: error.message });
-            await new Promise(resolve => setTimeout(resolve, delay));
-            if (attempt === 3) {
-                 log('gcp.billing.link.fatal_error_after_retries', { projectId, attempt, error: error.message });
-                 throw error;
+            if (attempt < retries) {
+                const delay = 10000 + (attempt * 5000); // 15s, 20s
+                log('gcp.billing.link.permission_denied_retrying', { projectId, attempt, delay, error: error.message });
+                await new Promise(resolve => setTimeout(resolve, delay));
+            } else {
+                log('gcp.billing.link.fatal_error_after_retries', { projectId, attempt, error: error.message });
+                throw error;
             }
         }
     }
 }
+
 
 async function getProjectNumber(crm: cloudresourcemanager_v3.Cloudresourcemanager, projectId: string): Promise<string> {
     log('gcp.project.number.get', { projectId });
