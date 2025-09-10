@@ -1,8 +1,8 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
 // File path: src/services/gcp.ts
-// FINAL VERSION: Includes a fix for Firebase Hosting site creation by allowing default site names.
+// FINAL VERSION: Includes the critical fix for Firebase Hosting to Cloud Run IAM binding.
 
-import { google, cloudresourcemanager_v3, iam_v1, serviceusage_v1, firebase_v1beta1, artifactregistry_v1 } from 'googleapis';
+import { google, cloudresourcemanager_v3, iam_v1, serviceusage_v1, firebase_v1beta1, artifactregistry_v1, run_v2 } from 'googleapis';
 import { log } from '../routes/projects';
 import * as GcpLegacyService from './gcp_legacy';
 
@@ -44,6 +44,11 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
     await createServiceAccount(iam, projectId, saEmail);
     await grantRolesToServiceAccount(crm, projectId, saEmail);
     const wifProviderName = await setupWif(iam, projectId, saEmail);
+
+    // --- 🚀 THE FIX IS HERE ---
+    // Grant Firebase Hosting the permission to invoke the private Cloud Run services.
+    await grantCloudRunInvokerToFirebase(projectId, projectNumber);
+    // -------------------------
 
     log('gcp.provision.all.success', { projectId, projectNumber, finalSa: saEmail });
     return {
@@ -184,18 +189,13 @@ async function addFirebase(firebase: firebase_v1beta1.Firebase, projectId: strin
 
     const hosting = google.firebasehosting({ version: 'v1beta1', auth: await getAuth() });
     
-    // **THE FIX**: Create the default site first without specifying an ID.
     await createDefaultHostingSite(hosting, projectId);
-    
-    // Then create the additional QA site.
     await createHostingSite(hosting, projectId, `${projectId}-qa`);
 }
 
-// **NEW FUNCTION** to create the default site.
 async function createDefaultHostingSite(hosting: any, projectId: string) {
     log('gcp.firebase.hosting.create_default.attempt', { projectId });
     try {
-        // By NOT providing a siteId, we ask Firebase to create the default one (e.g., project-id.web.app)
         await hosting.projects.sites.create({ parent: `projects/${projectId}` });
         log('gcp.firebase.hosting.create_default.success', { projectId });
     } catch (error: any) {
@@ -203,7 +203,6 @@ async function createDefaultHostingSite(hosting: any, projectId: string) {
             log('gcp.firebase.hosting.create_default.already_exists', { projectId });
         } else {
             log('gcp.firebase.hosting.create_default.error', { projectId, error: error.message });
-            // Don't rethrow, as a default site might exist from a previous run.
         }
     }
 }
@@ -335,6 +334,78 @@ async function setupWif(iam: iam_v1.Iam, newProjectId: string, saEmail: string):
     const providerName = `${poolPath}/providers/${providerId}`;
     log('gcp.wif.setup.success', { providerName });
     return providerName;
+}
+
+// --- NEW FUNCTION TO GRANT INVOKER ROLE ---
+async function grantCloudRunInvokerToFirebase(projectId: string, projectNumber: string) {
+    const auth = await getAuth();
+    const run = google.run({ version: 'v2', auth });
+    const firebaseHostingSA = `serviceAccount:service-${projectNumber}@gcp-sa-firebasehosting.iam.gserviceaccount.com`;
+    const invokerRole = 'roles/run.invoker';
+    const maxRetries = 5;
+    const initialDelay = 15000; // 15 seconds
+
+    log('gcp.iam.firebase_invoker.grant.start', { projectId, firebaseSA: firebaseHostingSA, role: invokerRole });
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            // Wait for propagation, especially on the first try
+            if (attempt > 1) {
+                const delay = initialDelay * attempt;
+                log('gcp.iam.firebase_invoker.grant.retry_delay', { attempt, delay });
+                await new Promise(resolve => setTimeout(resolve, delay));
+            } else {
+                log('gcp.iam.firebase_invoker.grant.initial_delay', { delay: initialDelay });
+                await new Promise(resolve => setTimeout(resolve, initialDelay));
+            }
+
+            // The services might not exist yet, but we can set the policy at the project level
+            // This is not ideal, but simpler than trying to grant it to each service individually
+            // as they are created. A better approach is to grant it to each service.
+
+            const services = await run.projects.locations.services.list({
+                parent: `projects/${projectId}/locations/${GCP_DEFAULT_REGION}`,
+            });
+
+            if (!services.data.services || services.data.services.length === 0) {
+                 log('gcp.iam.firebase_invoker.grant.no_services_found_yet', { attempt });
+                 continue; // Retry, maybe services aren't listed yet
+            }
+
+            let policiesUpdated = 0;
+            for (const service of services.data.services) {
+                if (!service.name) continue;
+                
+                log('gcp.iam.firebase_invoker.grant.get_policy', { service: service.name });
+                const { data: policy } = await run.projects.locations.services.getIamPolicy({ resource: service.name });
+
+                let binding = policy.bindings?.find(b => b.role === invokerRole);
+                if (binding) {
+                    if (!binding.members?.includes(firebaseHostingSA)) {
+                        binding.members.push(firebaseHostingSA);
+                    }
+                } else {
+                    if (!policy.bindings) policy.bindings = [];
+                    policy.bindings.push({ role: invokerRole, members: [firebaseHostingSA] });
+                }
+
+                log('gcp.iam.firebase_invoker.grant.set_policy', { service: service.name });
+                await run.projects.locations.services.setIamPolicy({
+                    resource: service.name,
+                    requestBody: { policy },
+                });
+                policiesUpdated++;
+            }
+             if (policiesUpdated > 0) {
+                log('gcp.iam.firebase_invoker.grant.success', { projectId, services_updated: policiesUpdated });
+                return; // Success
+            }
+
+        } catch (error: any) {
+            log('gcp.iam.firebase_invoker.grant.error', { projectId, attempt, error: error.message });
+        }
+    }
+    throw new Error(`Failed to grant Cloud Run Invoker role to Firebase Hosting SA for project ${projectId} after ${maxRetries} attempts.`);
 }
 
 async function pollOperation(operationsClient: any, operationName: string, maxRetries = 20, delay = 5000) {
