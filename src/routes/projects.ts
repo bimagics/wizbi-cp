@@ -1,6 +1,6 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
 // File path: src/routes/projects.ts
-// This is the "split process" version for easier debugging and control.
+// FINAL VERSION: Uses the robust, unified provisioning process.
 
 import { Router, Request, Response, NextFunction } from 'express';
 import admin from 'firebase-admin';
@@ -76,6 +76,76 @@ function requireSuperAdmin(req: AuthenticatedRequest, res: Response, next: NextF
 export const requireAuth = [verifyFirebaseToken, fetchUserProfile];
 export const requireAdminAuth = [...requireAuth, requireSuperAdmin];
 
+// --- Orchestration Logic ---
+async function runFullProvisioning(projectId: string) {
+    const log = (evt: string, meta?: Record<string, any>) => projectLogger(projectId, evt, meta);
+    
+    try {
+        // --- STAGE 1: GCP ---
+        await log('stage.gcp.start');
+        const projectDoc = await PROJECTS_COLLECTION.doc(projectId).get();
+        if (!projectDoc.exists) throw new Error('Project document not found in Firestore.');
+
+        const { displayName, orgId, template } = projectDoc.data()!;
+        const orgDoc = await ORGS_COLLECTION.doc(orgId).get();
+        if (!orgDoc.exists || !orgDoc.data()!.gcpFolderId) throw new Error('Parent organization data or GCP Folder ID is invalid.');
+
+        await PROJECTS_COLLECTION.doc(projectId).update({ state: 'provisioning_gcp' });
+        const gcpInfra = await GcpService.provisionProjectInfrastructure(projectId, displayName, orgDoc.data()!.gcpFolderId);
+        
+        await PROJECTS_COLLECTION.doc(projectId).update({
+            state: 'pending_github',
+            gcpProjectId: gcpInfra.projectId,
+            gcpProjectNumber: gcpInfra.projectNumber,
+            gcpServiceAccount: gcpInfra.serviceAccountEmail,
+            gcpWifProvider: gcpInfra.wifProviderName
+        });
+        await log('stage.gcp.success', { nextState: 'pending_github' });
+        
+        // --- STAGE 2: GitHub ---
+        await log('stage.github.start');
+        if (!orgDoc.data()!.githubTeamSlug) throw new Error('Parent organization data or GitHub Team Slug is invalid.');
+        
+        await PROJECTS_COLLECTION.doc(projectId).update({ state: 'provisioning_github' });
+        const projectInfo = {
+            id: projectId, 
+            displayName: displayName,
+            gcpRegion: process.env.GCP_DEFAULT_REGION || 'europe-west1'
+        };
+        const githubRepo = await GithubService.createGithubRepoFromTemplate(projectInfo, orgDoc.data()!.githubTeamSlug, template);
+
+        await PROJECTS_COLLECTION.doc(projectId).update({
+            state: 'pending_secrets', githubRepoUrl: githubRepo.url
+        });
+        await log('stage.github.success', { nextState: 'pending_secrets' });
+
+        // --- STAGE 3: Finalize (Secrets & Deployment) ---
+        await log('stage.finalize.start');
+        await PROJECTS_COLLECTION.doc(projectId).update({ state: 'injecting_secrets' });
+        
+        const secretsToCreate = {
+            GCP_PROJECT_ID: gcpInfra.projectId,
+            GCP_REGION: process.env.GCP_DEFAULT_REGION || 'europe-west1',
+            WIF_PROVIDER: gcpInfra.wifProviderName,
+            DEPLOYER_SA: gcpInfra.serviceAccountEmail,
+        };
+        await GithubService.createRepoSecrets(projectId, secretsToCreate);
+        await GithubService.triggerInitialDeployment(projectId);
+
+        await PROJECTS_COLLECTION.doc(projectId).update({ state: 'ready' });
+        await log('stage.finalize.success', { finalState: 'ready' });
+
+    } catch (e: any) {
+        const errorMessage = (e as Error).message || 'An unknown error occurred';
+        const projectDoc = await PROJECTS_COLLECTION.doc(projectId).get();
+        const currentState = projectDoc.data()?.state || 'unknown';
+        const failedState = `failed_${currentState.replace('provisioning_', '').replace('injecting_', '')}`;
+        
+        await PROJECTS_COLLECTION.doc(projectId).update({ state: failedState, error: errorMessage });
+        await log(`stage.${currentState.replace('pending_','provisioning_')}.failed`, { error: errorMessage, stack: (e as Error).stack });
+    }
+}
+
 // --- ROUTES ---
 
 router.get('/projects', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
@@ -142,7 +212,13 @@ router.post('/projects', requireAdminAuth, async (req: AuthenticatedRequest, res
             state: 'pending_gcp',
         });
         await projectLogger(projectId, 'project.create.success', { finalProjectId: projectId });
+        
+        // Acknowledge the request immediately
         res.status(201).json({ ok: true, id: projectId });
+
+        // Run the long process in the background
+        runFullProvisioning(projectId);
+
     } catch (error: any) {
         const eid = projectId || 'unknown-project';
         await projectLogger(eid, 'project.create.fatal', { error: (error as Error).message, stack: (error as Error).stack });
@@ -150,112 +226,18 @@ router.post('/projects', requireAdminAuth, async (req: AuthenticatedRequest, res
     }
 });
 
-// STAGE 1: Provision GCP
-router.post('/projects/:id/provision-gcp', requireAdminAuth, async (req: Request, res: Response) => {
+// --- UNIFIED PROVISIONING/RETRY ENDPOINT ---
+router.post('/projects/:id/provision', requireAdminAuth, async (req: Request, res: Response) => {
     const { id } = req.params;
-    const log = (evt: string, meta?: Record<string, any>) => projectLogger(id, evt, meta);
-    res.status(202).json({ ok: true, message: 'GCP provisioning started.' });
-    
-    (async () => {
-        try {
-            await log('stage.gcp.start');
-            const projectDoc = await PROJECTS_COLLECTION.doc(id).get();
-            if (!projectDoc.exists) throw new Error('Project document not found in Firestore.');
-            
-            const { displayName, orgId } = projectDoc.data()!;
-            const orgDoc = await ORGS_COLLECTION.doc(orgId).get();
-            if (!orgDoc.exists || !orgDoc.data()!.gcpFolderId) throw new Error('Parent organization data or GCP Folder ID is invalid.');
-            
-            await PROJECTS_COLLECTION.doc(id).update({ state: 'provisioning_gcp' });
-            const gcpInfra = await GcpService.provisionProjectInfrastructure(id, displayName, orgDoc.data()!.gcpFolderId);
-            
-            await PROJECTS_COLLECTION.doc(id).update({
-                state: 'pending_github',
-                gcpProjectId: gcpInfra.projectId,
-                gcpProjectNumber: gcpInfra.projectNumber,
-                gcpServiceAccount: gcpInfra.serviceAccountEmail,
-                gcpWifProvider: gcpInfra.wifProviderName
-            });
-            await log('stage.gcp.success', { nextState: 'pending_github' });
-        } catch (e: any) {
-            const errorMessage = (e as Error).message || 'An unknown error occurred';
-            await PROJECTS_COLLECTION.doc(id).update({ state: 'failed_gcp', error: errorMessage });
-            await log('stage.gcp.failed', { error: errorMessage, stack: (e as Error).stack });
-        }
-    })();
-});
+    const projectDoc = await PROJECTS_COLLECTION.doc(id).get();
+    const state = projectDoc.data()?.state;
 
-// STAGE 2: Provision GitHub
-router.post('/projects/:id/provision-github', requireAdminAuth, async (req: Request, res: Response) => {
-    const { id } = req.params;
-    const log = (evt: string, meta?: Record<string, any>) => projectLogger(id, evt, meta);
-    res.status(202).json({ ok: true, message: 'GitHub provisioning started.' });
-    
-    (async () => {
-        try {
-            await log('stage.github.start');
-            const projectDoc = await PROJECTS_COLLECTION.doc(id).get();
-            if (!projectDoc.exists) throw new Error('Project document not found in Firestore.');
+    if (state && (state.startsWith('provisioning') || state.startsWith('injecting'))) {
+        return res.status(409).json({ ok: false, error: 'Provisioning is already in progress.'});
+    }
 
-            const { orgId, displayName, template } = projectDoc.data()!;
-            const orgDoc = await ORGS_COLLECTION.doc(orgId).get();
-            if (!orgDoc.exists || !orgDoc.data()!.githubTeamSlug) throw new Error('Parent organization data or GitHub Team Slug is invalid.');
-            
-            await PROJECTS_COLLECTION.doc(id).update({ state: 'provisioning_github' });
-
-            const projectInfo = {
-                id: id, 
-                displayName: displayName,
-                gcpRegion: process.env.GCP_DEFAULT_REGION || 'europe-west1'
-            };
-            const githubRepo = await GithubService.createGithubRepoFromTemplate(projectInfo, orgDoc.data()!.githubTeamSlug, template);
-
-            await PROJECTS_COLLECTION.doc(id).update({
-                state: 'pending_secrets', githubRepoUrl: githubRepo.url
-            });
-            await log('stage.github.success', { nextState: 'pending_secrets' });
-        } catch (e: any) {
-            const errorMessage = (e as Error).message || 'An unknown error occurred';
-            await PROJECTS_COLLECTION.doc(id).update({ state: 'failed_github', error: errorMessage });
-            await log('stage.github.failed', { error: errorMessage, stack: (e as Error).stack });
-        }
-    })();
-});
-
-// STAGE 3: Finalize
-router.post('/projects/:id/finalize', requireAdminAuth, async (req: Request, res: Response) => {
-    const { id } = req.params;
-    const log = (evt: string, meta?: Record<string, any>) => projectLogger(id, evt, meta);
-    res.status(202).json({ ok: true, message: 'Finalization started.' });
-
-    (async () => {
-        try {
-            await log('stage.finalize.start');
-            await PROJECTS_COLLECTION.doc(id).update({ state: 'injecting_secrets' });
-            
-            const projectDoc = await PROJECTS_COLLECTION.doc(id).get();
-            const projectData = projectDoc.data();
-            if (!projectData || !projectData.gcpProjectId || !projectData.gcpWifProvider || !projectData.gcpServiceAccount) {
-                throw new Error('Project document is missing required GCP data for finalization.');
-            }
-
-            const secretsToCreate = {
-                GCP_PROJECT_ID: projectData.gcpProjectId,
-                GCP_REGION: process.env.GCP_DEFAULT_REGION || 'europe-west1',
-                WIF_PROVIDER: projectData.gcpWifProvider,
-                DEPLOYER_SA: projectData.gcpServiceAccount,
-            };
-            await GithubService.createRepoSecrets(id, secretsToCreate);
-            await GithubService.triggerInitialDeployment(id);
-
-            await PROJECTS_COLLECTION.doc(id).update({ state: 'ready' });
-            await log('stage.finalize.success', { finalState: 'ready' });
-        } catch (e: any) {
-            const errorMessage = (e as Error).message || 'An unknown error occurred';
-            await PROJECTS_COLLECTION.doc(id).update({ state: 'failed_secrets', error: errorMessage });
-            await log('stage.finalize.failed', { error: errorMessage, stack: (e as Error).stack });
-        }
-    })();
+    res.status(202).json({ ok: true, message: 'Full provisioning process initiated.' });
+    runFullProvisioning(id);
 });
 
 
