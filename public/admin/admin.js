@@ -1,5 +1,5 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
-// This is the full and final code for admin.js, updated for the split-process backend.
+// This is the full and final code for admin.js, for the unified backend process.
 document.addEventListener('DOMContentLoaded', () => {
     const firebaseAuth = firebase.auth();
     const googleProvider = new firebase.auth.GoogleAuthProvider();
@@ -254,21 +254,14 @@ document.addEventListener('DOMContentLoaded', () => {
         `;
     }
 
-    // THIS FUNCTION IS MODIFIED TO SUPPORT THE SPLIT PROCESS
     function renderProjectActions(project) {
         if (!userProfile.roles?.superAdmin) return '';
         const state = project.state;
         const inProcess = isProjectInProcess(state);
         let actionsHtml = '';
-
-        if (state === 'pending_gcp' || state === 'failed_gcp') {
-            actionsHtml += `<button class="btn btn-primary btn-sm" data-action="provision-gcp" data-id="${project.id}">Provision GCP</button>`;
-        } else if (state === 'pending_github' || state === 'failed_github') {
-            actionsHtml += `<button class="btn btn-primary btn-sm" data-action="provision-github" data-id="${project.id}">Provision GitHub</button>`;
-        } else if (state === 'pending_secrets' || state === 'failed_secrets') {
-            actionsHtml += `<button class="btn btn-primary btn-sm" data-action="finalize" data-id="${project.id}">Finalize</button>`;
+        if (state.startsWith('failed')) {
+            actionsHtml += `<button class="btn btn-secondary btn-sm" data-action="provision" data-id="${project.id}" title="Retry Full Provisioning">${ICONS.RETRY} Retry</button>`;
         }
-
         if (!inProcess) {
              actionsHtml += `<button class="icon-button delete" data-type="project" data-id="${project.id}" title="Delete Project">${ICONS.DELETE}</button>`;
         }
@@ -333,10 +326,11 @@ document.addEventListener('DOMContentLoaded', () => {
             template: projectTemplate.value
         };
         try {
-            await callApi('/projects', { method: 'POST', body: JSON.stringify(body) });
+            const newProject = await callApi('/projects', { method: 'POST', body: JSON.stringify(body) });
             e.target.reset(); DOM.fullProjectIdPreview.value = '';
             document.getElementById('formProvisionProjectCard').classList.add('hidden');
             await loadProjects();
+            startProjectPolling(newProject.id); // Start polling immediately
         } catch (error) { alert(`Failed to create project entry: ${error.message}`); }
     });
 
@@ -372,22 +366,18 @@ document.addEventListener('DOMContentLoaded', () => {
         DOM.fullTemplateNamePreview.value = shortName ? `template-${shortName}` : '';
     }
     
-    // THIS EVENT HANDLER IS MODIFIED TO SUPPORT THE SPLIT PROCESS
     document.getElementById('adminPanelContainer').addEventListener('click', async (e) => {
         const button = e.target.closest('button[data-action], button[data-type]');
         if (!button) return;
 
         const { action, id, uid, type, name, description } = button.dataset;
         
-        // Handle staged provisioning
-        const provisionActions = ['provision-gcp', 'provision-github', 'finalize'];
-        if (provisionActions.includes(action)) {
-            try {
-                // The action name matches the API endpoint suffix
-                await callApi(`/projects/${id}/${action}`, { method: 'POST' });
+        if (action === 'provision') { // This is the single unified action now
+             try {
+                await callApi(`/projects/${id}/provision`, { method: 'POST' });
                 startProjectPolling(id);
             } catch (error) {
-                alert(`Failed to start action ${action} for ${id}: ${error.message}`);
+                alert(`Failed to start provisioning for ${id}: ${error.message}`);
             }
             return;
         }
