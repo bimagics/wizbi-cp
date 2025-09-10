@@ -73,6 +73,7 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
 
 // --- Helper Sub-functions ---
 
+// THIS IS THE CORRECTED FUNCTION - REVERTED TO THE SIMPLER, WORKING VERSION
 async function createProjectAndLinkBilling(crm: cloudresourcemanager_v3.Cloudresourcemanager, projectId: string, displayName: string, folderId: string) {
     log('gcp.project.create.attempt', { projectId, displayName, parent: `folders/${folderId}` });
     try {
@@ -102,13 +103,13 @@ async function createProjectAndLinkBilling(crm: cloudresourcemanager_v3.Cloudres
             log('gcp.billing.link.success', { projectId, attempt });
             return; // Success, exit the function
         } catch (error: any) {
-            if (attempt < 3 && (error.code === 403 || (error.message && String(error.message).toLowerCase().includes("permission")))) {
-                const delay = 7000 * attempt; // Wait 7s, then 14s
-                log('gcp.billing.link.permission_denied_retrying', { projectId, attempt, delay, error: error.message });
-                await new Promise(resolve => setTimeout(resolve, delay));
-            } else {
-                log('gcp.billing.link.fatal_error', { projectId, attempt, error: error.message });
-                throw error;
+            // Adding a small delay to allow IAM permissions to propagate after project creation
+            const delay = 7000 * attempt; 
+            log('gcp.billing.link.permission_denied_retrying', { projectId, attempt, delay, error: error.message });
+            await new Promise(resolve => setTimeout(resolve, delay));
+            if (attempt === 3) {
+                 log('gcp.billing.link.fatal_error_after_retries', { projectId, attempt, error: error.message });
+                 throw error;
             }
         }
     }
@@ -340,4 +341,3 @@ async function pollOperation(operationsClient: any, operationName: string, maxRe
 }
 
 export const { createGcpFolderForOrg, deleteGcpFolder, deleteGcpProject } = GcpLegacyService;
-
