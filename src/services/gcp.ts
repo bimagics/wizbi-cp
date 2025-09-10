@@ -1,6 +1,6 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
 // File path: src/services/gcp.ts
-// FINAL, ROBUST VERSION: Includes a patient, pre-emptive retry mechanism for billing.
+// FINAL VERSION: Includes a fix for Firebase Hosting site creation by allowing default site names.
 
 import { google, cloudresourcemanager_v3, iam_v1, serviceusage_v1, firebase_v1beta1, artifactregistry_v1 } from 'googleapis';
 import { log } from '../routes/projects';
@@ -76,15 +76,12 @@ async function createProjectAndLinkBilling(crm: cloudresourcemanager_v3.Cloudres
 
     const billing = google.cloudbilling({ version: 'v1', auth: await getAuth() });
     
-    // **THE FIX**: This retry loop is now more patient.
-    // It will wait 15s before the first attempt, then more for subsequent retries.
     const retries = 3;
     for (let attempt = 1; attempt <= retries; attempt++) {
         try {
-            // **THE CRITICAL FIX**: Add a pre-emptive delay before the FIRST attempt.
             if (attempt === 1) {
-                log('gcp.billing.iam_propagation_delay', { delay: 15000 });
-                await new Promise(resolve => setTimeout(resolve, 15000));
+                log('gcp.billing.iam_propagation_delay', { delay: 30000 });
+                await new Promise(resolve => setTimeout(resolve, 30000));
             }
             log('gcp.billing.link.attempt', { projectId, billingAccount: BILLING_ACCOUNT_ID, attempt });
             await billing.projects.updateBillingInfo({
@@ -92,10 +89,10 @@ async function createProjectAndLinkBilling(crm: cloudresourcemanager_v3.Cloudres
                 requestBody: { billingAccountName: `billingAccounts/${BILLING_ACCOUNT_ID}` },
             });
             log('gcp.billing.link.success', { projectId, attempt });
-            return; // Success, exit the function
+            return;
         } catch (error: any) {
             if (attempt < retries) {
-                const delay = 10000 + (attempt * 5000); // 15s, 20s for subsequent retries
+                const delay = 30000;
                 log('gcp.billing.link.permission_denied_retrying', { projectId, attempt, delay, error: error.message });
                 await new Promise(resolve => setTimeout(resolve, delay));
             } else {
@@ -186,8 +183,29 @@ async function addFirebase(firebase: firebase_v1beta1.Firebase, projectId: strin
     }
 
     const hosting = google.firebasehosting({ version: 'v1beta1', auth: await getAuth() });
-    await createHostingSite(hosting, projectId, projectId);
+    
+    // **THE FIX**: Create the default site first without specifying an ID.
+    await createDefaultHostingSite(hosting, projectId);
+    
+    // Then create the additional QA site.
     await createHostingSite(hosting, projectId, `${projectId}-qa`);
+}
+
+// **NEW FUNCTION** to create the default site.
+async function createDefaultHostingSite(hosting: any, projectId: string) {
+    log('gcp.firebase.hosting.create_default.attempt', { projectId });
+    try {
+        // By NOT providing a siteId, we ask Firebase to create the default one (e.g., project-id.web.app)
+        await hosting.projects.sites.create({ parent: `projects/${projectId}` });
+        log('gcp.firebase.hosting.create_default.success', { projectId });
+    } catch (error: any) {
+        if (error.code === 409) {
+            log('gcp.firebase.hosting.create_default.already_exists', { projectId });
+        } else {
+            log('gcp.firebase.hosting.create_default.error', { projectId, error: error.message });
+            // Don't rethrow, as a default site might exist from a previous run.
+        }
+    }
 }
 
 async function createHostingSite(hosting: any, projectId: string, siteId: string) {
