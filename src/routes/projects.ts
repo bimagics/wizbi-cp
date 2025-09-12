@@ -1,6 +1,6 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
 // File path: src/routes/projects.ts
-// FINAL VERSION: Uses the robust, unified provisioning process.
+// FINAL VERSION: Handles billing failures gracefully and allows for manual intervention.
 
 import { Router, Request, Response, NextFunction } from 'express';
 import admin from 'firebase-admin';
@@ -18,6 +18,17 @@ interface AuthenticatedRequest extends Request {
   user?: admin.auth.DecodedIdToken;
   userProfile?: UserProfile;
 }
+
+// Custom error for billing issues
+class BillingError extends Error {
+    public gcpProjectId: string;
+    constructor(message: string, gcpProjectId: string) {
+        super(message);
+        this.name = 'BillingError';
+        this.gcpProjectId = gcpProjectId;
+    }
+}
+
 
 const router = Router();
 const db = getDb();
@@ -91,6 +102,8 @@ async function runFullProvisioning(projectId: string) {
         if (!orgDoc.exists || !orgDoc.data()!.gcpFolderId) throw new Error('Parent organization data or GCP Folder ID is invalid.');
 
         await PROJECTS_COLLECTION.doc(projectId).update({ state: 'provisioning_gcp' });
+        
+        // This function now throws a specific 'BillingError' if needed
         const gcpInfra = await GcpService.provisionProjectInfrastructure(projectId, displayName, orgDoc.data()!.gcpFolderId);
         
         await PROJECTS_COLLECTION.doc(projectId).update({
@@ -132,14 +145,26 @@ async function runFullProvisioning(projectId: string) {
         await GithubService.createRepoSecrets(projectId, secretsToCreate);
         await GithubService.triggerInitialDeployment(projectId);
 
-        await PROJECTS_COLLECTION.doc(projectId).update({ state: 'ready' });
+        await PROJECTS_COLLECTION.doc(projectId).update({ state: 'ready', error: null }); // Clear any previous error
         await log('stage.finalize.success', { finalState: 'ready' });
 
     } catch (e: any) {
+        if (e instanceof BillingError) {
+            const billingUrl = `https://console.cloud.google.com/billing/linkedaccount?project=${e.gcpProjectId}`;
+            const errorMessage = `Manual action required: Please link billing account. URL: ${billingUrl}`;
+            await PROJECTS_COLLECTION.doc(projectId).update({ 
+                state: 'pending_billing', 
+                error: errorMessage,
+                gcpProjectId: e.gcpProjectId // Ensure gcpProjectId is saved
+            });
+            await log('stage.gcp.billing_failed_manual_intervention', { error: e.message, gcpProjectId: e.gcpProjectId, billingUrl });
+            return; // Stop the process here until user retries
+        }
+
         const errorMessage = (e as Error).message || 'An unknown error occurred';
         const projectDoc = await PROJECTS_COLLECTION.doc(projectId).get();
         const currentState = projectDoc.data()?.state || 'unknown';
-        const failedState = `failed_${currentState.replace('provisioning_', '').replace('injecting_', '')}`;
+        const failedState = `failed_${currentState.replace('provisioning_', '').replace('injecting_', '').replace('pending_', '')}`;
         
         await PROJECTS_COLLECTION.doc(projectId).update({ state: failedState, error: errorMessage });
         await log(`stage.${currentState.replace('pending_','provisioning_')}.failed`, { error: errorMessage, stack: (e as Error).stack });
@@ -236,8 +261,14 @@ router.post('/projects/:id/provision', requireAdminAuth, async (req: Request, re
         return res.status(409).json({ ok: false, error: 'Provisioning is already in progress.'});
     }
 
-    res.status(202).json({ ok: true, message: 'Full provisioning process initiated.' });
-    runFullProvisioning(id);
+    // Allow retry from failed_billing or pending_billing states
+    if (state === 'pending_billing' || state === 'failed_billing' || state.startsWith('failed')) {
+        res.status(202).json({ ok: true, message: 'Retrying full provisioning process.' });
+        runFullProvisioning(id);
+    } else {
+        res.status(202).json({ ok: true, message: 'Full provisioning process initiated.' });
+        runFullProvisioning(id);
+    }
 });
 
 
@@ -277,6 +308,8 @@ router.delete('/projects/:id', requireAdminAuth, async (req: Request, res: Respo
 });
 
 export default router;
+
+export { BillingError };
 
 export const log = (evt: string, meta: Record<string, any> = {}) => {
   console.log(JSON.stringify({ ts: new Date().toISOString(), severity: 'INFO', evt, ...meta }));
