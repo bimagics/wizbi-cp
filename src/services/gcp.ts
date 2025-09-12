@@ -205,6 +205,8 @@ async function triggerInitialHostingRelease(hosting: any, projectId: string, sit
         log('gcp.firebase.hosting.initial_release.release.create', { siteId, versionName });
         await hosting.projects.sites.releases.create({
             parent: `projects/${projectId}/sites/${siteId}`,
+            // --- FIX: Add the missing versionName parameter ---
+            versionName: versionName,
             requestBody: { message: 'Initial release by WizBI Control Plane to trigger SA creation' }
         });
         log('gcp.firebase.hosting.initial_release.release.success', { siteId });
