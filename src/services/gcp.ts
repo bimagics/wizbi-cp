@@ -1,7 +1,7 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
 // File path: src/services/gcp.ts
-// FINAL VERSION: Handles billing permission errors, fixes the default hosting site creation bug,
-// proactively triggers Firebase Hosting SA creation with the correct API payload, and verifies its existence.
+// FINAL VERSION: Handles billing, fixes the site creation bug, and implements a robust, state-aware
+// process to trigger and verify the Firebase Hosting SA creation.
 
 import { google, cloudresourcemanager_v3, iam_v1, serviceusage_v1, firebase_v1beta1 } from 'googleapis';
 import { log, BillingError } from '../routes/projects';
@@ -52,23 +52,19 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
 async function createProjectAndLinkBilling(crm: cloudresourcemanager_v3.Cloudresourcemanager, projectId: string, displayName: string, folderId: string) {
     log('gcp.project.create.attempt', { projectId, displayName, parent: `folders/${folderId}` });
     try {
-        const createOp = await crm.projects.create({
-            requestBody: { projectId, displayName, parent: `folders/${folderId}` },
-        });
+        const createOp = await crm.projects.create({ requestBody: { projectId, displayName, parent: `folders/${folderId}` } });
         log('gcp.project.create.operation_sent', { operationName: createOp.data.name });
         await pollOperation(crm.operations, createOp.data.name!);
         log('gcp.project.create.operation_success', { projectId });
     } catch (error: any) {
-        if (error.code === 409) {
-            log('gcp.project.create.already_exists', { projectId });
-        } else {
+        if (error.code === 409) log('gcp.project.create.already_exists', { projectId });
+        else {
             log('gcp.project.create.error', { projectId, error: error.message, stack: error.stack });
             throw error;
         }
     }
 
     const billing = google.cloudbilling({ version: 'v1', auth: await getAuth() });
-    
     const delay = 30000;
     log('gcp.billing.iam_propagation_delay.start', { delay });
     await new Promise(resolve => setTimeout(resolve, delay));
@@ -112,10 +108,7 @@ async function enableProjectApis(serviceUsage: serviceusage_v1.Serviceusage, pro
     ];
     log('gcp.api.enable.attempt', { projectId, apisToEnable: apis });
     const parent = `projects/${projectId}`;
-    const enableOp = await serviceUsage.services.batchEnable({
-        parent,
-        requestBody: { serviceIds: apis },
-    });
+    const enableOp = await serviceUsage.services.batchEnable({ parent, requestBody: { serviceIds: apis } });
     log('gcp.api.enable.operation_sent', { operationName: enableOp.data.name });
     await pollOperation(serviceUsage.operations, enableOp.data.name!);
     log('gcp.api.enable.operation_success', { projectId, count: apis.length });
@@ -201,17 +194,24 @@ async function triggerInitialHostingRelease(hosting: any, projectId: string, sit
         if (!versionName) throw new Error('Version creation did not return a name.');
         log('gcp.firebase.hosting.initial_release.version.success', { siteId, versionName });
 
+        log('gcp.firebase.hosting.initial_release.version.finalize', { siteId, versionName });
+        await hosting.projects.sites.versions.patch({
+            name: versionName,
+            updateMask: 'status',
+            requestBody: { status: 'FINALIZED' }
+        });
+        log('gcp.firebase.hosting.initial_release.version.finalized_success', { siteId });
+        
         log('gcp.firebase.hosting.initial_release.release.create', { siteId, versionName });
-        // **THE FIX IS HERE**: `versionName` is a top-level parameter, not inside `requestBody`.
         await hosting.projects.sites.releases.create({
             parent: `projects/${projectId}/sites/${siteId}`,
-            versionName: versionName, 
             requestBody: { message: 'Initial release by WizBI Control Plane to trigger SA creation' }
         });
         log('gcp.firebase.hosting.initial_release.release.success', { siteId });
 
     } catch (error: any) {
-        log('gcp.firebase.hosting.initial_release.warn', { projectId, siteId, error: error.message, stack: error.stack });
+        log('gcp.firebase.hosting.initial_release.fatal_error', { projectId, siteId, error: error.message, stack: error.stack });
+        throw error; // This is a critical step, so we throw the error.
     }
 }
 
@@ -241,7 +241,7 @@ async function createDefaultHostingSite(hosting: any, projectId: string) {
     for (let attempt = 1; attempt <= 5; attempt++) {
         log('gcp.firebase.hosting.create_default.attempt', { projectId, siteId, attempt, maxAttempts: 5 });
         try {
-            await hosting.projects.sites.create({ parent: `projects/${projectId}`, siteId: siteId });
+            await hosting.projects.sites.create({ parent: `projects/${projectId}`, siteId });
             log('gcp.firebase.hosting.create_default.success', { projectId, siteId });
             return;
         } catch (error: any) {
@@ -266,7 +266,7 @@ async function createHostingSite(hosting: any, projectId: string, siteId: string
     for (let attempt = 1; attempt <= 5; attempt++) {
         log('gcp.firebase.hosting.create_site.attempt', { projectId, siteId, attempt, maxAttempts: 5 });
         try {
-            await hosting.projects.sites.create({ parent: `projects/${projectId}`, siteId: siteId });
+            await hosting.projects.sites.create({ parent: `projects/${projectId}`, siteId });
             log('gcp.firebase.hosting.create_site.success', { projectId, siteId });
             return;
         } catch (error: any) {
@@ -301,9 +301,8 @@ async function createServiceAccount(iam: iam_v1.Iam, projectId: string, saEmail:
         await new Promise(resolve => setTimeout(resolve, delay));
         log('gcp.sa.iam_propagation_delay.end');
     } catch (error: any) {
-        if (error.code === 409) {
-            log('gcp.sa.create.already_exists', { saEmail });
-        } else {
+        if (error.code === 409) log('gcp.sa.create.already_exists', { saEmail });
+        else {
              log('gcp.sa.create.fatal_error', { saEmail, error: error.message, stack: error.stack });
              throw error;
         }
@@ -420,3 +419,4 @@ async function pollOperation(operationsClient: any, operationName: string, maxRe
 }
 
 export const { createGcpFolderForOrg, deleteGcpFolder, deleteGcpProject } = GcpLegacyService;
+
