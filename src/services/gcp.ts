@@ -1,6 +1,6 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
 // File path: src/services/gcp.ts
-// FINAL VERSION: Corrects all TypeScript errors by separating type imports and adding explicit types.
+// FINAL VERSION: Re-introduces a robust retry mechanism for hosting site creation to solve the race condition permanently.
 
 import { google } from 'googleapis';
 import type { cloudresourcemanager_v3, iam_v1, serviceusage_v1, firebase_v1beta1, firebasehosting_v1beta1 } from 'googleapis';
@@ -39,9 +39,9 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
     await enableProjectApis(serviceUsage, projectId);
     await createArtifactRegistryRepo(projectId, 'wizbi');
     
-    // --- Provision Firebase services ---
+    // Provision Firebase services in sequence
     await addFirebase(firebase, projectId);
-    await createFirebaseHostingSites(firebasehosting, projectId);
+    await createFirebaseHostingSites(firebasehosting, projectId); // This now contains the critical retry logic.
     await createFirebaseInvokerSA(iam, crm, projectId);
     
     const saEmail = `github-deployer@${projectId}.iam.gserviceaccount.com`;
@@ -156,8 +156,9 @@ async function createArtifactRegistryRepo(projectId: string, repoId: string) {
 async function addFirebase(firebase: firebase_v1beta1.Firebase, projectId: string) {
     log('gcp.firebase.add.start', { projectId });
     try {
-        await firebase.projects.addFirebase({ project: `projects/${projectId}` });
-        log('gcp.firebase.add.api_call_success', { projectId });
+        const op = await firebase.projects.addFirebase({ project: `projects/${projectId}` });
+        log('gcp.firebase.add.operation_sent', { projectId, operationName: op.data.name });
+        // Although this returns an operation, we let the retry logic in site creation handle the timing.
     } catch (error: any) {
         if (error.code === 409) log('gcp.firebase.add.already_exists', { projectId });
         else {
@@ -168,42 +169,41 @@ async function addFirebase(firebase: firebase_v1beta1.Firebase, projectId: strin
 }
 
 async function createFirebaseHostingSites(hosting: firebasehosting_v1beta1.Firebasehosting, projectId: string) {
-    log('gcp.firebase.sites.create.start', { projectId });
     const qaSiteId = `${projectId}-qa`;
-
-    // Create Production (default) Site
-    try {
-        log('gcp.firebase.sites.create.default.attempt', { parent: `projects/${projectId}` });
-        await hosting.projects.sites.create({
-            parent: `projects/${projectId}`,
-            requestBody: {},
-        });
-        log('gcp.firebase.sites.create.default.success', { siteId: projectId });
-    } catch (error: any) {
-        if (error.code === 409) {
-            log('gcp.firebase.sites.create.default.already_exists', { siteId: projectId });
-        } else {
-            log('gcp.firebase.sites.create.default.error', { siteId: projectId, error: error.message });
+    
+    // Helper function with retry logic to handle the race condition
+    const createSiteWithRetry = async (siteIdToCreate?: string) => {
+        const targetSite = siteIdToCreate || projectId; // Use projectId for default site logging
+        for (let attempt = 1; attempt <= 5; attempt++) {
+            try {
+                log('gcp.firebase.hosting.create.attempt', { projectId, siteId: targetSite, attempt });
+                await hosting.projects.sites.create({
+                    parent: `projects/${projectId}`,
+                    siteId: siteIdToCreate, // Will be undefined for default, which is correct
+                });
+                log('gcp.firebase.hosting.create.success', { projectId, siteId: targetSite });
+                return; // Exit on success
+            } catch (error: any) {
+                if (error.code === 409) {
+                    log('gcp.firebase.hosting.create.already_exists', { projectId, siteId: targetSite });
+                    return; // Exit if already exists
+                }
+                if (attempt < 5) {
+                    const delay = 5000 * attempt;
+                    log('gcp.firebase.hosting.create.error_retrying', { siteId: targetSite, error: error.message, attempt, delay });
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                } else {
+                    log('gcp.firebase.hosting.create.fatal_error', { projectId, siteId: targetSite, error: error.message });
+                    throw new Error(`Failed to create Firebase Hosting site ${targetSite} after 5 attempts.`);
+                }
+            }
         }
-    }
+    };
 
-    // Create QA Site
-    try {
-        log('gcp.firebase.sites.create.qa.attempt', { parent: `projects/${projectId}`, siteId: qaSiteId });
-        await hosting.projects.sites.create({
-            parent: `projects/${projectId}`,
-            siteId: qaSiteId,
-        });
-        log('gcp.firebase.sites.create.qa.success', { siteId: qaSiteId });
-    } catch (error: any) {
-        if (error.code === 409) {
-            log('gcp.firebase.sites.create.qa.already_exists', { siteId: qaSiteId });
-        } else {
-            log('gcp.firebase.sites.create.qa.error', { siteId: qaSiteId, error: error.message });
-        }
-    }
+    // Create both sites using the robust helper
+    await createSiteWithRetry(); // Create default site
+    await createSiteWithRetry(qaSiteId); // Create QA site
 }
-
 
 async function createFirebaseInvokerSA(iam: iam_v1.Iam, crm: cloudresourcemanager_v3.Cloudresourcemanager, projectId: string): Promise<string> {
     const accountId = 'firebase-hosting-invoker';
