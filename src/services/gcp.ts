@@ -1,8 +1,9 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
 // File path: src/services/gcp.ts
-// FINAL VERSION: Corrects TypeScript error by using the correct firebasehosting client.
+// FINAL VERSION: Corrects all TypeScript errors by separating type imports and adding explicit types.
 
-import { google, cloudresourdemanager_v3, iam_v1, serviceusage_v1, firebase_v1beta1, firebasehosting_v1beta1 } from 'googleapis';
+import { google } from 'googleapis';
+import type { cloudresourcemanager_v3, iam_v1, serviceusage_v1, firebase_v1beta1, firebasehosting_v1beta1 } from 'googleapis';
 import { log, BillingError } from '../routes/projects';
 import * as GcpLegacyService from './gcp_legacy';
 
@@ -30,7 +31,7 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
     const iam = google.iam({ version: 'v1', auth });
     const serviceUsage = google.serviceusage({ version: 'v1', auth });
     const firebase = google.firebase({ version: 'v1beta1', auth });
-    const firebasehosting = google.firebasehosting({ version: 'v1beta1', auth }); // <<< FIX: Initialize correct client
+    const firebasehosting = google.firebasehosting({ version: 'v1beta1', auth });
 
     await createProjectAndLinkBilling(crm, projectId, displayName, folderId);
     
@@ -40,7 +41,7 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
     
     // --- Provision Firebase services ---
     await addFirebase(firebase, projectId);
-    await createFirebaseHostingSites(firebasehosting, projectId); // <<< FIX: Pass the correct client
+    await createFirebaseHostingSites(firebasehosting, projectId);
     await createFirebaseInvokerSA(iam, crm, projectId);
     
     const saEmail = `github-deployer@${projectId}.iam.gserviceaccount.com`;
@@ -52,7 +53,7 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
     return { projectId, projectNumber, serviceAccountEmail: saEmail, wifProviderName };
 }
 
-async function createProjectAndLinkBilling(crm: cloudresourdemanager_v3.Cloudresourcemanager, projectId: string, displayName: string, folderId: string) {
+async function createProjectAndLinkBilling(crm: cloudresourcemanager_v3.Cloudresourcemanager, projectId: string, displayName: string, folderId: string) {
     log('gcp.project.create.attempt', { projectId, displayName, parent: `folders/${folderId}` });
     try {
         const createOp = await crm.projects.create({ requestBody: { projectId, displayName, parent: `folders/${folderId}` } });
@@ -90,7 +91,7 @@ async function createProjectAndLinkBilling(crm: cloudresourdemanager_v3.Cloudres
     }
 }
 
-async function getProjectNumber(crm: cloudresourdemanager_v3.Cloudresourcemanager, projectId: string): Promise<string> {
+async function getProjectNumber(crm: cloudresourcemanager_v3.Cloudresourcemanager, projectId: string): Promise<string> {
     log('gcp.project.number.get.attempt', { projectId });
     const project = await crm.projects.get({ name: `projects/${projectId}` });
     const projectNumber = project.data.name?.split('/')[1];
@@ -166,20 +167,16 @@ async function addFirebase(firebase: firebase_v1beta1.Firebase, projectId: strin
     }
 }
 
-/**
- * Ensures both the default (production) and QA Firebase Hosting sites are created.
- * This function now uses the correct `firebasehosting` client.
- */
 async function createFirebaseHostingSites(hosting: firebasehosting_v1beta1.Firebasehosting, projectId: string) {
     log('gcp.firebase.sites.create.start', { projectId });
     const qaSiteId = `${projectId}-qa`;
 
-    // Create Production (default) Site - the default site uses the projectId as its name
+    // Create Production (default) Site
     try {
         log('gcp.firebase.sites.create.default.attempt', { parent: `projects/${projectId}` });
         await hosting.projects.sites.create({
             parent: `projects/${projectId}`,
-            requestBody: { }, // The API creates the default site if `siteId` is omitted.
+            requestBody: {},
         });
         log('gcp.firebase.sites.create.default.success', { siteId: projectId });
     } catch (error: any) {
@@ -208,7 +205,7 @@ async function createFirebaseHostingSites(hosting: firebasehosting_v1beta1.Fireb
 }
 
 
-async function createFirebaseInvokerSA(iam: iam_v1.Iam, crm: cloudresourdemanager_v3.Cloudresourcemanager, projectId: string): Promise<string> {
+async function createFirebaseInvokerSA(iam: iam_v1.Iam, crm: cloudresourcemanager_v3.Cloudresourcemanager, projectId: string): Promise<string> {
     const accountId = 'firebase-hosting-invoker';
     const saEmail = `${accountId}@${projectId}.iam.gserviceaccount.com`;
     log('gcp.sa.invoker.create.attempt', { projectId, accountId });
@@ -239,7 +236,7 @@ async function createFirebaseInvokerSA(iam: iam_v1.Iam, crm: cloudresourdemanage
     const role = 'roles/run.invoker';
     const member = `serviceAccount:${saEmail}`;
     
-    let binding = policy.bindings?.find(b => b.role === role);
+    let binding = policy.bindings?.find((b: iam_v1.Schema$Binding) => b.role === role);
     if (!binding) {
         binding = { role, members: [] };
         if (!policy.bindings) policy.bindings = [];
@@ -278,7 +275,7 @@ async function createServiceAccount(iam: iam_v1.Iam, projectId: string, saEmail:
     }
 }
 
-async function grantRolesToServiceAccount(crm: cloudresourdemanager_v3.Cloudresourcemanager, projectId: string, saEmail: string) {
+async function grantRolesToServiceAccount(crm: cloudresourcemanager_v3.Cloudresourcemanager, projectId: string, saEmail: string) {
     const roles = [
         'roles/run.admin', 'roles/artifactregistry.writer', 'roles/firebase.admin', 
         'roles/iam.serviceAccountUser', 'roles/serviceusage.serviceUsageAdmin', 'roles/aiplatform.user'
@@ -292,7 +289,7 @@ async function grantRolesToServiceAccount(crm: cloudresourdemanager_v3.Cloudreso
     let needsUpdate = false;
     roles.forEach(role => {
         const member = `serviceAccount:${saEmail}`;
-        let binding = policy.bindings!.find(b => b.role === role);
+        let binding = policy.bindings!.find((b: iam_v1.Schema$Binding) => b.role === role);
         if (binding) {
             if (!binding.members?.includes(member)) {
                  log('gcp.iam.grant.adding_member_to_existing_role', { member, role });
@@ -352,11 +349,11 @@ async function setupWif(iam: iam_v1.Iam, newProjectId: string, saEmail: string):
     const { data: saPolicy } = await iam.projects.serviceAccounts.getIamPolicy({ resource: saResource });
     if (!saPolicy.bindings) saPolicy.bindings = [];
     const role = 'roles/iam.workloadIdentityUser';
-    let binding = saPolicy.bindings.find(b => b.role === role);
+    let binding = saPolicy.bindings.find((b: iam_v1.Schema$Binding) => b.role === role);
     if (!binding || !binding.members?.includes(wifMember)) {
         log('gcp.wif.binding.updating_policy', { role, wifMember });
         const existingMembers = binding?.members || [];
-        saPolicy.bindings = (saPolicy.bindings || []).filter(b => b.role !== role);
+        saPolicy.bindings = (saPolicy.bindings || []).filter((b: iam_v1.Schema$Binding) => b.role !== role);
         saPolicy.bindings.push({ role, members: [...existingMembers, wifMember].filter((v, i, a) => a.indexOf(v) === i) });
         await iam.projects.serviceAccounts.setIamPolicy({ resource: saResource, requestBody: { policy: saPolicy } });
         log('gcp.wif.binding.update.success', { saEmail });
