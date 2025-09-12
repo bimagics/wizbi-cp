@@ -1,6 +1,6 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
 // File path: src/services/gcp.ts
-// FINAL VERSION: Implements a proactive, deterministic Service Account creation for Firebase Hosting.
+// FINAL VERSION: Includes fix for missing QA hosting site creation and maintains deterministic SA creation.
 
 import { google, cloudresourcemanager_v3, iam_v1, serviceusage_v1, firebase_v1beta1 } from 'googleapis';
 import { log, BillingError } from '../routes/projects';
@@ -37,8 +37,9 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
     await enableProjectApis(serviceUsage, projectId);
     await createArtifactRegistryRepo(projectId, 'wizbi');
     
-    // --- NEW DETERMINISTIC FLOW ---
+    // --- Provision Firebase services ---
     await addFirebase(firebase, projectId);
+    await createFirebaseHostingSites(firebase, projectId); // <<< FIX: Ensure both prod and QA sites are created.
     await createFirebaseInvokerSA(iam, crm, projectId); // Create our own SA instead of waiting for Google's.
     
     const saEmail = `github-deployer@${projectId}.iam.gserviceaccount.com`;
@@ -164,7 +165,48 @@ async function addFirebase(firebase: firebase_v1beta1.Firebase, projectId: strin
     }
 }
 
-// --- NEW DETERMINISTIC SERVICE ACCOUNT CREATION FOR FIREBASE -> CLOUD RUN ---
+/**
+ * FIX: This function ensures both the default (production) and QA Firebase Hosting sites are created.
+ * This resolves the bug where QA deployments would fail with a 404 error.
+ */
+async function createFirebaseHostingSites(firebase: firebase_v1beta1.Firebase, projectId: string) {
+    log('gcp.firebase.sites.create.start', { projectId });
+    const defaultSiteId = projectId; // For logging purposes
+    const qaSiteId = `${projectId}-qa`;
+
+    // Create Production (default) Site by not providing a siteId in the URL path
+    try {
+        log('gcp.firebase.sites.create.default.attempt', { parent: `projects/${projectId}` });
+        await firebase.projects.sites.create({
+            parent: `projects/${projectId}`,
+            requestBody: {}, // An empty body creates the default site
+        });
+        log('gcp.firebase.sites.create.default.success', { siteId: defaultSiteId });
+    } catch (error: any) {
+        if (error.code === 409) {
+            log('gcp.firebase.sites.create.default.already_exists', { siteId: defaultSiteId });
+        } else {
+            log('gcp.firebase.sites.create.default.error', { siteId: defaultSiteId, error: error.message });
+        }
+    }
+
+    // Create QA Site by providing the specific siteId
+    try {
+        log('gcp.firebase.sites.create.qa.attempt', { parent: `projects/${projectId}`, siteId: qaSiteId });
+        await firebase.projects.sites.create({
+            parent: `projects/${projectId}`,
+            siteId: qaSiteId, // This becomes a query parameter in the API call
+        });
+        log('gcp.firebase.sites.create.qa.success', { siteId: qaSiteId });
+    } catch (error: any) {
+        if (error.code === 409) {
+            log('gcp.firebase.sites.create.qa.already_exists', { siteId: qaSiteId });
+        } else {
+            log('gcp.firebase.sites.create.qa.error', { siteId: qaSiteId, error: error.message });
+        }
+    }
+}
+
 async function createFirebaseInvokerSA(iam: iam_v1.Iam, crm: cloudresourcemanager_v3.Cloudresourcemanager, projectId: string): Promise<string> {
     const accountId = 'firebase-hosting-invoker';
     const saEmail = `${accountId}@${projectId}.iam.gserviceaccount.com`;
