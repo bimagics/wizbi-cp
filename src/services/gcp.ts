@@ -1,8 +1,8 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
 // File path: src/services/gcp.ts
-// FINAL VERSION: Includes fix for missing QA hosting site creation and maintains deterministic SA creation.
+// FINAL VERSION: Corrects TypeScript error by using the correct firebasehosting client.
 
-import { google, cloudresourcemanager_v3, iam_v1, serviceusage_v1, firebase_v1beta1 } from 'googleapis';
+import { google, cloudresourdemanager_v3, iam_v1, serviceusage_v1, firebase_v1beta1, firebasehosting_v1beta1 } from 'googleapis';
 import { log, BillingError } from '../routes/projects';
 import * as GcpLegacyService from './gcp_legacy';
 
@@ -30,6 +30,7 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
     const iam = google.iam({ version: 'v1', auth });
     const serviceUsage = google.serviceusage({ version: 'v1', auth });
     const firebase = google.firebase({ version: 'v1beta1', auth });
+    const firebasehosting = google.firebasehosting({ version: 'v1beta1', auth }); // <<< FIX: Initialize correct client
 
     await createProjectAndLinkBilling(crm, projectId, displayName, folderId);
     
@@ -39,8 +40,8 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
     
     // --- Provision Firebase services ---
     await addFirebase(firebase, projectId);
-    await createFirebaseHostingSites(firebase, projectId); // <<< FIX: Ensure both prod and QA sites are created.
-    await createFirebaseInvokerSA(iam, crm, projectId); // Create our own SA instead of waiting for Google's.
+    await createFirebaseHostingSites(firebasehosting, projectId); // <<< FIX: Pass the correct client
+    await createFirebaseInvokerSA(iam, crm, projectId);
     
     const saEmail = `github-deployer@${projectId}.iam.gserviceaccount.com`;
     await createServiceAccount(iam, projectId, saEmail);
@@ -51,7 +52,7 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
     return { projectId, projectNumber, serviceAccountEmail: saEmail, wifProviderName };
 }
 
-async function createProjectAndLinkBilling(crm: cloudresourcemanager_v3.Cloudresourcemanager, projectId: string, displayName: string, folderId: string) {
+async function createProjectAndLinkBilling(crm: cloudresourdemanager_v3.Cloudresourcemanager, projectId: string, displayName: string, folderId: string) {
     log('gcp.project.create.attempt', { projectId, displayName, parent: `folders/${folderId}` });
     try {
         const createOp = await crm.projects.create({ requestBody: { projectId, displayName, parent: `folders/${folderId}` } });
@@ -89,7 +90,7 @@ async function createProjectAndLinkBilling(crm: cloudresourcemanager_v3.Cloudres
     }
 }
 
-async function getProjectNumber(crm: cloudresourcemanager_v3.Cloudresourcemanager, projectId: string): Promise<string> {
+async function getProjectNumber(crm: cloudresourdemanager_v3.Cloudresourcemanager, projectId: string): Promise<string> {
     log('gcp.project.number.get.attempt', { projectId });
     const project = await crm.projects.get({ name: `projects/${projectId}` });
     const projectNumber = project.data.name?.split('/')[1];
@@ -166,36 +167,35 @@ async function addFirebase(firebase: firebase_v1beta1.Firebase, projectId: strin
 }
 
 /**
- * FIX: This function ensures both the default (production) and QA Firebase Hosting sites are created.
- * This resolves the bug where QA deployments would fail with a 404 error.
+ * Ensures both the default (production) and QA Firebase Hosting sites are created.
+ * This function now uses the correct `firebasehosting` client.
  */
-async function createFirebaseHostingSites(firebase: firebase_v1beta1.Firebase, projectId: string) {
+async function createFirebaseHostingSites(hosting: firebasehosting_v1beta1.Firebasehosting, projectId: string) {
     log('gcp.firebase.sites.create.start', { projectId });
-    const defaultSiteId = projectId; // For logging purposes
     const qaSiteId = `${projectId}-qa`;
 
-    // Create Production (default) Site by not providing a siteId in the URL path
+    // Create Production (default) Site - the default site uses the projectId as its name
     try {
         log('gcp.firebase.sites.create.default.attempt', { parent: `projects/${projectId}` });
-        await firebase.projects.sites.create({
+        await hosting.projects.sites.create({
             parent: `projects/${projectId}`,
-            requestBody: {}, // An empty body creates the default site
+            requestBody: { }, // The API creates the default site if `siteId` is omitted.
         });
-        log('gcp.firebase.sites.create.default.success', { siteId: defaultSiteId });
+        log('gcp.firebase.sites.create.default.success', { siteId: projectId });
     } catch (error: any) {
         if (error.code === 409) {
-            log('gcp.firebase.sites.create.default.already_exists', { siteId: defaultSiteId });
+            log('gcp.firebase.sites.create.default.already_exists', { siteId: projectId });
         } else {
-            log('gcp.firebase.sites.create.default.error', { siteId: defaultSiteId, error: error.message });
+            log('gcp.firebase.sites.create.default.error', { siteId: projectId, error: error.message });
         }
     }
 
-    // Create QA Site by providing the specific siteId
+    // Create QA Site
     try {
         log('gcp.firebase.sites.create.qa.attempt', { parent: `projects/${projectId}`, siteId: qaSiteId });
-        await firebase.projects.sites.create({
+        await hosting.projects.sites.create({
             parent: `projects/${projectId}`,
-            siteId: qaSiteId, // This becomes a query parameter in the API call
+            siteId: qaSiteId,
         });
         log('gcp.firebase.sites.create.qa.success', { siteId: qaSiteId });
     } catch (error: any) {
@@ -207,7 +207,8 @@ async function createFirebaseHostingSites(firebase: firebase_v1beta1.Firebase, p
     }
 }
 
-async function createFirebaseInvokerSA(iam: iam_v1.Iam, crm: cloudresourcemanager_v3.Cloudresourcemanager, projectId: string): Promise<string> {
+
+async function createFirebaseInvokerSA(iam: iam_v1.Iam, crm: cloudresourdemanager_v3.Cloudresourcemanager, projectId: string): Promise<string> {
     const accountId = 'firebase-hosting-invoker';
     const saEmail = `${accountId}@${projectId}.iam.gserviceaccount.com`;
     log('gcp.sa.invoker.create.attempt', { projectId, accountId });
@@ -227,13 +228,11 @@ async function createFirebaseInvokerSA(iam: iam_v1.Iam, crm: cloudresourcemanage
         }
     }
     
-    // Allow time for the new SA to be available for IAM policy bindings
     const delay = 10000;
     log('gcp.sa.invoker.iam_propagation_delay.start', { delay });
     await new Promise(resolve => setTimeout(resolve, delay));
     log('gcp.sa.invoker.iam_propagation_delay.end');
 
-    // Grant the new SA the Cloud Run Invoker role
     log('gcp.iam.grant.invoker_role.attempt', { saEmail });
     const resource = `projects/${projectId}`;
     const { data: policy } = await crm.projects.getIamPolicy({ resource });
@@ -257,7 +256,6 @@ async function createFirebaseInvokerSA(iam: iam_v1.Iam, crm: cloudresourcemanage
     return saEmail;
 }
 
-
 async function createServiceAccount(iam: iam_v1.Iam, projectId: string, saEmail: string) {
     const accountId = saEmail.split('@')[0];
     log('gcp.sa.create.attempt', { projectId, accountId, displayName: 'GitHub Actions Deployer' });
@@ -280,7 +278,7 @@ async function createServiceAccount(iam: iam_v1.Iam, projectId: string, saEmail:
     }
 }
 
-async function grantRolesToServiceAccount(crm: cloudresourcemanager_v3.Cloudresourcemanager, projectId: string, saEmail: string) {
+async function grantRolesToServiceAccount(crm: cloudresourdemanager_v3.Cloudresourcemanager, projectId: string, saEmail: string) {
     const roles = [
         'roles/run.admin', 'roles/artifactregistry.writer', 'roles/firebase.admin', 
         'roles/iam.serviceAccountUser', 'roles/serviceusage.serviceUsageAdmin', 'roles/aiplatform.user'
@@ -390,3 +388,4 @@ async function pollOperation(operationsClient: any, operationName: string, maxRe
 }
 
 export const { createGcpFolderForOrg, deleteGcpFolder, deleteGcpProject } = GcpLegacyService;
+
