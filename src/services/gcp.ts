@@ -1,6 +1,6 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
 // File path: src/services/gcp.ts
-// FINAL VERSION: Handles billing permission errors gracefully by throwing a custom error.
+// FINAL VERSION: Handles billing permission errors gracefully and adds the missing Service Usage Admin role.
 
 import { google, cloudresourcemanager_v3, iam_v1, serviceusage_v1, firebase_v1beta1, artifactregistry_v1 } from 'googleapis';
 import { log, BillingError } from '../routes/projects'; // Import custom error
@@ -42,11 +42,10 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
     await createArtifactRegistryRepo(projectId, 'wizbi');
     await addFirebase(firebase, projectId);
     
-    // Note: The service account in deploy.yml is 'wizbi-provisioner', but the CI/CD pipeline uses 'wizbi-deployer'.
     // This SA is for the CI/CD pipeline inside the new project.
     const saEmail = `github-deployer@${projectId}.iam.gserviceaccount.com`;
     await createServiceAccount(iam, projectId, saEmail);
-    await grantRolesToServiceAccount(crm, projectId, saEmail);
+    await grantRolesToServiceAccount(crm, projectId, saEmail); // This function is now fixed
     const wifProviderName = await setupWif(iam, projectId, saEmail);
 
     log('gcp.provision.all.success', { projectId, projectNumber, finalSa: saEmail });
@@ -80,7 +79,6 @@ async function createProjectAndLinkBilling(crm: cloudresourcemanager_v3.Cloudres
 
     const billing = google.cloudbilling({ version: 'v1', auth: await getAuth() });
     
-    // Give IAM a moment to propagate after project creation
     log('gcp.billing.iam_propagation_delay', { delay: 30000 });
     await new Promise(resolve => setTimeout(resolve, 30000));
 
@@ -92,13 +90,10 @@ async function createProjectAndLinkBilling(crm: cloudresourcemanager_v3.Cloudres
         });
         log('gcp.billing.link.success', { projectId });
     } catch (error: any) {
-        // This is the critical change. We catch the specific permission error.
         if (error.message && error.message.includes('The caller does not have permission')) {
             log('gcp.billing.link.permission_denied_throwing_billing_error', { projectId, error: error.message });
-            // Throw our custom error to be handled by the orchestrator
             throw new BillingError(error.message, projectId);
         }
-        // For other errors, we still throw them to fail the process.
         log('gcp.billing.link.fatal_error', { projectId, error: error.message });
         throw error;
     }
@@ -122,7 +117,7 @@ async function enableProjectApis(serviceUsage: serviceusage_v1.Serviceusage, pro
         'run.googleapis.com', 'iam.googleapis.com', 'artifactregistry.googleapis.com',
         'cloudbuild.googleapis.com', 'firebase.googleapis.com', 'firestore.googleapis.com',
         'cloudresourcemanager.googleapis.com', 'iamcredentials.googleapis.com',
-        'serviceusage.googleapis.com', 'firebasehosting.googleapis.com'
+        'serviceusage.googleapis.com', 'firebasehosting.googleapis.com', 'aiplatform.googleapis.com' // Added Vertex AI
     ];
     log('gcp.api.enable.attempt', { projectId, apis });
     const parent = `projects/${projectId}`;
@@ -248,7 +243,16 @@ async function createServiceAccount(iam: iam_v1.Iam, projectId: string, saEmail:
 }
 
 async function grantRolesToServiceAccount(crm: cloudresourcemanager_v3.Cloudresourcemanager, projectId: string, saEmail: string) {
-    const roles = ['roles/run.admin', 'roles/artifactregistry.writer', 'roles/firebase.admin', 'roles/iam.serviceAccountUser'];
+    // --- THIS IS THE FIX: Added roles/serviceusage.serviceUsageAdmin ---
+    const roles = [
+        'roles/run.admin', 
+        'roles/artifactregistry.writer', 
+        'roles/firebase.admin', 
+        'roles/iam.serviceAccountUser',
+        'roles/serviceusage.serviceUsageAdmin', // Allows enabling APIs like firebasehosting
+        'roles/aiplatform.user' // Allows access to Vertex AI models
+    ];
+    
     log('gcp.iam.grant.attempt', { saEmail, roles });
     const resource = `projects/${projectId}`;
     const { data: policy } = await crm.projects.getIamPolicy({ resource });
