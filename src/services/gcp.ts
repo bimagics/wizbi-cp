@@ -1,6 +1,6 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
 // File path: src/services/gcp.ts
-// FINAL VERSION: Handles billing permission errors gracefully and adds the missing Service Usage Admin role.
+// FINAL VERSION: Handles billing permission errors gracefully and adds robust retries for Firebase Hosting creation.
 
 import { google, cloudresourcemanager_v3, iam_v1, serviceusage_v1, firebase_v1beta1, artifactregistry_v1 } from 'googleapis';
 import { log, BillingError } from '../routes/projects'; // Import custom error
@@ -45,7 +45,7 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
     // This SA is for the CI/CD pipeline inside the new project.
     const saEmail = `github-deployer@${projectId}.iam.gserviceaccount.com`;
     await createServiceAccount(iam, projectId, saEmail);
-    await grantRolesToServiceAccount(crm, projectId, saEmail); // This function is now fixed
+    await grantRolesToServiceAccount(crm, projectId, saEmail);
     const wifProviderName = await setupWif(iam, projectId, saEmail);
 
     log('gcp.provision.all.success', { projectId, projectNumber, finalSa: saEmail });
@@ -165,6 +165,7 @@ async function createArtifactRegistryRepo(projectId: string, repoId: string) {
 }
 
 
+// --- THIS IS THE MODIFIED FUNCTION ---
 async function addFirebase(firebase: firebase_v1beta1.Firebase, projectId: string) {
     log('gcp.firebase.add.attempt', { projectId });
     try {
@@ -177,23 +178,41 @@ async function addFirebase(firebase: firebase_v1beta1.Firebase, projectId: strin
             throw error;
         }
     }
+    
+    // **FIX 1: Add a delay to allow Firebase services to propagate.**
+    const propagationDelay = 15000; // 15 seconds
+    log('gcp.firebase.propagation_delay.start', { delay: propagationDelay });
+    await new Promise(resolve => setTimeout(resolve, propagationDelay));
+    log('gcp.firebase.propagation_delay.end');
 
     const hosting = google.firebasehosting({ version: 'v1beta1', auth: await getAuth() });
     
+    // **FIX 2: Wrap both site creation calls in the robust retry logic.**
     await createDefaultHostingSite(hosting, projectId);
     await createHostingSite(hosting, projectId, `${projectId}-qa`);
 }
 
+// **FIX 2 (cont.): Create a more robust version of this function with retries.**
 async function createDefaultHostingSite(hosting: any, projectId: string) {
-    log('gcp.firebase.hosting.create_default.attempt', { projectId });
-    try {
-        await hosting.projects.sites.create({ parent: `projects/${projectId}` });
-        log('gcp.firebase.hosting.create_default.success', { projectId });
-    } catch (error: any) {
-        if (error.code === 409) {
-            log('gcp.firebase.hosting.create_default.already_exists', { projectId });
-        } else {
-            log('gcp.firebase.hosting.create_default.error', { projectId, error: error.message });
+    for (let attempt = 1; attempt <= 5; attempt++) {
+        try {
+            log('gcp.firebase.hosting.create_default.attempt', { projectId, attempt });
+            await hosting.projects.sites.create({ parent: `projects/${projectId}` });
+            log('gcp.firebase.hosting.create_default.success', { projectId });
+            return; // Success, exit the loop
+        } catch (error: any) {
+            if (error.code === 409) {
+                log('gcp.firebase.hosting.create_default.already_exists', { projectId });
+                return; // Already exists, exit the loop
+            }
+            if (attempt < 5) {
+                const delay = 10000 * attempt;
+                log('gcp.firebase.hosting.create_default.error_retrying', { error: error.message, attempt, delay });
+                await new Promise(resolve => setTimeout(resolve, delay));
+            } else {
+                 log('gcp.firebase.hosting.create_default.fatal_error', { projectId, error: error.message });
+                 // Decide if you want to throw an error here or just log it. For now, we log.
+            }
         }
     }
 }
@@ -243,14 +262,13 @@ async function createServiceAccount(iam: iam_v1.Iam, projectId: string, saEmail:
 }
 
 async function grantRolesToServiceAccount(crm: cloudresourcemanager_v3.Cloudresourcemanager, projectId: string, saEmail: string) {
-    // --- THIS IS THE FIX: Added roles/serviceusage.serviceUsageAdmin ---
     const roles = [
         'roles/run.admin', 
         'roles/artifactregistry.writer', 
         'roles/firebase.admin', 
         'roles/iam.serviceAccountUser',
-        'roles/serviceusage.serviceUsageAdmin', // Allows enabling APIs like firebasehosting
-        'roles/aiplatform.user' // Allows access to Vertex AI models
+        'roles/serviceusage.serviceUsageAdmin',
+        'roles/aiplatform.user'
     ];
     
     log('gcp.iam.grant.attempt', { saEmail, roles });
