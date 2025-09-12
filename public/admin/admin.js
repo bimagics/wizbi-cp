@@ -1,5 +1,5 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
-// This is the full and final code for admin.js, for the unified backend process.
+// This is the full and final code for admin.js, with graceful handling for billing failures.
 document.addEventListener('DOMContentLoaded', () => {
     const firebaseAuth = firebase.auth();
     const googleProvider = new firebase.auth.GoogleAuthProvider();
@@ -22,6 +22,7 @@ document.addEventListener('DOMContentLoaded', () => {
         LOGS: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>`,
         RETRY: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5M20 19v-5h-5M4 19h5v-5M20 4h-5v5"/></svg>`,
         COPY: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" width="16" height="16"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>`,
+        BILLING: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path></svg>`,
     };
 
     const DOM = {
@@ -207,60 +208,64 @@ document.addEventListener('DOMContentLoaded', () => {
         tbody.innerHTML = projects.length === 0 ? `<tr><td colspan="7">No projects found.</td></tr>` : projects.map(p => {
             const org = orgsCache.find(o => o.id === p.orgId);
             const projectWithOrg = { ...p, orgName: org ? org.name : 'N/A' };
-            if (isProjectInProcess(p.state)) {
+            if (isProjectInProcess(p.state) && p.state !== 'pending_billing') {
                 startProjectPolling(p.id);
             }
             return generateProjectRowHTML(projectWithOrg);
         }).join('');
     }
 
-            function generateProjectRowHTML(p) {
-            const state = p.state || 'N/A';
-            const isFailed = state.startsWith('failed');
-            const isReady = state === 'ready';
-            const inProcess = isProjectInProcess(state);
-            const progress = getProgressForState(state);
-            const createdDateTime = new Date(p.createdAt).toLocaleString(undefined, {
-                year: 'numeric', month: 'short', day: 'numeric',
-                hour: '2-digit', minute: '2-digit'
-            });
+    function generateProjectRowHTML(p) {
+        const state = p.state || 'N/A';
+        const isFailed = state.startsWith('failed');
+        const isPendingBilling = state === 'pending_billing';
+        const isReady = state === 'ready';
+        const inProcess = isProjectInProcess(state);
+        const progress = getProgressForState(state);
+        const createdDateTime = new Date(p.createdAt).toLocaleString(undefined, {
+            year: 'numeric', month: 'short', day: 'numeric',
+            hour: '2-digit', minute: '2-digit'
+        });
         
-            return `
-                <tr id="project-row-${p.id}">
-                    <td data-label="Display Name">${p.displayName}</td>
-                    <td data-label="Organization">${p.orgName}</td>
-                    <td data-label="Project ID">${p.id}</td>
-                    <td data-label="Status" class="status-cell">
-                        <div class="status-indicator">
-                            <div class="status-text ${state}">${state.replace(/_/g, ' ')}</div>
-                            ${isFailed ? `<span class="error-tooltip" title="${p.error || 'Unknown error'}">${ICONS.ERROR}</span>` : ''}
-                        </div>
-                        <div class="progress-bar ${inProcess ? '' : 'hidden'}">
-                            <div class="progress-bar-inner" style="width: ${progress.percent}%;"></div>
-                        </div>
-                        <div class="progress-text ${inProcess ? '' : 'hidden'}">${progress.text}</div>
-                    </td>
-                    <td data-label="Links" class="links-cell"><div class="links-cell-content">
-                        ${p.gcpProjectId ? `<a href="https://console.cloud.google.com/run?project=${p.gcpProjectId}" target="_blank" class="icon-button" title="Cloud Run Services">${ICONS.CLOUDRUN}</a>` : ''}
-                        ${p.githubRepoUrl ? `<a href="${p.githubRepoUrl}" target="_blank" class="icon-button" title="GitHub Repo">${ICONS.GITHUB}</a>` : ''}
-                        ${isReady ? `<a href="https://${p.id}.web.app" target="_blank" class="icon-button" title="Production Site">${ICONS.LINK}</a>` : ''}
-                        ${isReady ? `<a href="https://${p.id}-qa.web.app" target="_blank" class="icon-button" title="QA Site" style="color: var(--warning-color);">${ICONS.LINK}</a>` : ''}
-                    </div></td>
-                    <td data-label="Created">${createdDateTime}</td>
-                    <td data-label="Actions" class="actions-cell"><div class="actions-cell-content">
-                        <button class="icon-button logs" data-action="show-logs" data-id="${p.id}" title="Show Logs">${ICONS.LOGS}</button>
-                        ${renderProjectActions(p)}
-                    </div></td>
-                </tr>
-            `;
-        }
+        const billingUrl = `https://console.cloud.google.com/billing/linkedaccount?project=${p.gcpProjectId}`;
+
+        return `
+            <tr id="project-row-${p.id}">
+                <td data-label="Display Name">${p.displayName}</td>
+                <td data-label="Organization">${p.orgName}</td>
+                <td data-label="Project ID">${p.id}</td>
+                <td data-label="Status" class="status-cell">
+                    <div class="status-indicator">
+                        <div class="status-text ${state}">${state.replace(/_/g, ' ')}</div>
+                        ${(isFailed || isPendingBilling) ? `<span class="error-tooltip" title="${p.error || 'Unknown error'}">${ICONS.ERROR}</span>` : ''}
+                    </div>
+                    <div class="progress-bar ${inProcess && !isPendingBilling ? '' : 'hidden'}">
+                        <div class="progress-bar-inner" style="width: ${progress.percent}%;"></div>
+                    </div>
+                    <div class="progress-text ${inProcess && !isPendingBilling ? '' : 'hidden'}">${progress.text}</div>
+                </td>
+                <td data-label="Links" class="links-cell"><div class="links-cell-content">
+                    ${isPendingBilling ? `<a href="${billingUrl}" target="_blank" class="icon-button billing-link" title="Link Billing Account">${ICONS.BILLING}</a>` : ''}
+                    ${p.gcpProjectId ? `<a href="https://console.cloud.google.com/run?project=${p.gcpProjectId}" target="_blank" class="icon-button" title="Cloud Run Services">${ICONS.CLOUDRUN}</a>` : ''}
+                    ${p.githubRepoUrl ? `<a href="${p.githubRepoUrl}" target="_blank" class="icon-button" title="GitHub Repo">${ICONS.GITHUB}</a>` : ''}
+                    ${isReady ? `<a href="https://${p.id}.web.app" target="_blank" class="icon-button" title="Production Site">${ICONS.LINK}</a>` : ''}
+                    ${isReady ? `<a href="https://${p.id}-qa.web.app" target="_blank" class="icon-button" title="QA Site" style="color: var(--warning-color);">${ICONS.LINK}</a>` : ''}
+                </div></td>
+                <td data-label="Created">${createdDateTime}</td>
+                <td data-label="Actions" class="actions-cell"><div class="actions-cell-content">
+                    <button class="icon-button logs" data-action="show-logs" data-id="${p.id}" title="Show Logs">${ICONS.LOGS}</button>
+                    ${renderProjectActions(p)}
+                </div></td>
+            </tr>
+        `;
+    }
 
     function renderProjectActions(project) {
         if (!userProfile.roles?.superAdmin) return '';
         const state = project.state;
         const inProcess = isProjectInProcess(state);
         let actionsHtml = '';
-        if (state.startsWith('failed')) {
+        if (state.startsWith('failed') || state === 'pending_billing') {
             actionsHtml += `<button class="btn btn-secondary btn-sm" data-action="provision" data-id="${project.id}" title="Retry Full Provisioning">${ICONS.RETRY} Retry</button>`;
         }
         if (!inProcess) {
@@ -499,6 +504,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // --- Automated Provisioning Logic ---
     function isProjectInProcess(state) {
+        // pending_billing is now considered an "in process" but paused state.
         return state && (state.startsWith('provisioning') || state.startsWith('injecting') || state.startsWith('pending_') || state.startsWith('deleting'));
     }
 
@@ -506,6 +512,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const states = {
             'pending_gcp': { percent: 10, text: 'Queued for GCP setup' },
             'provisioning_gcp': { percent: 25, text: 'Provisioning GCP Project...' },
+            'pending_billing': { percent: 40, text: 'Action Required: Link Billing' },
+            'failed_billing': { percent: 40, text: 'Billing setup failed' },
             'failed_gcp': { percent: 40, text: 'GCP setup failed' },
             'pending_github': { percent: 50, text: 'Queued for GitHub setup' },
             'provisioning_github': { percent: 65, text: 'Creating GitHub Repo...' },
@@ -548,7 +556,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 row.outerHTML = generateProjectRowHTML(projectWithOrg);
             }
 
-            if (!isProjectInProcess(project.state)) {
+            // Do not stop polling on pending_billing, but don't start it either if that's the initial state.
+            // The user action (Retry) will trigger the continuation.
+            if (!isProjectInProcess(project.state) || project.state === 'pending_billing') {
                 stopProjectPolling(projectId);
             }
         } catch (error) {

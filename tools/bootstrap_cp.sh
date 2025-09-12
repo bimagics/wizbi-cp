@@ -46,29 +46,28 @@ gcloud app create --region="$FIRESTORE_LOCATION" || true
 gcloud firestore databases create --region="$FIRESTORE_LOCATION" --type=firestore-native || true
 
 echo ">>> Service Accounts"
-gcloud iam service-accounts create wizbi-deployer --display-name="WIZBI Deployer" || true
-gcloud iam service-accounts create wizbi-runner   --display-name="WIZBI Runner"   || true
-gcloud iam service-accounts create wizbi-factory  --display-name="WIZBI Project Factory" || true
+gcloud iam service-accounts create wizbi-deployer      --display-name="WIZBI Deployer (CI/CD)" || true
+gcloud iam service-accounts create wizbi-provisioner    --display-name="WIZBI Provisioner (Cloud Run)"   || true
+gcloud iam service-accounts create wizbi-factory       --display-name="WIZBI Project Factory" || true
 
 DEPLOYER_SA="wizbi-deployer@${PROJECT_ID}.iam.gserviceaccount.com"
-RUNNER_SA="wizbi-runner@${PROJECT_ID}.iam.gserviceaccount.com"
+PROVISIONER_SA="wizbi-provisioner@${PROJECT_ID}.iam.gserviceaccount.com"
 FACTORY_SA="wizbi-factory@${PROJECT_ID}.iam.gserviceaccount.com"
 
-echo ">>> Grant minimal roles to Deployer SA"
+echo ">>> Grant minimal roles to Deployer SA (for CI/CD)"
 for ROLE in roles/run.admin roles/artifactregistry.writer roles/cloudbuild.builds.editor roles/iam.serviceAccountTokenCreator roles/secretmanager.secretAccessor; do
   gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$DEPLOYER_SA" --role="$ROLE" --quiet || true
 done
 
-echo ">>> Grant minimal roles to Runner SA"
-# MODIFICATION: Added roles/iam.workloadIdentityPoolAdmin and roles/firebase.admin to the runner SA
-# This allows the control plane to manage WIF providers in the central pool and manage firebase projects.
-# The other necessary permissions (projectCreator, billing.user etc) must be granted manually on the parent folder/org.
+echo ">>> Grant minimal roles to Provisioner SA (for Cloud Run service)"
+# This SA runs the control plane logic. It needs permissions to manage other projects.
+# The most critical permissions (projectCreator, billing.user) must be granted on the parent folder/org MANUALLY.
 for ROLE in roles/secretmanager.secretAccessor roles/datastore.user roles/iam.workloadIdentityPoolAdmin roles/firebase.admin; do
-  gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$RUNNER_SA" --role="$ROLE" --quiet || true
+  gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$PROVISIONER_SA" --role="$ROLE" --quiet || true
 done
 
 echo ">>> Grant factory roles (for later org provisioning)"
-# NOTE: To allow project creation, the RUNNER_SA (not factory) needs these roles on the parent Folder/Organization.
+# NOTE: To allow project creation, the PROVISIONER_SA needs these roles on the parent Folder/Organization.
 # This must be done manually after the bootstrap script runs.
 for ROLE in roles/resourcemanager.projectCreator roles/billing.user roles/serviceusage.serviceUsageAdmin; do
   gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$FACTORY_SA" --role="$ROLE" --quiet || true
@@ -108,9 +107,9 @@ set -e
 if [ "$FIREBASE_OK" -eq 0 ]; then
   echo "Firebase linked."
   firebase hosting:sites:create "$HOSTING_SITE" --project "$PROJECT_ID" || true
-  firebase hosting:channel:create qa --project "$PROJECT_ID" --site "$HOSTING_SITE" || true
+  firebase hosting:sites:create "${HOSTING_SITE}-qa" --project "$PROJECT_ID" || true
 else
-  echo "Skipping Firebase actions (login required). You can run later:\n  firebase login\n  firebase projects:addfirebase $PROJECT_ID\n  firebase hosting:sites:create $HOSTING_SITE --project $PROJECT_ID\n  firebase hosting:channel:create qa --project $PROJECT_ID --site $HOSTING_SITE"
+  echo "Skipping Firebase actions (login required). You can run later:\n  firebase login\n  firebase projects:addfirebase $PROJECT_ID\n  firebase hosting:sites:create $HOSTING_SITE --project $PROJECT_ID\n  firebase hosting:sites:create ${HOSTING_SITE}-qa --project $PROJECT_ID"
 fi
 
 echo ">>> Create placeholder secrets (QA/PROD)"
@@ -130,11 +129,11 @@ Add these GitHub Action secrets to your repo (Settings → Secrets → Actions):
   GCP_REGION                     = $REGION
   WIF_PROVIDER                   = $WIF_PROVIDER_PATH
   DEPLOYER_SA                    = $DEPLOYER_SA
-  GCP_CONTROL_PLANE_PROJECT_NUMBER = $PROJECT_NUMBER  <-- NEW AND IMPORTANT
-  (optional) FIREBASE_TOKEN      = output of 'firebase login:ci'
+  GCP_CONTROL_PLANE_PROJECT_NUMBER = $PROJECT_NUMBER
+  BILLING_ACCOUNT_ID             = $BILLING_ACCOUNT
 
 IMPORTANT MANUAL STEP:
-The service account for the control plane ('$RUNNER_SA')
+The service account for the control plane ('$PROVISIONER_SA')
 needs permissions to create projects in your organization. Grant it the following
 roles on the GCP Folder or Organization where new projects will be created:
   - Project Creator
@@ -142,9 +141,9 @@ roles on the GCP Folder or Organization where new projects will be created:
 
 Example command:
 gcloud resource-manager folders add-iam-policy-binding YOUR_FOLDER_ID \\
-  --member="serviceAccount:$RUNNER_SA" --role="roles/resourcemanager.projectCreator"
+  --member="serviceAccount:$PROVISIONER_SA" --role="roles/resourcemanager.projectCreator"
 gcloud resource-manager folders add-iam-policy-binding YOUR_FOLDER_ID \\
-  --member="serviceAccount:$RUNNER_SA" --role="roles/billing.user"
+  --member="serviceAccount:$PROVISIONER_SA" --role="roles/billing.user"
 
 Then push to 'dev' to deploy QA (cp-unified-qa), or 'main' for Prod (cp-unified).
 ==============================================================

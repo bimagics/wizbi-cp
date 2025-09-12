@@ -1,10 +1,9 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
 // File path: src/services/gcp.ts
-// FINAL VERSION: The problematic grantCloudRunInvokerToFirebase function has been removed. 
-// This responsibility is now correctly handled by the CI/CD pipeline in the template repository.
+// FINAL VERSION: Handles billing permission errors gracefully by throwing a custom error.
 
 import { google, cloudresourcemanager_v3, iam_v1, serviceusage_v1, firebase_v1beta1, artifactregistry_v1 } from 'googleapis';
-import { log } from '../routes/projects';
+import { log, BillingError } from '../routes/projects'; // Import custom error
 import * as GcpLegacyService from './gcp_legacy';
 
 // Environment variables used by the service
@@ -35,18 +34,20 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
 
     log('gcp.provision.all.start', { projectId, displayName, parentFolder: folderId, region: GCP_DEFAULT_REGION });
 
+    // This function can now throw a BillingError
     await createProjectAndLinkBilling(crm, projectId, displayName, folderId);
+    
     const projectNumber = await getProjectNumber(crm, projectId);
     await enableProjectApis(serviceUsage, projectId);
     await createArtifactRegistryRepo(projectId, 'wizbi');
     await addFirebase(firebase, projectId);
     
+    // Note: The service account in deploy.yml is 'wizbi-provisioner', but the CI/CD pipeline uses 'wizbi-deployer'.
+    // This SA is for the CI/CD pipeline inside the new project.
     const saEmail = `github-deployer@${projectId}.iam.gserviceaccount.com`;
     await createServiceAccount(iam, projectId, saEmail);
     await grantRolesToServiceAccount(crm, projectId, saEmail);
     const wifProviderName = await setupWif(iam, projectId, saEmail);
-
-    // The grantCloudRunInvokerToFirebase function was removed from here.
 
     log('gcp.provision.all.success', { projectId, projectNumber, finalSa: saEmail });
     return {
@@ -79,30 +80,27 @@ async function createProjectAndLinkBilling(crm: cloudresourcemanager_v3.Cloudres
 
     const billing = google.cloudbilling({ version: 'v1', auth: await getAuth() });
     
-    const retries = 3;
-    for (let attempt = 1; attempt <= retries; attempt++) {
-        try {
-            if (attempt === 1) {
-                log('gcp.billing.iam_propagation_delay', { delay: 30000 });
-                await new Promise(resolve => setTimeout(resolve, 30000));
-            }
-            log('gcp.billing.link.attempt', { projectId, billingAccount: BILLING_ACCOUNT_ID, attempt });
-            await billing.projects.updateBillingInfo({
-                name: `projects/${projectId}`,
-                requestBody: { billingAccountName: `billingAccounts/${BILLING_ACCOUNT_ID}` },
-            });
-            log('gcp.billing.link.success', { projectId, attempt });
-            return;
-        } catch (error: any) {
-            if (attempt < retries) {
-                const delay = 30000;
-                log('gcp.billing.link.permission_denied_retrying', { projectId, attempt, delay, error: error.message });
-                await new Promise(resolve => setTimeout(resolve, delay));
-            } else {
-                log('gcp.billing.link.fatal_error_after_retries', { projectId, attempt, error: error.message });
-                throw error;
-            }
+    // Give IAM a moment to propagate after project creation
+    log('gcp.billing.iam_propagation_delay', { delay: 30000 });
+    await new Promise(resolve => setTimeout(resolve, 30000));
+
+    try {
+        log('gcp.billing.link.attempt', { projectId, billingAccount: BILLING_ACCOUNT_ID });
+        await billing.projects.updateBillingInfo({
+            name: `projects/${projectId}`,
+            requestBody: { billingAccountName: `billingAccounts/${BILLING_ACCOUNT_ID}` },
+        });
+        log('gcp.billing.link.success', { projectId });
+    } catch (error: any) {
+        // This is the critical change. We catch the specific permission error.
+        if (error.message && error.message.includes('The caller does not have permission')) {
+            log('gcp.billing.link.permission_denied_throwing_billing_error', { projectId, error: error.message });
+            // Throw our custom error to be handled by the orchestrator
+            throw new BillingError(error.message, projectId);
         }
+        // For other errors, we still throw them to fail the process.
+        log('gcp.billing.link.fatal_error', { projectId, error: error.message });
+        throw error;
     }
 }
 
