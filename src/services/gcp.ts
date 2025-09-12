@@ -1,6 +1,6 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
 // File path: src/services/gcp.ts
-// FINAL VERSION: Implements a more robust, dual-trigger mechanism for Firebase Hosting SA creation.
+// FINAL VERSION: Implements a proactive, deterministic Service Account creation for Firebase Hosting.
 
 import { google, cloudresourcemanager_v3, iam_v1, serviceusage_v1, firebase_v1beta1 } from 'googleapis';
 import { log, BillingError } from '../routes/projects';
@@ -37,7 +37,9 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
     await enableProjectApis(serviceUsage, projectId);
     await createArtifactRegistryRepo(projectId, 'wizbi');
     
-    await addFirebaseAndVerifySA(firebase, iam, projectId, projectNumber);
+    // --- NEW DETERMINISTIC FLOW ---
+    await addFirebase(firebase, projectId);
+    await createFirebaseInvokerSA(iam, crm, projectId); // Create our own SA instead of waiting for Google's.
     
     const saEmail = `github-deployer@${projectId}.iam.gserviceaccount.com`;
     await createServiceAccount(iam, projectId, saEmail);
@@ -148,7 +150,7 @@ async function createArtifactRegistryRepo(projectId: string, repoId: string) {
     }
 }
 
-async function addFirebaseAndVerifySA(firebase: firebase_v1beta1.Firebase, iam: iam_v1.Iam, projectId: string, projectNumber: string) {
+async function addFirebase(firebase: firebase_v1beta1.Firebase, projectId: string) {
     log('gcp.firebase.add.start', { projectId });
     try {
         await firebase.projects.addFirebase({ project: `projects/${projectId}` });
@@ -160,165 +162,59 @@ async function addFirebaseAndVerifySA(firebase: firebase_v1beta1.Firebase, iam: 
             throw error;
         }
     }
-    
-    const propagationDelay = 15000;
-    log('gcp.firebase.propagation_delay.start', { delay: propagationDelay, reason: "Allowing GCP backend to sync Firebase project state." });
-    await new Promise(resolve => setTimeout(resolve, propagationDelay));
-    log('gcp.firebase.propagation_delay.end');
-
-    const hosting = google.firebasehosting({ version: 'v1beta1', auth: await getAuth() });
-    
-    await createDefaultHostingSite(hosting, projectId);
-    await createHostingSite(hosting, projectId, `${projectId}-qa`);
-
-    // **MODIFIED LOGIC**: This now uses the robust dual-trigger mechanism.
-    await triggerAndVerifySA(hosting, iam, projectId, projectNumber);
-
-    log('gcp.firebase.add.finished_all_steps', { projectId });
 }
 
-async function triggerInitialHostingRelease(hosting: any, projectId: string, siteId: string) {
-    log('gcp.firebase.hosting.initial_release.start', { projectId, siteId });
-    try {
-        const config = { rewrites: [{ glob: "**", path: "/index.html" }] };
-
-        log('gcp.firebase.hosting.initial_release.version.create', { siteId });
-        const version = await hosting.projects.sites.versions.create({
-            parent: `projects/${projectId}/sites/${siteId}`,
-            requestBody: { config }
-        });
-        const versionName = version.data.name;
-        if (!versionName) throw new Error('Version creation did not return a name.');
-        log('gcp.firebase.hosting.initial_release.version.success', { siteId, versionName });
-
-        log('gcp.firebase.hosting.initial_release.version.finalize', { siteId, versionName });
-        await hosting.projects.sites.versions.patch({
-            name: versionName,
-            updateMask: 'status',
-            requestBody: { status: 'FINALIZED' }
-        });
-        log('gcp.firebase.hosting.initial_release.version.finalized_success', { siteId });
-        
-        log('gcp.firebase.hosting.initial_release.release.create', { siteId, versionName });
-        await hosting.projects.sites.releases.create({
-            parent: `projects/${projectId}/sites/${siteId}`,
-            versionName: versionName,
-            requestBody: { message: `Initial release by WizBI CP to trigger SA creation` }
-        });
-        log('gcp.firebase.hosting.initial_release.release.success', { siteId });
-
-    } catch (error: any) {
-        log('gcp.firebase.hosting.initial_release.fatal_error', { projectId, siteId, error: error.message, stack: error.stack });
-        throw error;
-    }
-}
-
-// --- NEW ROBUST TRIGGER AND VERIFICATION FUNCTION ---
-async function triggerAndVerifySA(hosting: any, iam: iam_v1.Iam, projectId: string, projectNumber: string) {
-    const saEmail = `service-${projectNumber}@gcp-sa-firebasehosting.iam.gserviceaccount.com`;
-    const saResourcePath = `projects/${projectId}/serviceAccounts/${saEmail}`;
-
-    log('gcp.firebase.sa_verify.start', { saEmail });
-
-    // Initial Trigger
-    log('gcp.firebase.sa_verify.initial_trigger', { reason: "Creating first release for both sites." });
-    await triggerInitialHostingRelease(hosting, projectId, projectId);
-    await triggerInitialHostingRelease(hosting, projectId, `${projectId}-qa`);
-    
-    // Initial wait and check
-    const initialWait = 90000; // 90 seconds
-    log('gcp.firebase.sa_verify.initial_wait.start', { delay: initialWait });
-    await new Promise(resolve => setTimeout(resolve, initialWait));
-    log('gcp.firebase.sa_verify.initial_wait.end');
+// --- NEW DETERMINISTIC SERVICE ACCOUNT CREATION FOR FIREBASE -> CLOUD RUN ---
+async function createFirebaseInvokerSA(iam: iam_v1.Iam, crm: cloudresourcemanager_v3.Cloudresourcemanager, projectId: string): Promise<string> {
+    const accountId = 'firebase-hosting-invoker';
+    const saEmail = `${accountId}@${projectId}.iam.gserviceaccount.com`;
+    log('gcp.sa.invoker.create.attempt', { projectId, accountId });
 
     try {
-        await iam.projects.serviceAccounts.get({ name: saResourcePath });
-        log('gcp.firebase.sa_verify.success_after_initial_wait', { saEmail });
-        return; // Success! The SA was created on the first try.
+        await iam.projects.serviceAccounts.create({
+            name: `projects/${projectId}`,
+            requestBody: { accountId, serviceAccount: { displayName: 'Firebase Hosting to Cloud Run Invoker' } },
+        });
+        log('gcp.sa.invoker.create.success', { saEmail });
     } catch (error: any) {
-        if (error.code !== 404) {
-            log('gcp.firebase.sa_verify.unexpected_error', { error: error.message });
-            throw error; // An error other than "not found" occurred.
-        }
-        log('gcp.firebase.sa_verify.not_found_retrying_with_new_trigger', { saEmail });
-    }
-
-    // If SA not found, re-trigger with a new release. This is the "kick".
-    log('gcp.firebase.sa_verify.secondary_trigger', { reason: "SA not created, creating a second release to force creation."});
-    await triggerInitialHostingRelease(hosting, projectId, projectId);
-
-    // Final, longer wait loop
-    const maxRetries = 24; // 24 * 10s = 4 minutes
-    log('gcp.firebase.sa_verify.final_wait.start', { maxRetries });
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        await new Promise(resolve => setTimeout(resolve, 10000));
-        try {
-            await iam.projects.serviceAccounts.get({ name: saResourcePath });
-            log('gcp.firebase.sa_verify.success_after_secondary_trigger', { saEmail, attempt });
-            return;
-        } catch (error: any) {
-            if (error.code === 404) {
-                 log('gcp.firebase.sa_verify.final_wait.not_found_retrying', { attempt, maxRetries });
-            } else {
-                throw error;
-            }
+        if (error.code === 409) {
+            log('gcp.sa.invoker.create.already_exists', { saEmail });
+        } else {
+            log('gcp.sa.invoker.create.fatal_error', { saEmail, error: error.message });
+            throw error;
         }
     }
+    
+    // Allow time for the new SA to be available for IAM policy bindings
+    const delay = 10000;
+    log('gcp.sa.invoker.iam_propagation_delay.start', { delay });
+    await new Promise(resolve => setTimeout(resolve, delay));
+    log('gcp.sa.invoker.iam_propagation_delay.end');
 
-    throw new Error(`Firebase Hosting Service Account '${saEmail}' was not created in time, even after a second trigger.`);
+    // Grant the new SA the Cloud Run Invoker role
+    log('gcp.iam.grant.invoker_role.attempt', { saEmail });
+    const resource = `projects/${projectId}`;
+    const { data: policy } = await crm.projects.getIamPolicy({ resource });
+    const role = 'roles/run.invoker';
+    const member = `serviceAccount:${saEmail}`;
+    
+    let binding = policy.bindings?.find(b => b.role === role);
+    if (!binding) {
+        binding = { role, members: [] };
+        if (!policy.bindings) policy.bindings = [];
+        policy.bindings.push(binding);
+    }
+    if (!binding.members?.includes(member)) {
+        binding.members?.push(member);
+        await crm.projects.setIamPolicy({ resource, requestBody: { policy } });
+        log('gcp.iam.grant.invoker_role.success', { saEmail });
+    } else {
+        log('gcp.iam.grant.invoker_role.already_granted', { saEmail });
+    }
+    
+    return saEmail;
 }
 
-
-async function createDefaultHostingSite(hosting: any, projectId: string) {
-    const siteId = projectId; 
-    for (let attempt = 1; attempt <= 5; attempt++) {
-        log('gcp.firebase.hosting.create_default.attempt', { projectId, siteId, attempt, maxAttempts: 5 });
-        try {
-            await hosting.projects.sites.create({ parent: `projects/${projectId}`, siteId });
-            log('gcp.firebase.hosting.create_default.success', { projectId, siteId });
-            return;
-        } catch (error: any) {
-            if (error.code === 409) {
-                log('gcp.firebase.hosting.create_default.already_exists', { projectId, siteId });
-                return;
-            }
-            log('gcp.firebase.hosting.create_default.error', { projectId, siteId, attempt, error: error.message });
-            if (attempt < 5) {
-                const delay = 10000 * attempt;
-                log('gcp.firebase.hosting.create_default.retrying', { delay });
-                await new Promise(resolve => setTimeout(resolve, delay));
-            } else {
-                 log('gcp.firebase.hosting.create_default.fatal_error', { projectId, siteId, error: error.message, stack: error.stack });
-                 throw new Error(`Failed to create default Firebase Hosting site '${siteId}' after 5 attempts.`);
-            }
-        }
-    }
-}
-
-async function createHostingSite(hosting: any, projectId: string, siteId: string) {
-    for (let attempt = 1; attempt <= 5; attempt++) {
-        log('gcp.firebase.hosting.create_site.attempt', { projectId, siteId, attempt, maxAttempts: 5 });
-        try {
-            await hosting.projects.sites.create({ parent: `projects/${projectId}`, siteId });
-            log('gcp.firebase.hosting.create_site.success', { projectId, siteId });
-            return;
-        } catch (error: any) {
-            if (error.code === 409) {
-                log('gcp.firebase.hosting.create_site.already_exists', { projectId, siteId });
-                return;
-            }
-            log('gcp.firebase.hosting.create_site.error', { projectId, siteId, attempt, error: error.message });
-            if (attempt < 5) {
-                const delay = 10000 * attempt;
-                log('gcp.firebase.hosting.create_site.retrying', { delay });
-                await new Promise(resolve => setTimeout(resolve, delay));
-            } else {
-                log('gcp.firebase.hosting.create_site.fatal_error', { projectId, siteId, error: error.message, stack: error.stack });
-                throw new Error(`Failed to create Firebase Hosting site '${siteId}' after 5 attempts.`);
-            }
-        }
-    }
-}
 
 async function createServiceAccount(iam: iam_v1.Iam, projectId: string, saEmail: string) {
     const accountId = saEmail.split('@')[0];
