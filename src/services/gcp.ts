@@ -1,7 +1,6 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
 // File path: src/services/gcp.ts
-// FINAL VERSION: Handles billing, fixes the site creation bug, and implements a robust, state-aware
-// process to trigger and verify the Firebase Hosting SA creation.
+// FINAL VERSION: Implements a more robust, dual-trigger mechanism for Firebase Hosting SA creation.
 
 import { google, cloudresourcemanager_v3, iam_v1, serviceusage_v1, firebase_v1beta1 } from 'googleapis';
 import { log, BillingError } from '../routes/projects';
@@ -172,10 +171,8 @@ async function addFirebaseAndVerifySA(firebase: firebase_v1beta1.Firebase, iam: 
     await createDefaultHostingSite(hosting, projectId);
     await createHostingSite(hosting, projectId, `${projectId}-qa`);
 
-    await triggerInitialHostingRelease(hosting, projectId, projectId);
-    await triggerInitialHostingRelease(hosting, projectId, `${projectId}-qa`);
-
-    await waitForFirebaseHostingSA(iam, projectId, projectNumber);
+    // **MODIFIED LOGIC**: This now uses the robust dual-trigger mechanism.
+    await triggerAndVerifySA(hosting, iam, projectId, projectNumber);
 
     log('gcp.firebase.add.finished_all_steps', { projectId });
 }
@@ -205,38 +202,72 @@ async function triggerInitialHostingRelease(hosting: any, projectId: string, sit
         log('gcp.firebase.hosting.initial_release.release.create', { siteId, versionName });
         await hosting.projects.sites.releases.create({
             parent: `projects/${projectId}/sites/${siteId}`,
-            // --- FIX: Add the missing versionName parameter ---
             versionName: versionName,
-            requestBody: { message: 'Initial release by WizBI Control Plane to trigger SA creation' }
+            requestBody: { message: `Initial release by WizBI CP to trigger SA creation` }
         });
         log('gcp.firebase.hosting.initial_release.release.success', { siteId });
 
     } catch (error: any) {
         log('gcp.firebase.hosting.initial_release.fatal_error', { projectId, siteId, error: error.message, stack: error.stack });
-        throw error; // This is a critical step, so we throw the error.
+        throw error;
     }
 }
 
-async function waitForFirebaseHostingSA(iam: iam_v1.Iam, projectId: string, projectNumber: string) {
+// --- NEW ROBUST TRIGGER AND VERIFICATION FUNCTION ---
+async function triggerAndVerifySA(hosting: any, iam: iam_v1.Iam, projectId: string, projectNumber: string) {
     const saEmail = `service-${projectNumber}@gcp-sa-firebasehosting.iam.gserviceaccount.com`;
-    log('gcp.firebase.sa_wait.start', { saEmail, reason: "Verifying Google has created the Firebase Hosting service agent." });
-    for (let attempt = 1; attempt <= 12; attempt++) {
+    const saResourcePath = `projects/${projectId}/serviceAccounts/${saEmail}`;
+
+    log('gcp.firebase.sa_verify.start', { saEmail });
+
+    // Initial Trigger
+    log('gcp.firebase.sa_verify.initial_trigger', { reason: "Creating first release for both sites." });
+    await triggerInitialHostingRelease(hosting, projectId, projectId);
+    await triggerInitialHostingRelease(hosting, projectId, `${projectId}-qa`);
+    
+    // Initial wait and check
+    const initialWait = 90000; // 90 seconds
+    log('gcp.firebase.sa_verify.initial_wait.start', { delay: initialWait });
+    await new Promise(resolve => setTimeout(resolve, initialWait));
+    log('gcp.firebase.sa_verify.initial_wait.end');
+
+    try {
+        await iam.projects.serviceAccounts.get({ name: saResourcePath });
+        log('gcp.firebase.sa_verify.success_after_initial_wait', { saEmail });
+        return; // Success! The SA was created on the first try.
+    } catch (error: any) {
+        if (error.code !== 404) {
+            log('gcp.firebase.sa_verify.unexpected_error', { error: error.message });
+            throw error; // An error other than "not found" occurred.
+        }
+        log('gcp.firebase.sa_verify.not_found_retrying_with_new_trigger', { saEmail });
+    }
+
+    // If SA not found, re-trigger with a new release. This is the "kick".
+    log('gcp.firebase.sa_verify.secondary_trigger', { reason: "SA not created, creating a second release to force creation."});
+    await triggerInitialHostingRelease(hosting, projectId, projectId);
+
+    // Final, longer wait loop
+    const maxRetries = 24; // 24 * 10s = 4 minutes
+    log('gcp.firebase.sa_verify.final_wait.start', { maxRetries });
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 10000));
         try {
-            await iam.projects.serviceAccounts.get({ name: `projects/${projectId}/serviceAccounts/${saEmail}` });
-            log('gcp.firebase.sa_wait.success', { saEmail, attempt });
+            await iam.projects.serviceAccounts.get({ name: saResourcePath });
+            log('gcp.firebase.sa_verify.success_after_secondary_trigger', { saEmail, attempt });
             return;
         } catch (error: any) {
-            if (error.code === 404 && attempt < 12) {
-                const delay = 10000;
-                log('gcp.firebase.sa_wait.not_found_retrying', { attempt, maxAttempts: 12, delay });
-                await new Promise(resolve => setTimeout(resolve, delay));
+            if (error.code === 404) {
+                 log('gcp.firebase.sa_verify.final_wait.not_found_retrying', { attempt, maxRetries });
             } else {
-                log('gcp.firebase.sa_wait.fatal_error', { saEmail, error: error.message, stack: error.stack });
-                throw new Error(`Firebase Hosting Service Account '${saEmail}' was not created in time.`);
+                throw error;
             }
         }
     }
+
+    throw new Error(`Firebase Hosting Service Account '${saEmail}' was not created in time, even after a second trigger.`);
 }
+
 
 async function createDefaultHostingSite(hosting: any, projectId: string) {
     const siteId = projectId; 
@@ -421,4 +452,3 @@ async function pollOperation(operationsClient: any, operationName: string, maxRe
 }
 
 export const { createGcpFolderForOrg, deleteGcpFolder, deleteGcpProject } = GcpLegacyService;
-
