@@ -1,8 +1,9 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
 // File path: src/services/gcp.ts
-// FINAL VERSION: Handles billing permission errors, fixes the default hosting site creation bug, and adds extensive logging for monitoring.
+// FINAL VERSION: Handles billing permission errors, fixes the default hosting site creation bug,
+// proactively triggers Firebase Hosting SA creation, and verifies its existence before proceeding.
 
-import { google, cloudresourcemanager_v3, iam_v1, serviceusage_v1, firebase_v1beta1, artifactregistry_v1 } from 'googleapis';
+import { google, cloudresourcemanager_v3, iam_v1, serviceusage_v1, firebase_v1beta1 } from 'googleapis';
 import { log, BillingError } from '../routes/projects'; // Import custom error
 import * as GcpLegacyService from './gcp_legacy';
 
@@ -33,13 +34,14 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
     const serviceUsage = google.serviceusage({ version: 'v1', auth });
     const firebase = google.firebase({ version: 'v1beta1', auth });
 
-    // This function can now throw a BillingError
     await createProjectAndLinkBilling(crm, projectId, displayName, folderId);
     
     const projectNumber = await getProjectNumber(crm, projectId);
     await enableProjectApis(serviceUsage, projectId);
     await createArtifactRegistryRepo(projectId, 'wizbi');
-    await addFirebase(firebase, projectId);
+    
+    // Pass IAM client and projectNumber to ensure SA verification
+    await addFirebaseAndVerifySA(firebase, iam, projectId, projectNumber);
     
     // This SA is for the CI/CD pipeline inside the new project.
     const saEmail = `github-deployer@${projectId}.iam.gserviceaccount.com`;
@@ -118,7 +120,7 @@ async function enableProjectApis(serviceUsage: serviceusage_v1.Serviceusage, pro
         'run.googleapis.com', 'iam.googleapis.com', 'artifactregistry.googleapis.com',
         'cloudbuild.googleapis.com', 'firebase.googleapis.com', 'firestore.googleapis.com',
         'cloudresourcemanager.googleapis.com', 'iamcredentials.googleapis.com',
-        'serviceusage.googleapis.com', 'firebasehosting.googleapis.com', 'aiplatform.googleapis.com' // Added Vertex AI
+        'serviceusage.googleapis.com', 'firebasehosting.googleapis.com', 'aiplatform.googleapis.com'
     ];
     log('gcp.api.enable.attempt', { projectId, apisToEnable: apis });
     const parent = `projects/${projectId}`;
@@ -167,7 +169,7 @@ async function createArtifactRegistryRepo(projectId: string, repoId: string) {
 }
 
 
-async function addFirebase(firebase: firebase_v1beta1.Firebase, projectId: string) {
+async function addFirebaseAndVerifySA(firebase: firebase_v1beta1.Firebase, iam: iam_v1.Iam, projectId: string, projectNumber: string) {
     log('gcp.firebase.add.start', { projectId });
     try {
         const op = await firebase.projects.addFirebase({ project: `projects/${projectId}` });
@@ -190,11 +192,66 @@ async function addFirebase(firebase: firebase_v1beta1.Firebase, projectId: strin
     
     await createDefaultHostingSite(hosting, projectId);
     await createHostingSite(hosting, projectId, `${projectId}-qa`);
+
+    await triggerInitialHostingRelease(hosting, projectId, projectId); // Default site
+    await triggerInitialHostingRelease(hosting, projectId, `${projectId}-qa`); // QA site
+
+    await waitForFirebaseHostingSA(iam, projectId, projectNumber);
+
     log('gcp.firebase.add.finished_all_steps', { projectId });
 }
 
+async function triggerInitialHostingRelease(hosting: any, projectId: string, siteId: string) {
+    log('gcp.firebase.hosting.initial_release.start', { projectId, siteId });
+    try {
+        const config = {
+            rewrites: [{ glob: "**", path: "/index.html" }] 
+        };
+
+        log('gcp.firebase.hosting.initial_release.version.create', { siteId });
+        const version = await hosting.projects.sites.versions.create({
+            parent: `projects/${projectId}/sites/${siteId}`,
+            requestBody: { config }
+        });
+        const versionName = version.data.name;
+        if (!versionName) throw new Error('Version creation did not return a name.');
+        log('gcp.firebase.hosting.initial_release.version.success', { siteId, versionName });
+
+        log('gcp.firebase.hosting.initial_release.release.create', { siteId, versionName });
+        await hosting.projects.sites.releases.create({
+            parent: `projects/${projectId}/sites/${siteId}`,
+            requestBody: { message: 'Initial release by WizBI Control Plane to trigger SA creation', versionName }
+        });
+        log('gcp.firebase.hosting.initial_release.release.success', { siteId });
+
+    } catch (error: any) {
+        log('gcp.firebase.hosting.initial_release.warn', { projectId, siteId, error: error.message });
+    }
+}
+
+async function waitForFirebaseHostingSA(iam: iam_v1.Iam, projectId: string, projectNumber: string) {
+    const saEmail = `service-${projectNumber}@gcp-sa-firebasehosting.iam.gserviceaccount.com`;
+    log('gcp.firebase.sa_wait.start', { saEmail, reason: "Verifying Google has created the Firebase Hosting service agent." });
+    for (let attempt = 1; attempt <= 12; attempt++) {
+        try {
+            await iam.projects.serviceAccounts.get({ name: `projects/${projectId}/serviceAccounts/${saEmail}` });
+            log('gcp.firebase.sa_wait.success', { saEmail, attempt });
+            return;
+        } catch (error: any) {
+            if (error.code === 404 && attempt < 12) {
+                const delay = 10000;
+                log('gcp.firebase.sa_wait.not_found_retrying', { attempt, maxAttempts: 12, delay });
+                await new Promise(resolve => setTimeout(resolve, delay));
+            } else {
+                log('gcp.firebase.sa_wait.fatal_error', { saEmail, error: error.message, stack: error.stack });
+                throw new Error(`Firebase Hosting Service Account '${saEmail}' was not created in time.`);
+            }
+        }
+    }
+}
+
+
 async function createDefaultHostingSite(hosting: any, projectId: string) {
-    // The default site ID must be the same as the project ID.
     const siteId = projectId; 
 
     for (let attempt = 1; attempt <= 5; attempt++) {
@@ -205,11 +262,11 @@ async function createDefaultHostingSite(hosting: any, projectId: string) {
                 siteId: siteId 
             });
             log('gcp.firebase.hosting.create_default.success', { projectId, siteId });
-            return; // Success, exit the loop
+            return;
         } catch (error: any) {
             if (error.code === 409) {
                 log('gcp.firebase.hosting.create_default.already_exists', { projectId, siteId });
-                return; // Already exists, exit the loop
+                return;
             }
             
             log('gcp.firebase.hosting.create_default.error', { projectId, siteId, attempt, error: error.message });
@@ -368,7 +425,6 @@ async function setupWif(iam: iam_v1.Iam, newProjectId: string, saEmail: string):
     let binding = saPolicy.bindings.find(b => b.role === role);
     if (!binding || !binding.members?.includes(wifMember)) {
         log('gcp.wif.binding.updating_policy', { role, wifMember });
-        // Ensure not to duplicate the member if the binding exists but member is missing
         const existingMembers = binding?.members || [];
         saPolicy.bindings = (saPolicy.bindings || []).filter(b => b.role !== role);
         saPolicy.bindings.push({ role, members: [...existingMembers, wifMember].filter((v, i, a) => a.indexOf(v) === i) });
@@ -404,3 +460,4 @@ async function pollOperation(operationsClient: any, operationName: string, maxRe
 }
 
 export const { createGcpFolderForOrg, deleteGcpFolder, deleteGcpProject } = GcpLegacyService;
+
