@@ -1,6 +1,7 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
 // File path: src/services/gcp.ts
-// FINAL VERSION: Includes a fix for Firebase Hosting site creation by allowing default site names.
+// FINAL VERSION: The problematic grantCloudRunInvokerToFirebase function has been removed. 
+// This responsibility is now correctly handled by the CI/CD pipeline in the template repository.
 
 import { google, cloudresourcemanager_v3, iam_v1, serviceusage_v1, firebase_v1beta1, artifactregistry_v1 } from 'googleapis';
 import { log } from '../routes/projects';
@@ -44,6 +45,8 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
     await createServiceAccount(iam, projectId, saEmail);
     await grantRolesToServiceAccount(crm, projectId, saEmail);
     const wifProviderName = await setupWif(iam, projectId, saEmail);
+
+    // The grantCloudRunInvokerToFirebase function was removed from here.
 
     log('gcp.provision.all.success', { projectId, projectNumber, finalSa: saEmail });
     return {
@@ -184,18 +187,13 @@ async function addFirebase(firebase: firebase_v1beta1.Firebase, projectId: strin
 
     const hosting = google.firebasehosting({ version: 'v1beta1', auth: await getAuth() });
     
-    // **THE FIX**: Create the default site first without specifying an ID.
     await createDefaultHostingSite(hosting, projectId);
-    
-    // Then create the additional QA site.
     await createHostingSite(hosting, projectId, `${projectId}-qa`);
 }
 
-// **NEW FUNCTION** to create the default site.
 async function createDefaultHostingSite(hosting: any, projectId: string) {
     log('gcp.firebase.hosting.create_default.attempt', { projectId });
     try {
-        // By NOT providing a siteId, we ask Firebase to create the default one (e.g., project-id.web.app)
         await hosting.projects.sites.create({ parent: `projects/${projectId}` });
         log('gcp.firebase.hosting.create_default.success', { projectId });
     } catch (error: any) {
@@ -203,7 +201,6 @@ async function createDefaultHostingSite(hosting: any, projectId: string) {
             log('gcp.firebase.hosting.create_default.already_exists', { projectId });
         } else {
             log('gcp.firebase.hosting.create_default.error', { projectId, error: error.message });
-            // Don't rethrow, as a default site might exist from a previous run.
         }
     }
 }
