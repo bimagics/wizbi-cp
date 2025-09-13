@@ -1,6 +1,7 @@
 // --- FINALIZED AND COMBINED VERSION ---
 // File path: src/services/gcp.ts
 // Implements a proactive, deterministic Service Account creation AND robust, multi-site Firebase Hosting setup.
+// ENHANCED: Now correctly polls the addFirebase operation to ensure completion before proceeding, fixing the hosting creation race condition.
 
 import { google } from 'googleapis';
 import type { cloudresourcemanager_v3, iam_v1, serviceusage_v1, firebase_v1beta1, firebasehosting_v1beta1 } from 'googleapis';
@@ -40,7 +41,7 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
     await createArtifactRegistryRepo(projectId, 'wizbi');
     
     // --- Firebase Provisioning Sequence ---
-    await addFirebase(firebase, projectId);
+    await addFirebase(firebase, projectId); // This function now polls for completion.
     await createFirebaseHostingSites(firebasehosting, projectId); // Create sites (PROD + QA) with retry logic.
     await createFirebaseInvokerSA(iam, crm, projectId); // Create our own SA instead of waiting for Google's.
     
@@ -158,10 +159,18 @@ async function addFirebase(firebase: firebase_v1beta1.Firebase, projectId: strin
     try {
         const op = await firebase.projects.addFirebase({ project: `projects/${projectId}` });
         log('gcp.firebase.add.operation_sent', { projectId, operationName: op.data.name });
-        // Although this returns an operation, we let the retry logic in site creation handle the timing.
+        
+        if (op.data.name) {
+            // --- THE CRITICAL FIX IS HERE ---
+            // The operations client for addFirebase is located under `firebase.projects.operations`
+            await pollOperation(firebase.projects.operations, op.data.name);
+            log('gcp.firebase.add.operation_success', { projectId, operationName: op.data.name });
+        }
+        
     } catch (error: any) {
-        if (error.code === 409) log('gcp.firebase.add.already_exists', { projectId });
-        else {
+        if (error.code === 409) {
+            log('gcp.firebase.add.already_exists', { projectId });
+        } else {
             log('gcp.firebase.add.fatal_error', { projectId, error: error.message, stack: error.stack });
             throw error;
         }
@@ -171,10 +180,10 @@ async function addFirebase(firebase: firebase_v1beta1.Firebase, projectId: strin
 async function createFirebaseHostingSites(hosting: firebasehosting_v1beta1.Firebasehosting, projectId: string) {
     const qaSiteId = `${projectId}-qa`;
     
-    // Helper function with retry logic to handle the race condition
+    // This helper function is now more reliable because addFirebase is guaranteed to have finished.
     const createSiteWithRetry = async (siteIdToCreate?: string) => {
-        const targetSite = siteIdToCreate || projectId; // Use projectId for default site logging
-        for (let attempt = 1; attempt <= 5; attempt++) {
+        const targetSite = siteIdToCreate || projectId;
+        for (let attempt = 1; attempt <= 3; attempt++) { // Reduced retries as the main race condition is solved
             try {
                 log('gcp.firebase.hosting.create.attempt', { projectId, siteId: targetSite, attempt });
                 await hosting.projects.sites.create({
@@ -182,25 +191,36 @@ async function createFirebaseHostingSites(hosting: firebasehosting_v1beta1.Fireb
                     siteId: siteIdToCreate, // Will be undefined for default, which is correct
                 });
                 log('gcp.firebase.hosting.create.success', { projectId, siteId: targetSite });
+                
+                // Also create an initial version for the site so it's not empty
+                await hosting.projects.sites.versions.create({
+                    parent: `projects/${projectId}/sites/${targetSite}`,
+                    requestBody: {
+                        config: {
+                            rewrites: [{ glob: '**', function: 'app' }] // Dummy rewrite, will be overwritten by CI/CD
+                        }
+                    }
+                });
+                log('gcp.firebase.hosting.initial_version.success', { siteId: targetSite });
+
                 return; // Exit on success
             } catch (error: any) {
                 if (error.code === 409) {
                     log('gcp.firebase.hosting.create.already_exists', { projectId, siteId: targetSite });
                     return; // Exit if already exists
                 }
-                if (attempt < 5) {
+                if (attempt < 3) {
                     const delay = 5000 * attempt;
                     log('gcp.firebase.hosting.create.error_retrying', { siteId: targetSite, error: error.message, attempt, delay });
                     await new Promise(resolve => setTimeout(resolve, delay));
                 } else {
                     log('gcp.firebase.hosting.create.fatal_error', { projectId, siteId: targetSite, error: error.message });
-                    throw new Error(`Failed to create Firebase Hosting site ${targetSite} after 5 attempts.`);
+                    throw new Error(`Failed to create Firebase Hosting site ${targetSite} after 3 attempts.`);
                 }
             }
         }
     };
 
-    // Create both sites using the robust helper
     await createSiteWithRetry(); // Create default site
     await createSiteWithRetry(qaSiteId); // Create QA site
 }
@@ -369,19 +389,24 @@ async function pollOperation(operationsClient: any, operationName: string, maxRe
     log('gcp.operation.polling.start', { name: operationName, maxRetries, delay });
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         await new Promise(resolve => setTimeout(resolve, delay));
-        const op = await operationsClient.get({ name: operationName });
-        if (op.data.done) {
-            if(op.data.error) {
-                log('gcp.operation.polling.error', { name: operationName, attempt, error: op.data.error });
-                throw new Error(`Operation ${operationName} failed with error: ${JSON.stringify(op.data.error)}`);
+        try {
+            const op = await operationsClient.get({ name: operationName });
+            if (op.data.done) {
+                if (op.data.error) {
+                    log('gcp.operation.polling.error', { name: operationName, attempt, error: op.data.error });
+                    throw new Error(`Operation ${operationName} failed with error: ${JSON.stringify(op.data.error)}`);
+                }
+                log('gcp.operation.polling.success', { name: operationName, attempt });
+                return;
             }
-            log('gcp.operation.polling.success', { name: operationName, attempt });
-            return;
+            log('gcp.operation.polling.in_progress', { name: operationName, attempt });
+        } catch(error: any) {
+            log('gcp.operation.polling.get_request_failed', { name: operationName, attempt, error: error.message });
         }
-        log('gcp.operation.polling.in_progress', { name: operationName, attempt });
     }
     log('gcp.operation.polling.timeout_error', { name: operationName });
     throw new Error(`Operation ${operationName} did not complete in time.`);
 }
 
 export const { createGcpFolderForOrg, deleteGcpFolder, deleteGcpProject } = GcpLegacyService;
+
