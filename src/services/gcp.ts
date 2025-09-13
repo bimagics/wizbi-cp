@@ -1,6 +1,6 @@
-// --- REPLACE THE ENTIRE FILE CONTENT ---
+// --- FINALIZED AND COMBINED VERSION ---
 // File path: src/services/gcp.ts
-// FINAL VERSION: Re-introduces a robust retry mechanism for hosting site creation to solve the race condition permanently.
+// Implements a proactive, deterministic Service Account creation AND robust, multi-site Firebase Hosting setup.
 
 import { google } from 'googleapis';
 import type { cloudresourcemanager_v3, iam_v1, serviceusage_v1, firebase_v1beta1, firebasehosting_v1beta1 } from 'googleapis';
@@ -39,10 +39,10 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
     await enableProjectApis(serviceUsage, projectId);
     await createArtifactRegistryRepo(projectId, 'wizbi');
     
-    // Provision Firebase services in sequence
+    // --- Firebase Provisioning Sequence ---
     await addFirebase(firebase, projectId);
-    await createFirebaseHostingSites(firebasehosting, projectId); // This now contains the critical retry logic.
-    await createFirebaseInvokerSA(iam, crm, projectId);
+    await createFirebaseHostingSites(firebasehosting, projectId); // Create sites (PROD + QA) with retry logic.
+    await createFirebaseInvokerSA(iam, crm, projectId); // Create our own SA instead of waiting for Google's.
     
     const saEmail = `github-deployer@${projectId}.iam.gserviceaccount.com`;
     await createServiceAccount(iam, projectId, saEmail);
@@ -236,7 +236,7 @@ async function createFirebaseInvokerSA(iam: iam_v1.Iam, crm: cloudresourcemanage
     const role = 'roles/run.invoker';
     const member = `serviceAccount:${saEmail}`;
     
-    let binding = policy.bindings?.find((b: iam_v1.Schema$Binding) => b.role === role);
+    let binding = policy.bindings?.find((b: any) => b.role === role);
     if (!binding) {
         binding = { role, members: [] };
         if (!policy.bindings) policy.bindings = [];
@@ -289,7 +289,7 @@ async function grantRolesToServiceAccount(crm: cloudresourcemanager_v3.Cloudreso
     let needsUpdate = false;
     roles.forEach(role => {
         const member = `serviceAccount:${saEmail}`;
-        let binding = policy.bindings!.find((b: iam_v1.Schema$Binding) => b.role === role);
+        let binding = policy.bindings!.find((b: any) => b.role === role);
         if (binding) {
             if (!binding.members?.includes(member)) {
                  log('gcp.iam.grant.adding_member_to_existing_role', { member, role });
@@ -349,11 +349,11 @@ async function setupWif(iam: iam_v1.Iam, newProjectId: string, saEmail: string):
     const { data: saPolicy } = await iam.projects.serviceAccounts.getIamPolicy({ resource: saResource });
     if (!saPolicy.bindings) saPolicy.bindings = [];
     const role = 'roles/iam.workloadIdentityUser';
-    let binding = saPolicy.bindings.find((b: iam_v1.Schema$Binding) => b.role === role);
+    let binding = saPolicy.bindings.find((b: any) => b.role === role);
     if (!binding || !binding.members?.includes(wifMember)) {
         log('gcp.wif.binding.updating_policy', { role, wifMember });
         const existingMembers = binding?.members || [];
-        saPolicy.bindings = (saPolicy.bindings || []).filter((b: iam_v1.Schema$Binding) => b.role !== role);
+        saPolicy.bindings = (saPolicy.bindings || []).filter((b: any) => b.role !== role);
         saPolicy.bindings.push({ role, members: [...existingMembers, wifMember].filter((v, i, a) => a.indexOf(v) === i) });
         await iam.projects.serviceAccounts.setIamPolicy({ resource: saResource, requestBody: { policy: saPolicy } });
         log('gcp.wif.binding.update.success', { saEmail });
@@ -385,4 +385,3 @@ async function pollOperation(operationsClient: any, operationName: string, maxRe
 }
 
 export const { createGcpFolderForOrg, deleteGcpFolder, deleteGcpProject } = GcpLegacyService;
-
