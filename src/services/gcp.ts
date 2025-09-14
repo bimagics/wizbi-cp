@@ -1,4 +1,4 @@
-// --- FINAL VERSION: Corrected API call signatures for immediate deployment ---
+// --- FINAL VERSION: Corrected API call signatures and polling logic ---
 // File path: src/services/gcp.ts
 
 import { google } from 'googleapis';
@@ -181,7 +181,6 @@ async function createFirebaseInvokerSA(iam: iam_v1.Iam, crm: cloudresourcemanage
     return saEmail;
 }
 
-// --- Deploy placeholder Cloud Run services ---
 async function deployPlaceholderCloudRunServices(cloudrun: run_v1.Run, projectId: string) {
     const servicesToDeploy = [
         { name: projectId, isDefault: true },
@@ -191,8 +190,6 @@ async function deployPlaceholderCloudRunServices(cloudrun: run_v1.Run, projectId
         log('gcp.cloudrun.deploy.placeholder.start', { serviceName: service.name, image: PLACEHOLDER_IMAGE });
         const parent = `projects/${projectId}/locations/${GCP_DEFAULT_REGION}`;
         try {
-            // FIX: Removed the redundant 'serviceId' parameter that was causing a TypeScript error.
-            // The service name is correctly specified inside the requestBody's metadata.
             await cloudrun.projects.locations.services.create({
                 parent: parent,
                 requestBody: {
@@ -223,7 +220,6 @@ async function deployPlaceholderCloudRunServices(cloudrun: run_v1.Run, projectId
     }
 }
 
-// --- Create and release placeholder hosting versions ---
 async function createAndReleaseHostingVersions(hosting: firebasehosting_v1beta1.Firebasehosting, projectId: string) {
     const sitesToCreate = [
         { id: projectId, isDefault: true },
@@ -260,8 +256,6 @@ async function createAndReleaseHostingVersions(hosting: firebasehosting_v1beta1.
                 requestBody: { files: { '/index.html': placeholderHtml } },
             });
 
-            // FIX: Moved 'versionName' out of the requestBody to match the correct API signature,
-            // which resolves the second TypeScript error.
             await hosting.projects.sites.releases.create({
                 parent: parent,
                 versionName: versionName, 
@@ -372,17 +366,22 @@ async function setupWif(iam: iam_v1.Iam, newProjectId: string, saEmail: string):
 async function pollOperation(operationsClient: any, operationName: string, maxRetries = 20, delay = 5000) {
     for (let i = 0; i < maxRetries; i++) {
         await new Promise(resolve => setTimeout(resolve, delay));
-        const [op] = await operationsClient.get({ name: operationName });
-        if (op.done) {
-            if (op.error) {
-                 log('gcp.operation.polling.error', { name: operationName, error: op.error });
-                 throw new Error(`Operation ${operationName} failed: ${op.error.message}`);
+        // FIX: The API response is a single object, not an array.
+        // Removed array destructuring `[op]` to fix the "not iterable" TypeError.
+        const op = await operationsClient.get({ name: operationName });
+        if (op.data.done) {
+            if (op.data.error) {
+                 log('gcp.operation.polling.error', { name: operationName, error: op.data.error });
+                 throw new Error(`Operation ${operationName} failed: ${op.data.error.message}`);
             }
-            log('gcp.operation.polling.success', { name: operationName });
+            log('gcp.operation.polling.success', { name: operationName, attempt: i + 1 });
             return;
         }
+        log('gcp.operation.polling.in_progress', { name: operationName, attempt: i + 1 });
     }
+    log('gcp.operation.polling.timeout_error', { name: operationName });
     throw new Error(`Operation ${operationName} timed out.`);
 }
 
 export const { createGcpFolderForOrg, deleteGcpFolder, deleteGcpProject } = GcpLegacyService;
+
