@@ -296,7 +296,12 @@ async function createAndReleaseHostingVersions(hosting: firebasehosting_v1beta1.
                     await new Promise((resolve, reject) => {
                         const req = https.request(populateData.uploadUrl!, {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': placeholderHtmlBuffer.length },
+                            headers: { 
+                                'Content-Type': 'application/octet-stream', 
+                                'Content-Length': placeholderHtmlBuffer.length,
+                                // This header is the critical fix for the upload bug
+                                'x-goog-hash': `sha256=${placeholderHtmlHash}`,
+                            },
                         }, (res) => {
                             if (res.statusCode === 200) resolve(res);
                             else reject(new Error(`File upload failed with status ${res.statusCode}`));
