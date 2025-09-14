@@ -1,4 +1,4 @@
-// --- FINAL, SIMPLIFIED, AND SYNCED VERSION ---
+// --- FINAL VERSION WITH CLOUD RUN IAM FIX ---
 // File path: src/services/gcp.ts
 
 import { google } from 'googleapis';
@@ -36,7 +36,6 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
     const cloudrun = google.run({ version: 'v1', auth });
 
     await createProjectAndLinkBilling(crm, projectId, displayName, folderId);
-    
     await grantSelfPermissionsToNewProject(crm, projectId);
     
     const projectNumber = await getProjectNumber(crm, projectId);
@@ -44,11 +43,9 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
     await createArtifactRegistryRepo(projectId, 'wizbi');
     
     await addFirebase(firebase, projectId);
-    await createFirebaseInvokerSA(iam, crm, projectId);
+    const invokerSaEmail = await createFirebaseInvokerSA(iam, crm, projectId);
     
-    // Create placeholder Cloud Run services with the CORRECT names (-service suffix)
-    await deployPlaceholderCloudRunServices(cloudrun, projectId);
-    // Create Firebase Hosting sites (but DO NOT attempt to release a version)
+    await deployPlaceholderCloudRunServices(cloudrun, projectId, invokerSaEmail);
     await createHostingSites(firebasehosting, projectId);
     
     const deployerSaEmail = `github-deployer@${projectId}.iam.gserviceaccount.com`;
@@ -64,7 +61,6 @@ async function createProjectAndLinkBilling(crm: cloudresourcemanager_v3.Cloudres
     log('gcp.project.create.attempt', { projectId, displayName, parent: `folders/${folderId}` });
     try {
         const createOp = await crm.projects.create({ requestBody: { projectId, displayName, parent: `folders/${folderId}` } });
-        log('gcp.project.create.operation_sent', { operationName: createOp.data.name });
         await pollOperation(crm.operations, createOp.data.name!);
         log('gcp.project.create.operation_success', { projectId });
     } catch (error: any) {
@@ -73,7 +69,7 @@ async function createProjectAndLinkBilling(crm: cloudresourcemanager_v3.Cloudres
     }
 
     const billing = google.cloudbilling({ version: 'v1', auth: await getAuth() });
-    await new Promise(resolve => setTimeout(resolve, 30000)); // IAM propagation delay
+    await new Promise(resolve => setTimeout(resolve, 30000));
 
     try {
         log('gcp.billing.link.attempt', { projectId, billingAccount: BILLING_ACCOUNT_ID });
@@ -158,11 +154,10 @@ async function addFirebase(firebase: firebase_v1beta1.Firebase, projectId: strin
         await pollOperation(firebase.operations, op.data.name!);
     } catch (error: any) {
         if (error.code !== 409) throw error;
-        log('gcp.firebase.add.already_exists', { projectId });
     }
 }
 
-async function createFirebaseInvokerSA(iam: iam_v1.Iam, crm: cloudresourcemanager_v3.Cloudresourcemanager, projectId: string) {
+async function createFirebaseInvokerSA(iam: iam_v1.Iam, crm: cloudresourcemanager_v3.Cloudresourcemanager, projectId: string): Promise<string> {
     const accountId = 'firebase-hosting-invoker';
     const saEmail = `${accountId}@${projectId}.iam.gserviceaccount.com`;
     try {
@@ -173,28 +168,10 @@ async function createFirebaseInvokerSA(iam: iam_v1.Iam, crm: cloudresourcemanage
     } catch (error: any) {
         if (error.code !== 409) throw error;
     }
-    
-    await new Promise(resolve => setTimeout(resolve, 10000));
-
-    const resource = `projects/${projectId}`;
-    const { data: policy } = await crm.projects.getIamPolicy({ resource });
-    const role = 'roles/run.invoker';
-    const member = `serviceAccount:${saEmail}`;
-    
-    if (!policy.bindings) policy.bindings = [];
-    let binding = policy.bindings.find(b => b.role === role);
-    if (!binding) {
-        binding = { role, members: [] };
-        policy.bindings.push(binding);
-    }
-    if (!binding.members?.includes(member)) {
-        binding.members?.push(member);
-        await crm.projects.setIamPolicy({ resource, requestBody: { policy } });
-    }
+    return saEmail;
 }
 
-async function deployPlaceholderCloudRunServices(cloudrun: run_v1.Run, projectId: string) {
-    // FIX: Add '-service' suffix to match the template's deploy workflow
+async function deployPlaceholderCloudRunServices(cloudrun: run_v1.Run, projectId: string, invokerSaEmail: string) {
     const servicesToDeploy = [
         { name: `${projectId}-service` },
         { name: `${projectId}-service-qa` }
@@ -202,6 +179,7 @@ async function deployPlaceholderCloudRunServices(cloudrun: run_v1.Run, projectId
     for (const service of servicesToDeploy) {
         log('gcp.cloudrun.deploy.placeholder.start', { serviceName: service.name });
         const parent = `projects/${projectId}/locations/${GCP_DEFAULT_REGION}`;
+        const servicePath = `${parent}/services/${service.name}`;
         try {
             await cloudrun.projects.locations.services.create({
                 parent: parent,
@@ -212,8 +190,23 @@ async function deployPlaceholderCloudRunServices(cloudrun: run_v1.Run, projectId
                     spec: { template: { spec: { containers: [{ image: PLACEHOLDER_IMAGE }] } } },
                 },
             });
-            // Private service, no need to set IAM policy for allUsers
             log('gcp.cloudrun.deploy.placeholder.success', { serviceName: service.name });
+
+            // THIS IS THE CRITICAL FIX for the 403 error
+            log('gcp.cloudrun.iam.grant_invoker.start', { serviceName: service.name, invoker: invokerSaEmail });
+            await cloudrun.projects.locations.services.setIamPolicy({
+                resource: servicePath,
+                requestBody: {
+                    policy: {
+                        bindings: [{
+                            role: 'roles/run.invoker',
+                            members: [`serviceAccount:${invokerSaEmail}`]
+                        }]
+                    }
+                }
+            });
+            log('gcp.cloudrun.iam.grant_invoker.success', { serviceName: service.name });
+
         } catch (error: any) {
             if (error.code !== 409) throw error;
             log('gcp.cloudrun.deploy.placeholder.already_exists', { serviceName: service.name });
@@ -221,17 +214,13 @@ async function deployPlaceholderCloudRunServices(cloudrun: run_v1.Run, projectId
     }
 }
 
-// REFACTORED: This function now ONLY creates the sites and does not attempt to deploy a placeholder.
 async function createHostingSites(hosting: firebasehosting_v1beta1.Firebasehosting, projectId: string) {
     const sitesToCreate = [ { id: projectId }, { id: `${projectId}-qa` } ];
     for (const site of sitesToCreate) {
         try {
-            log('gcp.firebase.hosting.create.attempt', { siteId: site.id });
             await hosting.projects.sites.create({ parent: `projects/${projectId}`, siteId: site.id });
-            log('gcp.firebase.hosting.create.success', { siteId: site.id });
         } catch (error: any) {
             if (error.code !== 409) throw error;
-            log('gcp.firebase.hosting.create.already_exists', { siteId: site.id });
         }
     }
 }
