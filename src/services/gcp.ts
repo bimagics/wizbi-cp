@@ -268,7 +268,7 @@ async function createAndReleaseHostingVersions(hosting: firebasehosting_v1beta1.
                     requestBody: { files: { '/index.html': placeholderHtmlHash } },
                 });
 
-                if (populateData.uploadRequired && populateData.uploadUrl) {
+                if (populateData.uploadUrl) {
                     await new Promise((resolve, reject) => {
                         const req = https.request(populateData.uploadUrl!, {
                             method: 'POST',
@@ -292,7 +292,7 @@ async function createAndReleaseHostingVersions(hosting: firebasehosting_v1beta1.
 
                 await hosting.projects.sites.versions.patch({
                     name: versionName,
-                    updateMask: { paths: ['status'] },
+                    updateMask: 'status',
                     requestBody: { status: 'FINALIZED' }
                 });
 
