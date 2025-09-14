@@ -279,8 +279,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     ${isPendingBilling ? `<a href="${billingUrl}" target="_blank" class="icon-button billing-link" title="Link Billing Account">${ICONS.BILLING}</a>` : ''}
                     ${p.gcpProjectId ? `<a href="https://console.cloud.google.com/run?project=${p.gcpProjectId}" target="_blank" class="icon-button" title="Cloud Run Services">${ICONS.CLOUDRUN}</a>` : ''}
                     ${p.githubRepoUrl ? `<a href="${p.githubRepoUrl}" target="_blank" class="icon-button" title="GitHub Repo">${ICONS.GITHUB}</a>` : ''}
-                    ${isReady ? `<a href="https://wzbi.app/${p.id}" target="_blank" class="icon-button" title="Production Site">${ICONS.LINK}</a>` : ''}
-                    ${isReady ? `<a href="https://wzbi.app/${p.id}-qa" target="_blank" class="icon-button" title="QA Site" style="color: var(--warning-color);">${ICONS.LINK}</a>` : ''}
+                    ${isReady ? `<a href="https://${p.id}.web.app" target="_blank" class="icon-button" title="Production Site">${ICONS.LINK}</a>` : ''}
+                    ${isReady ? `<a href="https://${p.id}-qa.web.app" target="_blank" class="icon-button" title="QA Site" style="color: var(--warning-color);">${ICONS.LINK}</a>` : ''}
                 </div></td>
                 <td data-label="Created">${createdDateTime}</td>
                 <td data-label="Actions" class="actions-cell"><div class="actions-cell-content">
@@ -395,7 +395,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const selectedOrg = orgsCache.find(o => o.id === orgId);
         if (!selectedOrg) return;
         const orgSlug = (selectedOrg.name || 'unknown').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-        DOM.fullProjectIdPreview.value = `wzbi-${orgSlug}-${shortName}`;
+        DOM.fullProjectIdPreview.value = `wizbi-${orgSlug}-${shortName}`;
     }
 
     function updateTemplateNamePreview() {
