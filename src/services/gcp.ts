@@ -1,4 +1,4 @@
-// --- FINAL VERSION: Includes immediate deployment of placeholder services ---
+// --- FINAL VERSION: Corrected API call signatures for immediate deployment ---
 // File path: src/services/gcp.ts
 
 import { google } from 'googleapis';
@@ -42,10 +42,10 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
     
     // --- Full Deterministic Flow ---
     await addFirebase(firebase, projectId);
-    const invokerSaEmail = await createFirebaseInvokerSA(iam, crm, projectId);
+    await createFirebaseInvokerSA(iam, crm, projectId);
     
     // Deploy placeholder services to make them live immediately
-    await deployPlaceholderCloudRunServices(cloudrun, projectId, invokerSaEmail);
+    await deployPlaceholderCloudRunServices(cloudrun, projectId);
     await createAndReleaseHostingVersions(firebasehosting, projectId);
     
     const deployerSaEmail = `github-deployer@${projectId}.iam.gserviceaccount.com`;
@@ -181,8 +181,8 @@ async function createFirebaseInvokerSA(iam: iam_v1.Iam, crm: cloudresourcemanage
     return saEmail;
 }
 
-// --- NEW: Deploy placeholder Cloud Run services ---
-async function deployPlaceholderCloudRunServices(cloudrun: run_v1.Run, projectId: string, invokerSaEmail: string) {
+// --- Deploy placeholder Cloud Run services ---
+async function deployPlaceholderCloudRunServices(cloudrun: run_v1.Run, projectId: string) {
     const servicesToDeploy = [
         { name: projectId, isDefault: true },
         { name: `${projectId}-qa`, isDefault: false }
@@ -192,56 +192,46 @@ async function deployPlaceholderCloudRunServices(cloudrun: run_v1.Run, projectId
         const parent = `projects/${projectId}/locations/${GCP_DEFAULT_REGION}`;
         try {
             await cloudrun.projects.locations.services.create({
-                parent,
-                serviceId: service.name,
+                parent: parent,
+                serviceId: service.name, // Correct parameter name
                 requestBody: {
                     apiVersion: 'serving.knative.dev/v1',
                     kind: 'Service',
                     metadata: { name: service.name },
                     spec: {
                         template: {
-                            spec: {
-                                containers: [{ image: PLACEHOLDER_IMAGE }],
-                            },
+                            spec: { containers: [{ image: PLACEHOLDER_IMAGE }] },
                         },
                     },
                 },
             });
-             // Set IAM policy to allow public access
             await cloudrun.projects.locations.services.setIamPolicy({
                 resource: `${parent}/services/${service.name}`,
                 requestBody: {
-                    policy: {
-                        bindings: [
-                            { role: 'roles/run.invoker', members: ['allUsers'] }
-                        ]
-                    }
+                    policy: { bindings: [{ role: 'roles/run.invoker', members: ['allUsers'] }] }
                 }
             });
             log('gcp.cloudrun.deploy.placeholder.success', { serviceName: service.name });
         } catch (error: any) {
-            if (error.code === 409) {
-                log('gcp.cloudrun.deploy.placeholder.already_exists', { serviceName: service.name });
-            } else {
+            if (error.code === 409) log('gcp.cloudrun.deploy.placeholder.already_exists', { serviceName: service.name });
+            else {
                 log('gcp.cloudrun.deploy.placeholder.error', { serviceName: service.name, error: error.message });
-                throw error; // Fail fast if placeholder deployment fails
+                throw error;
             }
         }
     }
 }
 
-// --- NEW: Create and release placeholder hosting versions ---
+// --- Create and release placeholder hosting versions ---
 async function createAndReleaseHostingVersions(hosting: firebasehosting_v1beta1.Firebasehosting, projectId: string) {
     const sitesToCreate = [
         { id: projectId, isDefault: true },
         { id: `${projectId}-qa`, isDefault: false }
     ];
-    // Simple placeholder HTML content
-    const placeholderHtml = Buffer.from('<!DOCTYPE html><html><head><title>Coming Soon</title></head><body><h1>🚀 Coming Soon</h1><p>This site is being provisioned.</p></body></html>').toString('base64');
+    const placeholderHtml = Buffer.from('<!DOCTYPE html><html><body><h1>🚀 Coming Soon</h1></body></html>').toString('base64');
 
-    // 1. Create the Hosting Sites resources first
     for (const site of sitesToCreate) {
-        if (site.isDefault) await new Promise(resolve => setTimeout(resolve, 15000)); // Propagation delay
+        if (site.isDefault) await new Promise(resolve => setTimeout(resolve, 15000));
         try {
             log('gcp.firebase.hosting.create.attempt', { siteId: site.id });
             await hosting.projects.sites.create({ parent: `projects/${projectId}`, siteId: site.id });
@@ -252,7 +242,6 @@ async function createAndReleaseHostingVersions(hosting: firebasehosting_v1beta1.
         }
     }
 
-    // 2. Populate and release a version for each site
     for (const site of sitesToCreate) {
         log('gcp.firebase.hosting.release.start', { siteId: site.id });
         const parent = `projects/${projectId}/sites/${site.id}`;
@@ -260,22 +249,20 @@ async function createAndReleaseHostingVersions(hosting: firebasehosting_v1beta1.
             const { data: version } = await hosting.projects.sites.versions.create({
                 parent,
                 requestBody: {
-                    config: {
-                        rewrites: [{ glob: '**', run: { serviceId: site.id, region: GCP_DEFAULT_REGION } }]
-                    }
+                    config: { rewrites: [{ glob: '**', run: { serviceId: site.id, region: GCP_DEFAULT_REGION } }] }
                 }
             });
             const versionName = version.name!;
             
             await hosting.projects.sites.versions.populateFiles({
                 parent: versionName,
-                requestBody: {
-                    files: {
-                        '/index.html': placeholderHtml,
-                    },
-                },
+                requestBody: { files: { '/index.html': placeholderHtml } },
             });
-            await hosting.projects.sites.releases.create({ parent, requestBody: { message: 'Initial Provisioning', versionName } });
+            await hosting.projects.sites.releases.create({
+                parent: parent,
+                versionName: versionName, // Correct parameter name
+                requestBody: { message: 'Initial Provisioning' }
+            });
             log('gcp.firebase.hosting.release.success', { siteId: site.id });
         } catch (error: any) {
              log('gcp.firebase.hosting.release.error', { siteId: site.id, error: error.message });
@@ -283,7 +270,6 @@ async function createAndReleaseHostingVersions(hosting: firebasehosting_v1beta1.
         }
     }
 }
-
 
 async function createServiceAccount(iam: iam_v1.Iam, projectId: string, saEmail: string) {
     const accountId = saEmail.split('@')[0];
@@ -382,7 +368,11 @@ async function pollOperation(operationsClient: any, operationName: string, maxRe
         await new Promise(resolve => setTimeout(resolve, delay));
         const [op] = await operationsClient.get({ name: operationName });
         if (op.done) {
-            if (op.error) throw new Error(`Operation ${operationName} failed: ${op.error.message}`);
+            if (op.error) {
+                 log('gcp.operation.polling.error', { name: operationName, error: op.error });
+                 throw new Error(`Operation ${operationName} failed: ${op.error.message}`);
+            }
+            log('gcp.operation.polling.success', { name: operationName });
             return;
         }
     }
