@@ -161,9 +161,10 @@ async function addFirebase(firebase: firebase_v1beta1.Firebase, projectId: strin
         log('gcp.firebase.add.operation_sent', { projectId, operationName: op.data.name });
         
         if (op.data.name) {
-            // --- THE CRITICAL FIX IS HERE ---
-            // The operations client for addFirebase is located under `firebase.projects.operations`
-            await pollOperation(firebase.projects.operations, op.data.name);
+            // --- FIX for TS2339 ---
+            // This is a workaround for a bug in the googleapis type definitions.
+            // The 'operations' property exists at runtime but is missing from the type.
+            await pollOperation((firebase.projects as any).operations, op.data.name);
             log('gcp.firebase.add.operation_success', { projectId, operationName: op.data.name });
         }
         
@@ -407,6 +408,4 @@ async function pollOperation(operationsClient: any, operationName: string, maxRe
     log('gcp.operation.polling.timeout_error', { name: operationName });
     throw new Error(`Operation ${operationName} did not complete in time.`);
 }
-
-export const { createGcpFolderForOrg, deleteGcpFolder, deleteGcpProject } = GcpLegacyService;
 
