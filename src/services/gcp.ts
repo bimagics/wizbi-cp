@@ -5,6 +5,9 @@ import { google } from 'googleapis';
 import type { cloudresourcemanager_v3, iam_v1, serviceusage_v1, firebase_v1beta1, firebasehosting_v1beta1, run_v1 } from 'googleapis';
 import { log, BillingError } from '../routes/projects';
 import * as GcpLegacyService from './gcp_legacy';
+import crypto from 'crypto';
+import https from 'https';
+
 
 // Environment variables
 const BILLING_ACCOUNT_ID = process.env.BILLING_ACCOUNT_ID || '';
@@ -227,7 +230,9 @@ async function createAndReleaseHostingVersions(hosting: firebasehosting_v1beta1.
         { id: projectId, isDefault: true },
         { id: `${projectId}-qa`, isDefault: false }
     ];
-    const placeholderHtml = Buffer.from('<!DOCTYPE html><html><body><h1>🚀 Coming Soon</h1></body></html>').toString('base64');
+    const placeholderHtmlContent = '<!DOCTYPE html><html><body><h1>🚀 Coming Soon</h1></body></html>';
+    const placeholderHtmlBuffer = Buffer.from(placeholderHtmlContent);
+    const placeholderHtmlHash = crypto.createHash('sha256').update(placeholderHtmlBuffer).digest('hex');
 
     for (const site of sitesToCreate) {
         // No need to wait here, we will retry the versioning call instead
@@ -258,9 +263,37 @@ async function createAndReleaseHostingVersions(hosting: firebasehosting_v1beta1.
                 });
                 const versionName = version.name!;
                 
-                await hosting.projects.sites.versions.populateFiles({
+                const { data: populateData } = await hosting.projects.sites.versions.populateFiles({
                     parent: versionName,
-                    requestBody: { files: { '/index.html': placeholderHtml } },
+                    requestBody: { files: { '/index.html': placeholderHtmlHash } },
+                });
+
+                if (populateData.uploadRequired && populateData.uploadUrl) {
+                    await new Promise((resolve, reject) => {
+                        const req = https.request(populateData.uploadUrl!, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/octet-stream',
+                                'Content-Length': placeholderHtmlBuffer.length,
+                                'x-goog-hash': `sha256=${placeholderHtmlHash}`,
+                            },
+                        }, (res) => {
+                            if (res.statusCode === 200) {
+                                resolve(res);
+                            } else {
+                                reject(new Error(`File upload failed with status ${res.statusCode}`));
+                            }
+                        });
+                        req.on('error', reject);
+                        req.write(placeholderHtmlBuffer);
+                        req.end();
+                    });
+                }
+
+                await hosting.projects.sites.versions.patch({
+                    name: versionName,
+                    updateMask: { paths: ['status'] },
+                    requestBody: { status: 'FINALIZED' }
                 });
 
                 await hosting.projects.sites.releases.create({
@@ -397,4 +430,3 @@ async function pollOperation(operationsClient: any, operationName: string, maxRe
 }
 
 export const { createGcpFolderForOrg, deleteGcpFolder, deleteGcpProject } = GcpLegacyService;
-
