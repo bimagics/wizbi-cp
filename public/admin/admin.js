@@ -51,6 +51,9 @@ document.addEventListener('DOMContentLoaded', () => {
         templateName: document.getElementById('templateName'),
         fullTemplateNamePreview: document.getElementById('fullTemplateNamePreview'),
         projectsTable: document.getElementById('projectsTable'),
+        sidebarToggleDesktop: document.getElementById('sidebarToggleDesktop'),
+        hamburgerButton: document.getElementById('hamburgerButton'),
+        mobileOverlay: document.getElementById('mobileOverlay'),
     };
     
     // --- Core Functions ---
@@ -110,13 +113,20 @@ document.addEventListener('DOMContentLoaded', () => {
             button.id = `btnTab${item.id}`;
             button.className = 'nav-button';
             button.innerHTML = `${item.icon}<span>${item.id}</span>`;
-            button.addEventListener('click', () => switchTab(item.id));
+            button.addEventListener('click', () => {
+                switchTab(item.id);
+                // Close mobile menu on navigation
+                if (window.innerWidth <= 992) {
+                    document.body.classList.remove('mobile-menu-open');
+                }
+            });
             DOM.sidebarNav.appendChild(button);
             DOM.tabs[`tabContent${item.id}`] = document.getElementById(`tabContent${item.id}`);
         });
         switchTab('Projects');
         loadAllData();
-        loadTemplatesForProjectForm(); 
+        loadTemplatesForProjectForm();
+        setupSidebarToggle();
     }
     
     function switchTab(tabId) {
@@ -124,6 +134,27 @@ document.addEventListener('DOMContentLoaded', () => {
         document.querySelectorAll('.nav-button').forEach(btn => btn.classList.remove('active'));
         DOM.tabs[`tabContent${tabId}`].classList.remove('hidden');
         document.getElementById(`btnTab${tabId}`).classList.add('active');
+    }
+
+    function setupSidebarToggle() {
+        // Desktop Toggle
+        DOM.sidebarToggleDesktop.addEventListener('click', () => {
+            document.body.classList.toggle('sidebar-collapsed');
+            localStorage.setItem('sidebarCollapsed', document.body.classList.contains('sidebar-collapsed'));
+        });
+
+        // Mobile Toggle
+        DOM.hamburgerButton.addEventListener('click', () => {
+            document.body.classList.toggle('mobile-menu-open');
+        });
+        DOM.mobileOverlay.addEventListener('click', () => {
+            document.body.classList.remove('mobile-menu-open');
+        });
+        
+        // Check local storage for saved state on desktop
+        if (window.innerWidth > 992 && localStorage.getItem('sidebarCollapsed') === 'true') {
+            document.body.classList.add('sidebar-collapsed');
+        }
     }
     
     // --- Data Loading & Rendering ---
@@ -248,8 +279,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     ${isPendingBilling ? `<a href="${billingUrl}" target="_blank" class="icon-button billing-link" title="Link Billing Account">${ICONS.BILLING}</a>` : ''}
                     ${p.gcpProjectId ? `<a href="https://console.cloud.google.com/run?project=${p.gcpProjectId}" target="_blank" class="icon-button" title="Cloud Run Services">${ICONS.CLOUDRUN}</a>` : ''}
                     ${p.githubRepoUrl ? `<a href="${p.githubRepoUrl}" target="_blank" class="icon-button" title="GitHub Repo">${ICONS.GITHUB}</a>` : ''}
-                    ${isReady ? `<a href="https://${p.id}.web.app" target="_blank" class="icon-button" title="Production Site">${ICONS.LINK}</a>` : ''}
-                    ${isReady ? `<a href="https://${p.id}-qa.web.app" target="_blank" class="icon-button" title="QA Site" style="color: var(--warning-color);">${ICONS.LINK}</a>` : ''}
+                    ${isReady ? `<a href="https://wzbi.app/${p.id}" target="_blank" class="icon-button" title="Production Site">${ICONS.LINK}</a>` : ''}
+                    ${isReady ? `<a href="https://wzbi.app/${p.id}-qa" target="_blank" class="icon-button" title="QA Site" style="color: var(--warning-color);">${ICONS.LINK}</a>` : ''}
                 </div></td>
                 <td data-label="Created">${createdDateTime}</td>
                 <td data-label="Actions" class="actions-cell"><div class="actions-cell-content">
@@ -364,7 +395,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const selectedOrg = orgsCache.find(o => o.id === orgId);
         if (!selectedOrg) return;
         const orgSlug = (selectedOrg.name || 'unknown').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-        DOM.fullProjectIdPreview.value = `wizbi-${orgSlug}-${shortName}`;
+        DOM.fullProjectIdPreview.value = `wzbi-${orgSlug}-${shortName}`;
     }
 
     function updateTemplateNamePreview() {
