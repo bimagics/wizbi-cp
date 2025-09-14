@@ -1,9 +1,8 @@
-// --- FINAL VERSION BASED ON PROVEN LOGIC ---
+// --- REPLACE THE ENTIRE FILE CONTENT ---
 // File path: src/services/gcp.ts
-// Combines the user's stable, deterministic SA creation flow with a robust, multi-site (Prod + QA) Firebase Hosting setup.
+// FINAL VERSION: Implements a proactive, deterministic Service Account creation for Firebase Hosting.
 
-import { google } from 'googleapis';
-import type { cloudresourcemanager_v3, iam_v1, serviceusage_v1, firebase_v1beta1, firebasehosting_v1beta1 } from 'googleapis';
+import { google, cloudresourcemanager_v3, iam_v1, serviceusage_v1, firebase_v1beta1 } from 'googleapis';
 import { log, BillingError } from '../routes/projects';
 import * as GcpLegacyService from './gcp_legacy';
 
@@ -31,7 +30,6 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
     const iam = google.iam({ version: 'v1', auth });
     const serviceUsage = google.serviceusage({ version: 'v1', auth });
     const firebase = google.firebase({ version: 'v1beta1', auth });
-    const firebasehosting = google.firebasehosting({ version: 'v1beta1', auth });
 
     await createProjectAndLinkBilling(crm, projectId, displayName, folderId);
     
@@ -39,9 +37,8 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
     await enableProjectApis(serviceUsage, projectId);
     await createArtifactRegistryRepo(projectId, 'wizbi');
     
-    // --- Combined Deterministic Flow ---
+    // --- NEW DETERMINISTIC FLOW ---
     await addFirebase(firebase, projectId);
-    await createFirebaseHostingSites(firebasehosting, projectId); // ADDED: Create both Prod and QA sites.
     await createFirebaseInvokerSA(iam, crm, projectId); // Create our own SA instead of waiting for Google's.
     
     const saEmail = `github-deployer@${projectId}.iam.gserviceaccount.com`;
@@ -156,9 +153,8 @@ async function createArtifactRegistryRepo(projectId: string, repoId: string) {
 async function addFirebase(firebase: firebase_v1beta1.Firebase, projectId: string) {
     log('gcp.firebase.add.start', { projectId });
     try {
-        // This is an async operation, but we will handle the delay/retry in the site creation step.
         await firebase.projects.addFirebase({ project: `projects/${projectId}` });
-        log('gcp.firebase.add.api_call_sent', { projectId });
+        log('gcp.firebase.add.api_call_success', { projectId });
     } catch (error: any) {
         if (error.code === 409) log('gcp.firebase.add.already_exists', { projectId });
         else {
@@ -168,46 +164,7 @@ async function addFirebase(firebase: firebase_v1beta1.Firebase, projectId: strin
     }
 }
 
-// --- NEW ROBUST FUNCTION TO CREATE HOSTING SITES ---
-async function createFirebaseHostingSites(hosting: firebasehosting_v1beta1.Firebasehosting, projectId: string) {
-    const qaSiteId = `${projectId}-qa`;
-    
-    // Helper function with retry logic to handle the race condition after addFirebase
-    const createSiteWithRetry = async (siteIdToCreate?: string) => {
-        const targetSite = siteIdToCreate || projectId;
-        // Start with a delay to allow addFirebase to propagate
-        await new Promise(resolve => setTimeout(resolve, 15000)); 
-
-        for (let attempt = 1; attempt <= 5; attempt++) {
-            try {
-                log('gcp.firebase.hosting.create.attempt', { projectId, siteId: targetSite, attempt });
-                await hosting.projects.sites.create({
-                    parent: `projects/${projectId}`,
-                    siteId: siteIdToCreate, // Will be undefined for default, which is correct
-                });
-                log('gcp.firebase.hosting.create.success', { projectId, siteId: targetSite });
-                return; // Exit on success
-            } catch (error: any) {
-                if (error.code === 409) {
-                    log('gcp.firebase.hosting.create.already_exists', { projectId, siteId: targetSite });
-                    return; // Exit if already exists
-                }
-                if (attempt < 5) {
-                    const delay = 10000 * attempt;
-                    log('gcp.firebase.hosting.create.error_retrying', { siteId: targetSite, error: error.message, attempt, delay });
-                    await new Promise(resolve => setTimeout(resolve, delay));
-                } else {
-                    log('gcp.firebase.hosting.create.fatal_error', { projectId, siteId: targetSite, error: error.message });
-                    throw new Error(`Failed to create Firebase Hosting site ${targetSite} after 5 attempts.`);
-                }
-            }
-        }
-    };
-
-    await createSiteWithRetry(); // Create default site
-    await createSiteWithRetry(qaSiteId); // Create QA site
-}
-
+// --- NEW DETERMINISTIC SERVICE ACCOUNT CREATION FOR FIREBASE -> CLOUD RUN ---
 async function createFirebaseInvokerSA(iam: iam_v1.Iam, crm: cloudresourcemanager_v3.Cloudresourcemanager, projectId: string): Promise<string> {
     const accountId = 'firebase-hosting-invoker';
     const saEmail = `${accountId}@${projectId}.iam.gserviceaccount.com`;
@@ -228,18 +185,20 @@ async function createFirebaseInvokerSA(iam: iam_v1.Iam, crm: cloudresourcemanage
         }
     }
     
+    // Allow time for the new SA to be available for IAM policy bindings
     const delay = 10000;
     log('gcp.sa.invoker.iam_propagation_delay.start', { delay });
     await new Promise(resolve => setTimeout(resolve, delay));
     log('gcp.sa.invoker.iam_propagation_delay.end');
 
+    // Grant the new SA the Cloud Run Invoker role
     log('gcp.iam.grant.invoker_role.attempt', { saEmail });
     const resource = `projects/${projectId}`;
     const { data: policy } = await crm.projects.getIamPolicy({ resource });
     const role = 'roles/run.invoker';
     const member = `serviceAccount:${saEmail}`;
     
-    let binding = policy.bindings?.find((b: any) => b.role === role);
+    let binding = policy.bindings?.find(b => b.role === role);
     if (!binding) {
         binding = { role, members: [] };
         if (!policy.bindings) policy.bindings = [];
@@ -255,6 +214,7 @@ async function createFirebaseInvokerSA(iam: iam_v1.Iam, crm: cloudresourcemanage
     
     return saEmail;
 }
+
 
 async function createServiceAccount(iam: iam_v1.Iam, projectId: string, saEmail: string) {
     const accountId = saEmail.split('@')[0];
@@ -292,7 +252,7 @@ async function grantRolesToServiceAccount(crm: cloudresourcemanager_v3.Cloudreso
     let needsUpdate = false;
     roles.forEach(role => {
         const member = `serviceAccount:${saEmail}`;
-        let binding = policy.bindings!.find((b: any) => b.role === role);
+        let binding = policy.bindings!.find(b => b.role === role);
         if (binding) {
             if (!binding.members?.includes(member)) {
                  log('gcp.iam.grant.adding_member_to_existing_role', { member, role });
@@ -352,11 +312,11 @@ async function setupWif(iam: iam_v1.Iam, newProjectId: string, saEmail: string):
     const { data: saPolicy } = await iam.projects.serviceAccounts.getIamPolicy({ resource: saResource });
     if (!saPolicy.bindings) saPolicy.bindings = [];
     const role = 'roles/iam.workloadIdentityUser';
-    let binding = saPolicy.bindings.find((b: any) => b.role === role);
+    let binding = saPolicy.bindings.find(b => b.role === role);
     if (!binding || !binding.members?.includes(wifMember)) {
         log('gcp.wif.binding.updating_policy', { role, wifMember });
         const existingMembers = binding?.members || [];
-        saPolicy.bindings = (saPolicy.bindings || []).filter((b: any) => b.role !== role);
+        saPolicy.bindings = (saPolicy.bindings || []).filter(b => b.role !== role);
         saPolicy.bindings.push({ role, members: [...existingMembers, wifMember].filter((v, i, a) => a.indexOf(v) === i) });
         await iam.projects.serviceAccounts.setIamPolicy({ resource: saResource, requestBody: { policy: saPolicy } });
         log('gcp.wif.binding.update.success', { saEmail });
@@ -388,4 +348,3 @@ async function pollOperation(operationsClient: any, operationName: string, maxRe
 }
 
 export const { createGcpFolderForOrg, deleteGcpFolder, deleteGcpProject } = GcpLegacyService;
-
