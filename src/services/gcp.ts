@@ -1,4 +1,4 @@
-// --- FINAL VERSION WITH CLOUD RUN IAM FIX ---
+// --- FINAL, FULLY AUTOMATED VERSION ---
 // File path: src/services/gcp.ts
 
 import { google } from 'googleapis';
@@ -43,13 +43,16 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
     await createArtifactRegistryRepo(projectId, 'wizbi');
     
     await addFirebase(firebase, projectId);
-    const invokerSaEmail = await createFirebaseInvokerSA(iam, crm, projectId);
-    
-    await deployPlaceholderCloudRunServices(cloudrun, projectId, invokerSaEmail);
-    await createHostingSites(firebasehosting, projectId);
+    const invokerSaEmail = await createFirebaseInvokerSA(iam, projectId);
     
     const deployerSaEmail = `github-deployer@${projectId}.iam.gserviceaccount.com`;
     await createServiceAccount(iam, projectId, deployerSaEmail);
+    
+    // Pass the newly created deployer SA to the Cloud Run deployment function
+    await deployPlaceholderCloudRunServices(cloudrun, projectId, invokerSaEmail, deployerSaEmail);
+    
+    await createHostingSites(firebasehosting, projectId);
+    
     await grantRolesToServiceAccount(crm, projectId, deployerSaEmail);
     const wifProviderName = await setupWif(iam, projectId, deployerSaEmail);
 
@@ -157,7 +160,7 @@ async function addFirebase(firebase: firebase_v1beta1.Firebase, projectId: strin
     }
 }
 
-async function createFirebaseInvokerSA(iam: iam_v1.Iam, crm: cloudresourcemanager_v3.Cloudresourcemanager, projectId: string): Promise<string> {
+async function createFirebaseInvokerSA(iam: iam_v1.Iam, projectId: string): Promise<string> {
     const accountId = 'firebase-hosting-invoker';
     const saEmail = `${accountId}@${projectId}.iam.gserviceaccount.com`;
     try {
@@ -171,48 +174,65 @@ async function createFirebaseInvokerSA(iam: iam_v1.Iam, crm: cloudresourcemanage
     return saEmail;
 }
 
-async function deployPlaceholderCloudRunServices(cloudrun: run_v1.Run, projectId: string, invokerSaEmail: string) {
+// --- THIS FUNCTION CONTAINS ALL THE FIXES ---
+async function deployPlaceholderCloudRunServices(cloudrun: run_v1.Run, projectId: string, invokerSaEmail: string, runtimeSaEmail: string) {
     const servicesToDeploy = [
         { name: `${projectId}-service` },
         { name: `${projectId}-service-qa` }
     ];
+
     for (const service of servicesToDeploy) {
         log('gcp.cloudrun.deploy.placeholder.start', { serviceName: service.name });
         const parent = `projects/${projectId}/locations/${GCP_DEFAULT_REGION}`;
         const servicePath = `${parent}/services/${service.name}`;
+
         try {
+            // Step 1: Create the Cloud Run service with the correct runtime identity
             await cloudrun.projects.locations.services.create({
                 parent: parent,
                 requestBody: {
                     apiVersion: 'serving.knative.dev/v1',
                     kind: 'Service',
                     metadata: { name: service.name },
-                    spec: { template: { spec: { containers: [{ image: PLACEHOLDER_IMAGE }] } } },
+                    spec: {
+                        template: {
+                            spec: {
+                                // FIX #1: Define the runtime service account explicitly
+                                serviceAccountName: runtimeSaEmail,
+                                containers: [{ image: PLACEHOLDER_IMAGE }]
+                            }
+                        }
+                    },
                 },
             });
             log('gcp.cloudrun.deploy.placeholder.success', { serviceName: service.name });
 
-            // THIS IS THE CRITICAL FIX for the 403 error
-            log('gcp.cloudrun.iam.grant_invoker.start', { serviceName: service.name, invoker: invokerSaEmail });
+            // Step 2: Set the IAM policy to allow public access AND Firebase Hosting access
+            log('gcp.cloudrun.iam.grant_public_invoker.start', { serviceName: service.name });
             await cloudrun.projects.locations.services.setIamPolicy({
                 resource: servicePath,
                 requestBody: {
                     policy: {
                         bindings: [{
                             role: 'roles/run.invoker',
-                            members: [`serviceAccount:${invokerSaEmail}`]
+                            // FIX #2 & #3: Allow both public access and specific Firebase access
+                            members: ['allUsers', `serviceAccount:${invokerSaEmail}`]
                         }]
                     }
                 }
             });
-            log('gcp.cloudrun.iam.grant_invoker.success', { serviceName: service.name });
+            log('gcp.cloudrun.iam.grant_public_invoker.success', { serviceName: service.name });
 
         } catch (error: any) {
-            if (error.code !== 409) throw error;
+            if (error.code !== 409) {
+                 log('gcp.cloudrun.deploy.placeholder.error', { serviceName: service.name, error: error.message });
+                 throw error;
+            }
             log('gcp.cloudrun.deploy.placeholder.already_exists', { serviceName: service.name });
         }
     }
 }
+
 
 async function createHostingSites(hosting: firebasehosting_v1beta1.Firebasehosting, projectId: string) {
     const sitesToCreate = [ { id: projectId }, { id: `${projectId}-qa` } ];
@@ -232,6 +252,7 @@ async function createServiceAccount(iam: iam_v1.Iam, projectId: string, saEmail:
             name: `projects/${projectId}`,
             requestBody: { accountId, serviceAccount: { displayName: 'GitHub Actions Deployer' } },
         });
+        // Add a delay to allow the SA to propagate
         await new Promise(resolve => setTimeout(resolve, 15000));
     } catch (error: any) {
         if (error.code !== 409) throw error;
