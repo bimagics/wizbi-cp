@@ -191,9 +191,10 @@ async function deployPlaceholderCloudRunServices(cloudrun: run_v1.Run, projectId
         log('gcp.cloudrun.deploy.placeholder.start', { serviceName: service.name, image: PLACEHOLDER_IMAGE });
         const parent = `projects/${projectId}/locations/${GCP_DEFAULT_REGION}`;
         try {
+            // FIX: Removed the redundant 'serviceId' parameter that was causing a TypeScript error.
+            // The service name is correctly specified inside the requestBody's metadata.
             await cloudrun.projects.locations.services.create({
                 parent: parent,
-                serviceId: service.name, // Correct parameter name
                 requestBody: {
                     apiVersion: 'serving.knative.dev/v1',
                     kind: 'Service',
@@ -258,11 +259,14 @@ async function createAndReleaseHostingVersions(hosting: firebasehosting_v1beta1.
                 parent: versionName,
                 requestBody: { files: { '/index.html': placeholderHtml } },
             });
+
+            // FIX: Moved 'versionName' out of the requestBody to match the correct API signature,
+            // which resolves the second TypeScript error.
             await hosting.projects.sites.releases.create({
                 parent: parent,
+                versionName: versionName, 
                 requestBody: { 
                     message: 'Initial Provisioning',
-                    versionName: versionName 
                 }
             });
             log('gcp.firebase.hosting.release.success', { siteId: site.id });
