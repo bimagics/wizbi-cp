@@ -165,7 +165,7 @@ export async function createGithubRepoFromTemplate(project: ProjectData, teamSlu
     return { name: repo.name, url: repo.html_url };
 }
 
-async function customizeFileContent(repoName: string, filePath: string, replacements: Partial<ProjectData & { name: string }>, branch: string = 'main') {
+async function customizeFileContent(repoName: string, filePath: string, replacements: Partial<ProjectData & { name: string, githubRepoUrl: string }>, branch: string = 'main') {
     const client = await getAuthenticatedClient();
     try {
         log('github.file.get.attempt', { repoName, filePath, branch });
@@ -184,6 +184,8 @@ async function customizeFileContent(repoName: string, filePath: string, replacem
             if (replacements.id) content = content.replace(/\{\{PROJECT_ID\}\}/g, replacements.id);
             if (replacements.displayName) content = content.replace(/\{\{PROJECT_DISPLAY_NAME\}\}/g, replacements.displayName);
             if (replacements.gcpRegion) content = content.replace(/\{\{GCP_REGION\}\}/g, replacements.gcpRegion);
+            // Add the new replacement for the GitHub URL
+            if (replacements.githubRepoUrl) content = content.replace(/\{\{GITHUB_REPO_URL\}\}/g, replacements.githubRepoUrl);
         }
 
         if (content === originalContent) {
@@ -209,7 +211,6 @@ async function customizeFileContent(repoName: string, filePath: string, replacem
         }
     }
 }
-
 export async function createRepoSecrets(repoName: string, secrets: RepoSecrets): Promise<void> {
     const client = await getAuthenticatedClient();
     log('github.secrets.get_public_key.attempt', { repoName });
