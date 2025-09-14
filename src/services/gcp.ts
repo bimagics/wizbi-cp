@@ -260,8 +260,10 @@ async function createAndReleaseHostingVersions(hosting: firebasehosting_v1beta1.
             });
             await hosting.projects.sites.releases.create({
                 parent: parent,
-                versionName: versionName, // Correct parameter name
-                requestBody: { message: 'Initial Provisioning' }
+                requestBody: { 
+                    message: 'Initial Provisioning',
+                    versionName: versionName 
+                }
             });
             log('gcp.firebase.hosting.release.success', { siteId: site.id });
         } catch (error: any) {
