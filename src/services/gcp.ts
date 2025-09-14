@@ -409,3 +409,5 @@ async function pollOperation(operationsClient: any, operationName: string, maxRe
     throw new Error(`Operation ${operationName} did not complete in time.`);
 }
 
+export const { createGcpFolderForOrg, deleteGcpFolder, deleteGcpProject } = GcpLegacyService;
+
