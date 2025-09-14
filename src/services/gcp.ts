@@ -133,8 +133,10 @@ async function createArtifactRegistryRepo(projectId: string, repoId: string) {
 async function addFirebase(firebase: firebase_v1beta1.Firebase, projectId: string) {
     log('gcp.firebase.add.start', { projectId });
     try {
-        await firebase.projects.addFirebase({ project: `projects/${projectId}` });
-        log('gcp.firebase.add.api_call_sent', { projectId });
+        const op = await firebase.projects.addFirebase({ project: `projects/${projectId}` });
+        log('gcp.firebase.add.api_call_sent', { projectId, opName: op.data.name });
+        await pollOperation(firebase.operations, op.data.name!);
+
     } catch (error: any) {
         if (error.code === 409) log('gcp.firebase.add.already_exists', { projectId });
         else throw error;
@@ -228,7 +230,7 @@ async function createAndReleaseHostingVersions(hosting: firebasehosting_v1beta1.
     const placeholderHtml = Buffer.from('<!DOCTYPE html><html><body><h1>🚀 Coming Soon</h1></body></html>').toString('base64');
 
     for (const site of sitesToCreate) {
-        if (site.isDefault) await new Promise(resolve => setTimeout(resolve, 15000));
+        // No need to wait here, we will retry the versioning call instead
         try {
             log('gcp.firebase.hosting.create.attempt', { siteId: site.id });
             await hosting.projects.sites.create({ parent: `projects/${projectId}`, siteId: site.id });
@@ -242,34 +244,47 @@ async function createAndReleaseHostingVersions(hosting: firebasehosting_v1beta1.
     for (const site of sitesToCreate) {
         log('gcp.firebase.hosting.release.start', { siteId: site.id });
         const parent = `projects/${projectId}/sites/${site.id}`;
-        try {
-            const { data: version } = await hosting.projects.sites.versions.create({
-                parent,
-                requestBody: {
-                    config: { rewrites: [{ glob: '**', run: { serviceId: site.id, region: GCP_DEFAULT_REGION } }] }
-                }
-            });
-            const versionName = version.name!;
-            
-            await hosting.projects.sites.versions.populateFiles({
-                parent: versionName,
-                requestBody: { files: { '/index.html': placeholderHtml } },
-            });
+        
+        const MAX_RETRIES = 5;
+        const RETRY_DELAY = 10000; // 10 seconds
 
-            await hosting.projects.sites.releases.create({
-                parent: parent,
-                versionName: versionName, 
-                requestBody: { 
-                    message: 'Initial Provisioning',
-                }
-            });
-            log('gcp.firebase.hosting.release.success', { siteId: site.id });
-        } catch (error: any) {
-             log('gcp.firebase.hosting.release.error', { siteId: site.id, error: error.message });
-             throw error;
+        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            try {
+                const { data: version } = await hosting.projects.sites.versions.create({
+                    parent,
+                    requestBody: {
+                        config: { rewrites: [{ glob: '**', run: { serviceId: site.id, region: GCP_DEFAULT_REGION } }] }
+                    }
+                });
+                const versionName = version.name!;
+                
+                await hosting.projects.sites.versions.populateFiles({
+                    parent: versionName,
+                    requestBody: { files: { '/index.html': placeholderHtml } },
+                });
+
+                await hosting.projects.sites.releases.create({
+                    parent: parent,
+                    versionName: versionName, 
+                    requestBody: { 
+                        message: 'Initial Provisioning',
+                    }
+                });
+                log('gcp.firebase.hosting.release.success', { siteId: site.id, attempt });
+                break; // Success, exit retry loop
+            } catch (error: any) {
+                 log('gcp.firebase.hosting.release.error_attempt', { siteId: site.id, attempt, maxAttempts: MAX_RETRIES, error: error.message });
+                 if ((error.code === 404 || error.message.includes("not found")) && attempt < MAX_RETRIES) {
+                     await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * attempt)); // Exponential backoff
+                 } else {
+                     // If it's not a recoverable error or we've run out of retries, throw the error
+                     throw error;
+                 }
+            }
         }
     }
 }
+
 
 async function createServiceAccount(iam: iam_v1.Iam, projectId: string, saEmail: string) {
     const accountId = saEmail.split('@')[0];
@@ -366,8 +381,6 @@ async function setupWif(iam: iam_v1.Iam, newProjectId: string, saEmail: string):
 async function pollOperation(operationsClient: any, operationName: string, maxRetries = 20, delay = 5000) {
     for (let i = 0; i < maxRetries; i++) {
         await new Promise(resolve => setTimeout(resolve, delay));
-        // FIX: The API response is a single object, not an array.
-        // Removed array destructuring `[op]` to fix the "not iterable" TypeError.
         const op = await operationsClient.get({ name: operationName });
         if (op.data.done) {
             if (op.data.error) {
