@@ -33,7 +33,7 @@
         <button id="btnLogoutUnauthorized" class="btn btn-primary">Logout</button>
       </div>
   </div>
-  
+
   <div id="adminPanelContainer" class="layout-container hidden">
     <aside class="sidebar">
       <div class="sidebar-header">
@@ -45,10 +45,22 @@
           <span id="userEmail"></span>
           <button id="btnLogoutAdmin">Logout</button>
         </div>
+        <button id="sidebarToggleDesktop" class="sidebar-toggle-desktop" title="Toggle Sidebar">
+            <svg class="toggle-arrow" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7"></path></svg>
+        </button>
       </div>
     </aside>
 
+    <div id="mobileOverlay" class="mobile-overlay"></div>
+
     <main class="main-content">
+       <header class="mobile-header">
+          <h1 class="logo">WizBI</h1>
+          <button id="hamburgerButton" class="hamburger-button">
+              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+          </button>
+      </header>
+
       <div id="tabContentProjects" class="tab-content">
         <div class="page-header">
           <h2>Projects</h2>
