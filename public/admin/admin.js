@@ -1,5 +1,5 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
-// This is the full and final code for admin.js, with all requested features.
+// Final version with flexible, icon-based link management.
 document.addEventListener('DOMContentLoaded', () => {
     const firebaseAuth = firebase.auth();
     const googleProvider = new firebase.auth.GoogleAuthProvider();
@@ -8,43 +8,27 @@ document.addEventListener('DOMContentLoaded', () => {
     let activeProjectPollers = {};
 
     const ICONS = {
+        // Standard Icons
         PROJECTS: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>`,
         ORGS: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg>`,
         USERS: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M15 21a6 6 0 00-9-5.197M15 11a4 4 0 110-5.292"></path></svg>`,
         TEMPLATES: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>`,
-        GITHUB: `<svg viewBox="0 0 16 16"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>`,
-        CLOUDRUN: `<svg width="800px" height="800px" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" fill="none"><path fill="#EA4335" d="M10.313 5.376l1.887-1.5-.332-.414a5.935 5.935 0 00-5.586-1.217 5.89 5.89 0 00-3.978 4.084c-.03.113.312-.098.463-.056l2.608-.428s.127-.124.201-.205c1.16-1.266 3.126-1.432 4.465-.354l.272.09z"/><path fill="#4285F4" d="M13.637 6.3a5.835 5.835 0 00-1.77-2.838l-1.83 1.82a3.226 3.226 0 011.193 2.564v.323c.9 0 1.63.725 1.63 1.62 0 .893-.73 1.619-1.63 1.619l-3.257-.003-.325.035v2.507l.325.053h3.257a4.234 4.234 0 004.08-2.962A4.199 4.199 0 0013.636 6.3z"/><path fill="#34A853" d="M4.711 13.999H7.97v-2.594H4.71c-.232 0-.461-.066-.672-.161l-.458.14-1.313 1.297-.114.447a4.254 4.254 0 002.557.87z"/><path fill="#FBBC05" d="M4.711 5.572A4.234 4.234 0 00.721 8.44a4.206 4.206 0 001.433 4.688l1.89-1.884a1.617 1.617 0 01.44-3.079 1.63 1.63 0 011.714.936l1.89-1.878A4.24 4.24 0 004.71 5.572z"/></svg>`,
-        LINK: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>`,
+        // Action Icons
         DELETE: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>`,
         EDIT: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>`,
-        ERROR: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width: 18px; height: 18px; color: var(--error-color);"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>`,
         LOGS: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>`,
         RETRY: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5M20 19v-5h-5M4 19h5v-5M20 4h-5v5"/></svg>`,
+        PLUS: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>`,
+        // Selectable Link Icons
+        LINK: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>`,
+        DOCS: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>`,
+        GITHUB: `<svg viewBox="0 0 16 16"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>`,
+        CLOUDRUN: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>`,
+        FIREBASE: `<svg width="24" height="24" viewBox="0 0 24 24"><path fill="#FFCA28" d="M12.71 2.52l-7.36 12.75l2.45 4.24l9.5-6.62z"/><path fill="#FFA000" d="M12.71 2.52l-2.45 4.24l-4.57 7.91l2.45 4.24l7.36-12.75z"/><path fill="#F57C00" d="M7.89 19.51l-2.45-4.24L2.8 19.51l5.09-0.01z"/><path fill="#FFC107" d="M19.35 8.89l-9.5 6.62l2.45 4.24l9.5-6.62z"/></svg>`,
+        CHART: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>`,
         BILLING: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path></svg>`,
-        DOCS: `<svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
-	 viewBox="0 0 512 512" style="enable-background:new 0 0 512 512;" xml:space="preserve">
-<path style="fill:#167EE6;" d="M439.652,512H72.348c-9.217,0-16.696-7.479-16.696-16.696V16.696C55.652,7.479,63.131,0,72.348,0
-	h233.739c4.424,0,8.674,1.761,11.804,4.892l133.565,133.565c3.131,3.13,4.892,7.379,4.892,11.804v345.043
-	C456.348,504.521,448.869,512,439.652,512z"/>
-<path style="fill:#2860CC;" d="M317.891,4.892C314.761,1.761,310.511,0,306.087,0H256v512h183.652
-	c9.217,0,16.696-7.479,16.696-16.696V150.261c0-4.424-1.761-8.674-4.892-11.804L317.891,4.892z"/>
-<path style="fill:#167EE6;" d="M451.459,138.459L317.891,4.892C314.76,1.76,310.511,0,306.082,0h-16.691l0.001,150.261
-	c0,9.22,7.475,16.696,16.696,16.696h150.26v-16.696C456.348,145.834,454.589,141.589,451.459,138.459z"/>
-<path style="fill:#FFFFFF;" d="M272.696,411.826H139.13c-9.217,0-16.696-7.479-16.696-16.696c0-9.217,7.479-16.696,16.696-16.696
-	h133.565c9.217,0,16.696,7.479,16.696,16.696C289.391,404.348,281.913,411.826,272.696,411.826z"/>
-<path style="fill:#E6F3FF;" d="M272.696,378.435H256v33.391h16.696c9.217,0,16.696-7.479,16.696-16.696
-	C289.391,385.913,281.913,378.435,272.696,378.435z"/>
-<path style="fill:#FFFFFF;" d="M372.87,345.043H139.13c-9.217,0-16.696-7.479-16.696-16.696c0-9.217,7.479-16.696,16.696-16.696
-	H372.87c9.217,0,16.696,7.479,16.696,16.696C389.565,337.565,382.087,345.043,372.87,345.043z"/>
-<path style="fill:#E6F3FF;" d="M372.87,311.652H256v33.391h116.87c9.217,0,16.696-7.479,16.696-16.696
-	C389.565,319.131,382.087,311.652,372.87,311.652z"/>
-<path style="fill:#FFFFFF;" d="M372.87,278.261H139.13c-9.217,0-16.696-7.479-16.696-16.696c0-9.217,7.479-16.696,16.696-16.696
-	H372.87c9.217,0,16.696,7.479,16.696,16.696C389.565,270.782,382.087,278.261,372.87,278.261z"/>
-<path style="fill:#E6F3FF;" d="M372.87,244.87H256v33.391h116.87c9.217,0,16.696-7.479,16.696-16.696
-	C389.565,252.348,382.087,244.87,372.87,244.87z"/>
-</svg>`,
-        DOCS_ADD: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>`,
-        FIREBASE: `<svg width="800px" height="800px" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><title>Firebase</title><path d="M5.8,24.6l.17-.237L13.99,9.149l.017-.161L10.472,2.348a.656.656,0,0,0-1.227.207Z" style="fill:#ffc24a"/><path d="M5.9,24.42l.128-.25L13.965,9.114,10.439,2.448a.6.6,0,0,0-1.133.206Z" style="fill:#ffa712"/><path d="M16.584,14.01l2.632-2.7L16.583,6.289a.678.678,0,0,0-1.195,0L13.981,8.971V9.2Z" style="fill:#f4bd62"/><path d="M16.537,13.9l2.559-2.62L16.537,6.4a.589.589,0,0,0-1.074-.047L14.049,9.082l-.042.139Z" style="fill:#ffa50e"/><polygon points="5.802 24.601 5.879 24.523 6.158 24.41 16.418 14.188 16.548 13.834 13.989 8.956 5.802 24.601" style="fill:#f6820c"/><path d="M16.912,29.756,26.2,24.577,23.546,8.246A.635.635,0,0,0,22.471,7.9L5.8,24.6l9.233,5.155a1.927,1.927,0,0,0,1.878,0" style="fill:#fde068"/><path d="M26.115,24.534,23.483,8.326a.557.557,0,0,0-.967-.353L5.9,24.569l9.131,5.1a1.912,1.912,0,0,0,1.863,0Z" style="fill:#fcca3f"/><path d="M16.912,29.6a1.927,1.927,0,0,1-1.878,0L5.876,24.522,5.8,24.6l9.233,5.155a1.927,1.927,0,0,0,1.878,0L26.2,24.577l-.023-.14Z" style="fill:#eeab37"/></svg>`,
+        EXTERNAL_LINK: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>`,
+        ERROR: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width: 18px; height: 18px; color: var(--error-color);"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>`,
     };
 
     const DOM = {
@@ -57,6 +41,8 @@ document.addEventListener('DOMContentLoaded', () => {
         btnLogoutUnauthorized: document.getElementById('btnLogoutUnauthorized'),
         sidebarNav: document.getElementById('sidebarNav'),
         tabs: {},
+        globalLinksContainer: document.getElementById('globalLinksContainer'),
+        btnAddGlobalLink: document.getElementById('btnAddGlobalLink'),
         userEditModal: document.getElementById('userEditModal'),
         userEditModalTitle: document.getElementById('userEditModalTitle'),
         userEditForm: document.getElementById('userEditForm'),
@@ -66,7 +52,11 @@ document.addEventListener('DOMContentLoaded', () => {
         logsModal: document.getElementById('logsModal'),
         logsModalTitle: document.getElementById('logsModalTitle'),
         logsModalContent: document.getElementById('logsModalContent'),
-        btnCopyLogs: document.getElementById('btnCopyLogs'),
+        addLinkModal: document.getElementById('addLinkModal'),
+        addLinkModalTitle: document.getElementById('addLinkModalTitle'),
+        addLinkForm: document.getElementById('addLinkForm'),
+        addLinkContextId: document.getElementById('addLinkContextId'),
+        iconPicker: document.getElementById('iconPicker'),
         projectOrgId: document.getElementById('projectOrgId'),
         projectShortName: document.getElementById('projectShortName'),
         fullProjectIdPreview: document.getElementById('fullProjectIdPreview'),
@@ -76,9 +66,6 @@ document.addEventListener('DOMContentLoaded', () => {
         sidebarToggleDesktop: document.getElementById('sidebarToggleDesktop'),
         hamburgerButton: document.getElementById('hamburgerButton'),
         mobileOverlay: document.getElementById('mobileOverlay'),
-        docPreviewModal: document.getElementById('docPreviewModal'),
-        docPreviewModalTitle: document.getElementById('docPreviewModalTitle'),
-        docPreviewFrame: document.getElementById('docPreviewFrame'),
     };
     
     // --- Core Functions ---
@@ -151,6 +138,7 @@ document.addEventListener('DOMContentLoaded', () => {
         loadAllData();
         loadTemplatesForProjectForm();
         setupSidebarToggle();
+        populateIconPicker();
     }
     
     function switchTab(tabId) {
@@ -179,10 +167,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     // --- Data Loading & Rendering ---
-    let projectsCache = [], orgsCache = [], usersCache = [], templatesCache = [];
+    let projectsCache = [], orgsCache = [], usersCache = [], templatesCache = [], globalLinksCache = [];
 
     async function loadAllData() {
-        await Promise.all([loadOrgs(), loadProjects()]);
+        await Promise.all([loadOrgs(), loadProjects(), loadGlobalLinks()]);
         if (userProfile.roles?.superAdmin) {
             await Promise.all([loadUsers(), loadTemplatesData()]);
         }
@@ -213,6 +201,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!userProfile.roles?.superAdmin) return;
         try { usersCache = await callApi('/users'); renderUsersTable(usersCache); } catch(e) { console.error("Failed to load users", e); }
     }
+    async function loadGlobalLinks() {
+        try {
+            const { links } = await callApi('/global-links');
+            globalLinksCache = links;
+            renderGlobalLinks(globalLinksCache);
+        } catch (e) { console.error("Failed to load global links", e); }
+    }
 
     async function loadTemplatesForProjectForm() {
         try {
@@ -236,6 +231,17 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error("Failed to load templates", e);
             document.getElementById('templatesTable').querySelector('tbody').innerHTML = `<tr><td colspan="4">Error loading templates.</td></tr>`;
         }
+    }
+
+    function renderGlobalLinks(links) {
+        DOM.globalLinksContainer.innerHTML = (links || []).map(link => `
+            <div class="custom-link-wrapper">
+                <a href="${link.url}" target="_blank" class="icon-button" title="${link.name}" style="color: var(--${link.color}-color, var(--text-secondary));">
+                    ${ICONS[link.icon.toUpperCase()] || ICONS.LINK}
+                </a>
+                <button class="delete-link-btn" data-action="delete-global-link" data-link-id="${link.id}">&times;</button>
+            </div>
+        `).join('');
     }
 
     function renderTemplatesTable(templates) {
@@ -279,11 +285,14 @@ document.addEventListener('DOMContentLoaded', () => {
             hour: '2-digit', minute: '2-digit'
         });
         
-        const billingUrl = `https://console.cloud.google.com/billing/linkedaccount?project=${p.gcpProjectId}`;
-
-        const docButtonHtml = p.specDocUrl 
-            ? `<button class="icon-button" data-action="preview-doc" data-url="${p.specDocUrl}" data-name="${p.displayName}" title="Preview Specification Document">${ICONS.DOCS}</button>`
-            : `<button class="icon-button" data-action="generate-doc" data-id="${p.id}" title="Generate Specification Document">${ICONS.DOCS_ADD}</button>`;
+        const externalLinksHtml = (p.externalLinks || []).map(link => `
+            <div class="custom-link-wrapper">
+                <a href="${link.url}" target="_blank" class="icon-button" title="${link.name}" style="color: var(--${link.color}-color, var(--text-secondary));">
+                    ${ICONS[link.icon.toUpperCase()] || ICONS.LINK}
+                </a>
+                <button class="delete-link-btn" data-action="delete-link" data-project-id="${p.id}" data-link-id="${link.id}">&times;</button>
+            </div>
+        `).join('');
 
         return `
             <tr id="project-row-${p.id}">
@@ -301,16 +310,16 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="progress-text ${inProcess && !isPendingBilling ? '' : 'hidden'}">${progress.text}</div>
                 </td>
                 <td data-label="Links" class="links-cell"><div class="links-cell-content">
-                    ${isPendingBilling ? `<a href="${billingUrl}" target="_blank" class="icon-button billing-link" title="Link Billing Account">${ICONS.BILLING}</a>` : ''}
-                    ${p.gcpProjectId ? `<a href="https://console.cloud.google.com/run?project=${p.gcpProjectId}" target="_blank" class="icon-button" title="Cloud Run Services">${ICONS.CLOUDRUN}</a>` : ''}
-                    ${p.githubRepoUrl ? `<a href="${p.githubRepoUrl}" target="_blank" class="icon-button" title="GitHub Repo">${ICONS.GITHUB}</a>` : ''}
                     ${p.gcpProjectId ? `<a href="https://console.firebase.google.com/project/${p.gcpProjectId}" target="_blank" class="icon-button" title="Firebase Console">${ICONS.FIREBASE}</a>` : ''}
-                    ${docButtonHtml}
-                    ${isReady ? `<a href="https://${p.id}.web.app" target="_blank" class="icon-button" title="Production Site">${ICONS.LINK}</a>` : ''}
-                    ${isReady ? `<a href="https://${p.id}-qa.web.app" target="_blank" class="icon-button" title="QA Site" style="color: var(--warning-color);">${ICONS.LINK}</a>` : ''}
+                    ${p.githubRepoUrl ? `<a href="${p.githubRepoUrl}" target="_blank" class="icon-button" title="GitHub Repo">${ICONS.GITHUB}</a>` : ''}
+                    ${p.gcpProjectId ? `<a href="https://console.cloud.google.com/run?project=${p.gcpProjectId}" target="_blank" class="icon-button" title="Cloud Run Services">${ICONS.CLOUDRUN}</a>` : ''}
+                    ${isReady ? `<a href="https://${p.id}.web.app" target="_blank" class="icon-button" title="Production Site">${ICONS.EXTERNAL_LINK}</a>` : ''}
+                    ${isReady ? `<a href="https://${p.id}-qa.web.app" target="_blank" class="icon-button" title="QA Site" style="color: var(--warning-color);">${ICONS.EXTERNAL_LINK}</a>` : ''}
+                    ${externalLinksHtml}
                 </div></td>
                 <td data-label="Created">${createdDateTime}</td>
                 <td data-label="Actions" class="actions-cell"><div class="actions-cell-content">
+                    <button class="icon-button" data-action="add-link" data-id="${p.id}" title="Add External Link">${ICONS.PLUS}</button>
                     <button class="icon-button logs" data-action="show-logs" data-id="${p.id}" title="Show Logs">${ICONS.LOGS}</button>
                     ${renderProjectActions(p)}
                 </div></td>
@@ -368,6 +377,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btnShowCreateOrg').addEventListener('click', () => document.getElementById('formCreateOrgCard').classList.toggle('hidden'));
     document.getElementById('btnShowProvisionProject').addEventListener('click', () => document.getElementById('formProvisionProjectCard').classList.toggle('hidden'));
     document.getElementById('btnShowCreateTemplate').addEventListener('click', () => document.getElementById('formCreateTemplateCard').classList.toggle('hidden'));
+    DOM.btnAddGlobalLink.addEventListener('click', () => openAddLinkModal('global'));
     
     document.getElementById('formCreateOrg').addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -434,7 +444,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const button = e.target.closest('button[data-action], button[data-type]');
         if (!button) return;
 
-        const { action, id, uid, type, name, description, url } = button.dataset;
+        const { action, id, uid, type, name, description, projectId, linkId } = button.dataset;
         
         if (action === 'provision') {
              try {
@@ -446,19 +456,22 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        if (action === 'generate-doc') {
-            try {
-                button.innerHTML = '<div class="spinner-small"></div>';
-                button.disabled = true;
-                await callApi(`/projects/${id}/generate-doc`, { method: 'POST' });
-                await pollProjectStatus(id); // Refresh the row
-            } catch (error) {
-                alert(`Failed to generate document for ${id}: ${error.message}`);
-                button.innerHTML = ICONS.DOCS_ADD;
-                button.disabled = false;
+        if (action === 'add-link') {
+            openAddLinkModal(id);
+        } else if (action === 'delete-link') {
+            if (confirm('Are you sure you want to delete this link?')) {
+                try {
+                    await callApi(`/projects/${projectId}/links/${linkId}`, { method: 'DELETE' });
+                    await pollProjectStatus(projectId);
+                } catch (error) { alert(`Failed to delete link: ${error.message}`); }
             }
-        } else if (action === 'preview-doc') {
-            openDocPreviewModal(name, url);
+        } else if (action === 'delete-global-link') {
+            if (confirm('Are you sure you want to delete this global link?')) {
+                try {
+                    await callApi(`/global-links/${linkId}`, { method: 'DELETE' });
+                    await loadGlobalLinks();
+                } catch (error) { alert(`Failed to delete global link: ${error.message}`); }
+            }
         } else if (action === 'edit-template') {
             const newDescription = prompt(`Enter new description for:\n${name}`, description);
             if (newDescription !== null && newDescription !== description) {
@@ -525,12 +538,14 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('[data-close]').forEach(el => {
         el.addEventListener('click', () => closeModal(el.dataset.close));
     });
-    
-    DOM.docPreviewModal.addEventListener('click', (e) => {
-        if(e.target === DOM.docPreviewModal) {
-            closeModal('docPreviewModal');
-        }
-    });
+
+    function populateIconPicker() {
+        const selectableIcons = ['LINK', 'DOCS', 'GITHUB', 'CHART', 'BILLING'];
+        DOM.iconPicker.innerHTML = selectableIcons.map((iconKey, index) => `
+            <input type="radio" id="icon-${iconKey}" name="linkIcon" value="${iconKey}" ${index === 0 ? 'checked' : ''}>
+            <label for="icon-${iconKey}" class="icon-swatch" title="${iconKey}">${ICONS[iconKey]}</label>
+        `).join('');
+    }
 
     const openUserEditModal = (user) => {
         DOM.userEditModalTitle.textContent = `Edit: ${user.email}`;
@@ -539,13 +554,14 @@ document.addEventListener('DOMContentLoaded', () => {
         DOM.userEditOrgs.innerHTML = orgsCache.map(org => `<div class="checkbox-item"><input type="checkbox" id="org-${org.id}" value="${org.id}" ${user.roles?.orgAdmin?.includes(org.id) ? 'checked' : ''}><label for="org-${org.id}">${org.name}</label></div>`).join('');
         openModal('userEditModal');
     };
-    
-    const openDocPreviewModal = (projectName, docUrl) => {
-        DOM.docPreviewModalTitle.textContent = `Preview: ${projectName}`;
-        // Google Docs needs a specific preview URL for embedding
-        const previewUrl = docUrl.replace('/edit', '/preview');
-        DOM.docPreviewFrame.src = previewUrl;
-        openModal('docPreviewModal');
+
+    const openAddLinkModal = (contextId) => {
+        DOM.addLinkForm.reset();
+        document.getElementById('icon-LINK').checked = true;
+        document.getElementById('color-default').checked = true;
+        DOM.addLinkContextId.value = contextId;
+        DOM.addLinkModalTitle.textContent = contextId === 'global' ? 'Add Global Link' : `Add Link to Project`;
+        openModal('addLinkModal');
     };
 
     DOM.userEditForm.addEventListener('submit', async (e) => {
@@ -555,18 +571,37 @@ document.addEventListener('DOMContentLoaded', () => {
         try { await callApi(`/users/${uid}`, { method: 'PUT', body: JSON.stringify({ roles }) }); closeModal('userEditModal'); await loadUsers(); } catch (error) { alert(`Error: ${error.message}`); }
     });
 
+    DOM.addLinkForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const contextId = DOM.addLinkContextId.value;
+        const body = {
+            name: document.getElementById('linkName').value,
+            url: document.getElementById('linkUrl').value,
+            color: document.querySelector('input[name="linkColor"]:checked').value,
+            icon: document.querySelector('input[name="linkIcon"]:checked').value,
+        };
+
+        try {
+            if (contextId === 'global') {
+                await callApi('/global-links', { method: 'POST', body: JSON.stringify(body) });
+                await loadGlobalLinks();
+            } else {
+                await callApi(`/projects/${contextId}/links`, { method: 'POST', body: JSON.stringify(body) });
+                await pollProjectStatus(contextId);
+            }
+            closeModal('addLinkModal');
+        } catch (error) {
+            alert(`Error adding link: ${error.message}`);
+        }
+    });
+
     async function showLogsForProject(projectId) {
+        // ... (remains the same)
         DOM.logsModalTitle.textContent = `Logs for: ${projectId}`;
         DOM.logsModalContent.innerHTML = '<div class="spinner" style="display:block;"></div>';
         openModal('logsModal');
         try {
             const { logs } = await callApi(`/projects/${projectId}/logs`);
-            const formattedLogs = logs.map(log => {
-                const { ts, evt, serverTimestamp, ...meta } = log;
-                const metaString = Object.keys(meta).length > 0 ? JSON.stringify(meta, null, 2) : '';
-                return `[${new Date(ts).toLocaleString()}] ${evt}\n${metaString ? metaString + '\n' : ''}`;
-            }).join('---\n');
-            
             const htmlLogs = logs.map(log => {
                 const { ts, evt, ...meta } = log;
                 const isError = evt.includes('error') || evt.includes('fail');
@@ -581,6 +616,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     // --- Automated Provisioning Logic ---
+    // ... (isProjectInProcess, getProgressForState, start/stop polling remain the same)
     function isProjectInProcess(state) {
         return state && (state.startsWith('provisioning') || state.startsWith('injecting') || state.startsWith('pending_') || state.startsWith('deleting'));
     }
