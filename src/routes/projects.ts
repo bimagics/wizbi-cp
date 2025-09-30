@@ -1,6 +1,6 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
 // File path: src/routes/projects.ts
-// FINAL, BUILD-FIXED VERSION: Bypasses the TypeScript error for the 'subject' property.
+// FINAL & DEFINITIVE VERSION: Uses explicit JWT auth client for impersonation.
 
 import { Router, Request, Response, NextFunction } from 'express';
 import admin from 'firebase-admin';
@@ -132,13 +132,15 @@ async function createAndPopulateSpecDoc(projectId: string, projectData: admin.fi
             throw new Error('GSUITE_ADMIN_USER environment variable is not set.');
         }
 
-        const auth = await google.auth.getClient({ 
+        // --- THE FINAL FIX: Use JWT Auth Client for impersonation ---
+        const auth = new google.auth.JWT({
+            // The service account email is automatically picked up from the environment
             scopes: [
                 'https://www.googleapis.com/auth/drive',
                 'https://www.googleapis.com/auth/documents'
             ],
-            subject: gsuiteAdmin
-        } as any); // <--- THE FIX IS HERE
+            subject: gsuiteAdmin // Impersonate this user
+        });
 
         const drive = google.drive({ version: 'v3', auth });
         const docs = google.docs({ version: 'v1', auth });
