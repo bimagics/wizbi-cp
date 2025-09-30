@@ -1,6 +1,6 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
 // File path: src/routes/projects.ts
-// FINAL, PERFECTED VERSION: Includes doc preview, backfill functionality, and refactored logic.
+// FINAL, FIXED VERSION: Corrects the missing Google Docs API scope.
 
 import { Router, Request, Response, NextFunction } from 'express';
 import admin from 'firebase-admin';
@@ -102,7 +102,13 @@ async function createAndPopulateSpecDoc(projectId: string, projectData: admin.fi
 
     try {
         log('stage.docs.create.start');
-        const auth = await google.auth.getClient({ scopes: ['https://www.googleapis.com/auth/drive'] });
+        // --- THE FIX IS HERE: Added 'https://www.googleapis.com/auth/documents' scope ---
+        const auth = await google.auth.getClient({ 
+            scopes: [
+                'https://www.googleapis.com/auth/drive',
+                'https://www.googleapis.com/auth/documents'
+            ] 
+        });
         const drive = google.drive({ version: 'v3', auth });
         const docs = google.docs({ version: 'v1', auth });
 
@@ -220,7 +226,6 @@ async function runFullProvisioning(projectId: string) {
         await GithubService.createRepoSecrets(projectId, secretsToCreate);
         await GithubService.triggerInitialDeployment(projectId);
         
-        // Refresh project data to ensure all fields are present before doc creation
         projectDoc = await PROJECTS_COLLECTION.doc(projectId).get();
         const specDocUrl = await createAndPopulateSpecDoc(projectId, projectDoc.data()!);
 
@@ -255,6 +260,7 @@ async function runFullProvisioning(projectId: string) {
 }
 
 // --- ROUTES ---
+// ... (The rest of the routes remain exactly the same as the previous version)
 
 router.get('/projects', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
     try {
@@ -343,7 +349,6 @@ router.post('/projects/:id/provision', requireAdminAuth, async (req: Request, re
     }
 });
 
-// --- NEW ENDPOINT FOR BACKFILLING DOCS ---
 router.post('/projects/:id/generate-doc', requireAdminAuth, async (req: Request, res: Response) => {
     const { id } = req.params;
     const log = (evt: string, meta?: Record<string, any>) => projectLogger(id, evt, meta);
@@ -411,9 +416,7 @@ router.delete('/projects/:id', requireAdminAuth, async (req: Request, res: Respo
 });
 
 export default router;
-
 export { BillingError };
-
 export const log = (evt: string, meta: Record<string, any> = {}) => {
   console.log(JSON.stringify({ ts: new Date().toISOString(), severity: 'INFO', evt, ...meta }));
 }
