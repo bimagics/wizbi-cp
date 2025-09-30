@@ -1,5 +1,5 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
-// This is the full and final code for admin.js, with Google Doc and Firebase links.
+// This is the full and final code for admin.js, with all requested features.
 document.addEventListener('DOMContentLoaded', () => {
     const firebaseAuth = firebase.auth();
     const googleProvider = new firebase.auth.GoogleAuthProvider();
@@ -13,7 +13,6 @@ document.addEventListener('DOMContentLoaded', () => {
         USERS: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M15 21a6 6 0 00-9-5.197M15 11a4 4 0 110-5.292"></path></svg>`,
         TEMPLATES: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>`,
         GITHUB: `<svg viewBox="0 0 16 16"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>`,
-        GCP: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12.0001 2.00015C11.598 2.00015 11.2012 2.11265 10.8543 2.32523L3.14511 6.8249C2.45076 7.25143 2 8.02008 2 8.8471V15.1532C2 15.9802 2.45076 16.7489 3.14511 17.1754L10.8543 21.6751C11.2012 21.8876 11.598 22.0002 12.0001 22.0002C12.4022 22.0002 12.799 21.8876 13.1459 21.6751L20.8551 17.1754C21.5495 16.7489 22.0002 15.9802 22.0002 15.1532V8.8471C22.0002 8.02008 21.5495 7.25143 20.8551 6.8249L13.1459 2.32523C12.799 2.11265 12.4022 2.00015 12.0001 2.00015ZM12.0001 3.8643L19.071 8.00015L12.0001 12.1361L4.9292 8.00015L12.0001 3.8643ZM11.0001 13.2323V19.932L4.35411 15.8232L11.0001 13.2323ZM13.0001 13.2323L19.6461 15.8232L13.0001 19.932V13.2323Z"/></svg>`,
         CLOUDRUN: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>`,
         LINK: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>`,
         DELETE: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>`,
@@ -21,11 +20,10 @@ document.addEventListener('DOMContentLoaded', () => {
         ERROR: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width: 18px; height: 18px; color: var(--error-color);"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>`,
         LOGS: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>`,
         RETRY: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5M20 19v-5h-5M4 19h5v-5M20 4h-5v5"/></svg>`,
-        COPY: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" width="16" height="16"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>`,
         BILLING: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path></svg>`,
-        // --- NEW ICONS ---
-        DOCS: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>`,
-        FIREBASE: `<svg fill="currentColor" viewBox="0 0 24 24"><path d="M18.82 9.22l-4.39-4.39a1.68 1.68 0 00-2.37 0L4 12.87V13a1.69 1.69 0 00.49 1.2l5.77 5.76a1.68 1.68 0 002.37 0l6.19-6.18a1.68 1.68 0 000-2.36zM7.3 13.5l2.45-4.32 4.31 4.31-4.31 2.45-2.45-2.44zM4.11 8.35L11 1.49a1.68 1.68 0 012.37 0l4.39 4.39-7.82 7.82L4.11 8.35z"></path></svg>`,
+        DOCS: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>`,
+        DOCS_ADD: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>`,
+        FIREBASE: `<svg width="24" height="24" viewBox="0 0 24 24"><path fill="#FFCA28" d="M12.71 2.52l-7.36 12.75l2.45 4.24l9.5-6.62z"/><path fill="#FFA000" d="M12.71 2.52l-2.45 4.24l-4.57 7.91l2.45 4.24l7.36-12.75z"/><path fill="#F57C00" d="M7.89 19.51l-2.45-4.24L2.8 19.51l5.09-0.01z"/><path fill="#FFC107" d="M19.35 8.89l-9.5 6.62l2.45 4.24l9.5-6.62z"/></svg>`,
     };
 
     const DOM = {
@@ -57,6 +55,9 @@ document.addEventListener('DOMContentLoaded', () => {
         sidebarToggleDesktop: document.getElementById('sidebarToggleDesktop'),
         hamburgerButton: document.getElementById('hamburgerButton'),
         mobileOverlay: document.getElementById('mobileOverlay'),
+        docPreviewModal: document.getElementById('docPreviewModal'),
+        docPreviewModalTitle: document.getElementById('docPreviewModalTitle'),
+        docPreviewFrame: document.getElementById('docPreviewFrame'),
     };
     
     // --- Core Functions ---
@@ -259,6 +260,10 @@ document.addEventListener('DOMContentLoaded', () => {
         
         const billingUrl = `https://console.cloud.google.com/billing/linkedaccount?project=${p.gcpProjectId}`;
 
+        const docButtonHtml = p.specDocUrl 
+            ? `<button class="icon-button" data-action="preview-doc" data-url="${p.specDocUrl}" data-name="${p.displayName}" title="Preview Specification Document">${ICONS.DOCS}</button>`
+            : `<button class="icon-button" data-action="generate-doc" data-id="${p.id}" title="Generate Specification Document">${ICONS.DOCS_ADD}</button>`;
+
         return `
             <tr id="project-row-${p.id}">
                 <td data-label="Display Name">${p.displayName}</td>
@@ -279,7 +284,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     ${p.gcpProjectId ? `<a href="https://console.cloud.google.com/run?project=${p.gcpProjectId}" target="_blank" class="icon-button" title="Cloud Run Services">${ICONS.CLOUDRUN}</a>` : ''}
                     ${p.githubRepoUrl ? `<a href="${p.githubRepoUrl}" target="_blank" class="icon-button" title="GitHub Repo">${ICONS.GITHUB}</a>` : ''}
                     ${p.gcpProjectId ? `<a href="https://console.firebase.google.com/project/${p.gcpProjectId}" target="_blank" class="icon-button" title="Firebase Console">${ICONS.FIREBASE}</a>` : ''}
-                    ${p.specDocUrl ? `<a href="${p.specDocUrl}" target="_blank" class="icon-button" title="Specification Document">${ICONS.DOCS}</a>` : ''}
+                    ${docButtonHtml}
                     ${isReady ? `<a href="https://${p.id}.web.app" target="_blank" class="icon-button" title="Production Site">${ICONS.LINK}</a>` : ''}
                     ${isReady ? `<a href="https://${p.id}-qa.web.app" target="_blank" class="icon-button" title="QA Site" style="color: var(--warning-color);">${ICONS.LINK}</a>` : ''}
                 </div></td>
@@ -408,7 +413,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const button = e.target.closest('button[data-action], button[data-type]');
         if (!button) return;
 
-        const { action, id, uid, type, name, description } = button.dataset;
+        const { action, id, uid, type, name, description, url } = button.dataset;
         
         if (action === 'provision') {
              try {
@@ -420,7 +425,20 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        if (action === 'edit-template') {
+        if (action === 'generate-doc') {
+            try {
+                button.innerHTML = '<div class="spinner-small"></div>';
+                button.disabled = true;
+                await callApi(`/projects/${id}/generate-doc`, { method: 'POST' });
+                await pollProjectStatus(id); // Refresh the row
+            } catch (error) {
+                alert(`Failed to generate document for ${id}: ${error.message}`);
+                button.innerHTML = ICONS.DOCS_ADD;
+                button.disabled = false;
+            }
+        } else if (action === 'preview-doc') {
+            openDocPreviewModal(name, url);
+        } else if (action === 'edit-template') {
             const newDescription = prompt(`Enter new description for:\n${name}`, description);
             if (newDescription !== null && newDescription !== description) {
                 try {
@@ -483,7 +501,15 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Modals & State Management ---
     const openModal = (modalId) => document.getElementById(modalId).classList.remove('hidden');
     const closeModal = (modalId) => document.getElementById(modalId).classList.add('hidden');
-    document.querySelectorAll('[data-close]').forEach(el => el.addEventListener('click', () => closeModal(el.dataset.close)));
+    document.querySelectorAll('[data-close]').forEach(el => {
+        el.addEventListener('click', () => closeModal(el.dataset.close));
+    });
+    
+    DOM.docPreviewModal.addEventListener('click', (e) => {
+        if(e.target === DOM.docPreviewModal) {
+            closeModal('docPreviewModal');
+        }
+    });
 
     const openUserEditModal = (user) => {
         DOM.userEditModalTitle.textContent = `Edit: ${user.email}`;
@@ -493,6 +519,14 @@ document.addEventListener('DOMContentLoaded', () => {
         openModal('userEditModal');
     };
     
+    const openDocPreviewModal = (projectName, docUrl) => {
+        DOM.docPreviewModalTitle.textContent = `Preview: ${projectName}`;
+        // Google Docs needs a specific preview URL for embedding
+        const previewUrl = docUrl.replace('/edit', '/preview');
+        DOM.docPreviewFrame.src = previewUrl;
+        openModal('docPreviewModal');
+    };
+
     DOM.userEditForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         const uid = DOM.userEditUid.value;
@@ -520,15 +554,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }).join('');
             
             DOM.logsModalContent.innerHTML = htmlLogs || 'No logs found.';
-            DOM.btnCopyLogs.onclick = () => {
-                navigator.clipboard.writeText(formattedLogs).then(() => {
-                    const originalText = DOM.btnCopyLogs.innerHTML;
-                    DOM.btnCopyLogs.innerHTML = 'Copied!';
-                    setTimeout(() => DOM.btnCopyLogs.innerHTML = originalText, 2000);
-                });
-            };
-            DOM.btnCopyLogs.innerHTML = `${ICONS.COPY} <span>Copy Logs</span>`;
-
         } catch (error) {
             DOM.logsModalContent.innerHTML = `<span class="log-meta-error">Could not load logs: ${error.message}</span>`;
         }
