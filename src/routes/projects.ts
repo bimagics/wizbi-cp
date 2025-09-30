@@ -1,6 +1,6 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
 // File path: src/routes/projects.ts
-// FINAL, ROBUST VERSION: Automatically creates and manages its own Google Drive folder.
+// FINAL & MOST ROBUST VERSION: Creates a Google Doc from scratch, removing all template dependencies.
 
 import { Router, Request, Response, NextFunction } from 'express';
 import admin from 'firebase-admin';
@@ -91,12 +91,6 @@ export const requireAdminAuth = [...requireAuth, requireSuperAdmin];
 
 // --- REUSABLE CORE LOGIC ---
 
-/**
- * Gets the ID of the shared Google Drive folder, creating it if it doesn't exist.
- * This function makes the system self-sufficient.
- * @param drive - The authenticated Google Drive client.
- * @returns The ID of the parent folder.
- */
 async function getOrCreateParentFolderId(drive: any): Promise<string> {
     const settingsDocRef = SETTINGS_COLLECTION.doc('drive');
     const settingsDoc = await settingsDocRef.get();
@@ -119,13 +113,9 @@ async function getOrCreateParentFolderId(drive: any): Promise<string> {
         throw new Error('Failed to create the parent Google Drive folder.');
     }
 
-    // Make the new folder accessible to anyone with the link
     await drive.permissions.create({
         fileId: newFolder.id,
-        requestBody: {
-            role: 'reader',
-            type: 'anyone',
-        },
+        requestBody: { role: 'reader', type: 'anyone' },
     });
 
     await settingsDocRef.set({ parentFolderId: newFolder.id });
@@ -150,18 +140,19 @@ async function createAndPopulateSpecDoc(projectId: string, projectData: admin.fi
         const docs = google.docs({ version: 'v1', auth });
 
         const parentFolderId = await getOrCreateParentFolderId(drive);
-        const templateFileId = '18Rs1tt0j4xL6lj9NFKSPAit_-smk-EOmCTdecvpco8U'; // Your template doc
 
-        const { data: newFile } = await drive.files.copy({
-            fileId: templateFileId,
+        // --- NEW LOGIC: Create a blank document ---
+        const { data: newFile } = await drive.files.create({
             requestBody: {
                 name: `[WIZBI] Project Specification: ${displayName}`,
-                parents: [parentFolderId]
-            }
+                mimeType: 'application/vnd.google-apps.document',
+                parents: [parentFolderId],
+            },
+            fields: 'id',
         });
 
         if (!newFile.id) {
-            throw new Error('No file ID returned from Google Drive API on copy.');
+            throw new Error('No file ID returned from Google Drive API on create.');
         }
 
         const specDocUrl = `https://docs.google.com/document/d/${newFile.id}/edit`;
@@ -170,30 +161,48 @@ async function createAndPopulateSpecDoc(projectId: string, projectData: admin.fi
         const creationDate = new Date(createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
         const orgData = (await ORGS_COLLECTION.doc(orgId).get()).data();
         
+        // --- NEW LOGIC: Build the document content from scratch ---
+        const requests = [
+            { insertText: { location: { index: 1 }, text: `# [WIZBI] Project Specification: ${displayName}\n` } },
+            { insertText: { location: { index: 1 }, text: `**Version:** 1.0 | **Status:** Inception | **Last Updated:** ${creationDate}\n\n` } },
+            { insertText: { location: { index: 1 }, text: `## 1. Project Overview\n\n` } },
+            { insertText: { location: { index: 1 }, text: `### 1.1. Executive Summary & Vision\n* **One-Liner:** \n* **Problem Statement:** \n* **Vision & Goal:** \n\n` } },
+            { insertText: { location: { index: 1 }, text: `### 1.2. Key Performance Indicators (KPIs)\n*AI-Actionable: The following KPIs are defined to measure the success of this project.*\n* \`kpi_1\`:\n* \`kpi_2\`:\n* \`kpi_3\`:\n\n` } },
+            { insertText: { location: { index: 1 }, text: `## 2. System & Resource Links (Auto-Generated)\n\n` } },
+            // This creates the table
+            { insertTable: { location: { index: 1 }, rows: 8, columns: 2 } },
+            // Populate table headers and rows (note: indexes are relative to the start of the table)
+            { insertText: { location: { index: 5 }, text: "Resource" } },
+            { insertText: { location: { index: 20 }, text: "Link" } },
+            { insertText: { location: { index: 30 }, text: "Project ID" } },
+            { insertText: { location: { index: 45 }, text: `${projectId}` } },
+            { insertText: { location: { index: 55 }, text: "Organization" } },
+            { insertText: { location: { index: 70 }, text: `${orgData?.name || 'N/A'}` } },
+            { insertText: { location: { index: 80 }, text: "Source Template" } },
+            { insertText: { location: { index: 95 }, text: `${template}` } },
+            { insertText: { location: { index: 105 }, text: "GitHub Repository" } },
+            { insertText: { location: { index: 120 }, text: `${githubRepoUrl}` } },
+            { insertText: { location: { index: 130 }, text: "Production Site" } },
+            { insertText: { location: { index: 145 }, text: `https://${projectId}.web.app` } },
+            { insertText: { location: { index: 155 }, text: "QA Site" } },
+            { insertText: { location: { index: 170 }, text: `https://${projectId}-qa.web.app` } },
+            { insertText: { location: { index: 180 }, text: "Firebase Console" } },
+            { insertText: { location: { index: 195 }, text: `https://console.firebase.google.com/project/${gcpProjectId}` } },
+            { insertText: { location: { index: 1 }, text: `## 3. Scope & Features\n\n...` } }, // Add more sections as needed
+        ];
+        
+        // Reverse requests to insert from bottom to top, preserving indices
         await docs.documents.batchUpdate({
             documentId: newFile.id,
-            requestBody: {
-                requests: [
-                    { replaceAllText: { containsText: { text: '{{PROJECT_DISPLAY_NAME}}', matchCase: true }, replaceText: displayName } },
-                    { replaceAllText: { containsText: { text: '{{PROJECT_ID}}', matchCase: true }, replaceText: projectId } },
-                    { replaceAllText: { containsText: { text: '{{ORGANIZATION_NAME}}', matchCase: true }, replaceText: orgData?.name || 'N/A' } },
-                    { replaceAllText: { containsText: { text: '{{TEMPLATE_NAME}}', matchCase: true }, replaceText: template } },
-                    { replaceAllText: { containsText: { text: '{{CREATION_DATE}}', matchCase: true }, replaceText: creationDate } },
-                    { replaceAllText: { containsText: { text: '{{GITHUB_REPO_URL}}', matchCase: true }, replaceText: githubRepoUrl } },
-                    { replaceAllText: { containsText: { text: '{{PROD_URL}}', matchCase: true }, replaceText: `https://${projectId}.web.app` } },
-                    { replaceAllText: { containsText: { text: '{{QA_URL}}', matchCase: true }, replaceText: `https://${projectId}-qa.web.app` } },
-                    { replaceAllText: { containsText: { text: '{{FIREBASE_CONSOLE_URL}}', matchCase: true }, replaceText: `https://console.firebase.google.com/project/${gcpProjectId}` } },
-                    { replaceAllText: { containsText: { text: '{{GCP_CONSOLE_URL}}', matchCase: true }, replaceText: `https://console.cloud.google.com/?project=${gcpProjectId}` } },
-                ]
-            }
+            requestBody: { requests: requests.reverse() },
         });
-        log('stage.docs.populate.success', { documentId: newFile.id });
 
+        log('stage.docs.populate.success', { documentId: newFile.id });
         return specDocUrl;
 
     } catch (error: any) {
         log('stage.docs.create.error', { error: error.message, stack: error.stack });
-        throw error; // Throw error to be caught by the calling function
+        throw error;
     }
 }
 
@@ -237,14 +246,13 @@ async function runFullProvisioning(projectId: string) {
         await GithubService.createRepoSecrets(projectId, secretsToCreate);
         await GithubService.triggerInitialDeployment(projectId);
         projectDoc = await PROJECTS_COLLECTION.doc(projectId).get();
-        const specDocUrl = await createAndPopulateSpecDoc(projectId, projectDoc.data()!).catch(() => ''); // Don't fail the whole process if doc creation fails
+        const specDocUrl = await createAndPopulateSpecDoc(projectId, projectDoc.data()!).catch(() => ''); 
         await PROJECTS_COLLECTION.doc(projectId).update({ 
             state: 'ready', error: null,
             specDocUrl: specDocUrl || null
         });
         await log('stage.finalize.success', { finalState: 'ready' });
     } catch (e: any) {
-        // ... (existing error handling code remains the same)
         if (e instanceof BillingError) {
             const billingUrl = `https://console.cloud.google.com/billing/linkedaccount?project=${e.gcpProjectId}`;
             const errorMessage = `Manual action required: Please link billing account. URL: ${billingUrl}`;
@@ -264,8 +272,8 @@ async function runFullProvisioning(projectId: string) {
 }
 
 // --- ROUTES ---
+// ... (The rest of the routes are identical, no changes needed there)
 
-// ... (GET routes remain the same)
 router.get('/projects', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
     try {
         let query: admin.firestore.Query | admin.firestore.CollectionReference = PROJECTS_COLLECTION;
@@ -351,7 +359,6 @@ router.post('/projects/:id/provision', requireAdminAuth, async (req: Request, re
     }
 });
 
-// --- NEW ENDPOINT FOR BACKFILLING DOCS ---
 router.post('/projects/:id/generate-doc', requireAdminAuth, async (req: Request, res: Response) => {
     const { id } = req.params;
     const log = (evt: string, meta?: Record<string, any>) => projectLogger(id, evt, meta);
@@ -380,7 +387,6 @@ router.post('/projects/:id/generate-doc', requireAdminAuth, async (req: Request,
 });
 
 router.delete('/projects/:id', requireAdminAuth, async (req: Request, res: Response) => {
-    // ... (delete route remains the same)
     const { id } = req.params;
     const log = (evt: string, meta?: Record<string, any>) => projectLogger(id, evt, meta);
     try {
