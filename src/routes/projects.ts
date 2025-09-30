@@ -145,43 +145,68 @@ async function runFullProvisioning(projectId: string) {
         await GithubService.createRepoSecrets(projectId, secretsToCreate);
         await GithubService.triggerInitialDeployment(projectId);
 
-        // --- NEW --- STAGE 4: Create Google Doc ---
-        let specDocUrl = '';
-        try {
-            await log('stage.docs.create.start');
-            const auth = await google.auth.getClient({ scopes: ['https://www.googleapis.com/auth/drive'] });
-            const drive = google.drive({ version: 'v3', auth });
-            
-            // !! IMPORTANT: Replace these with your actual IDs from Step 1 !!
-            const templateFileId = '18Rs1tt0j4xL6lj9NFKSPAit_-smk-EOmCTdecvpco8U'; 
-            const parentFolderId = '1MBK_KI0o7y45Y8WFV3pbPT_MBDh4wvt0';
-            
-            if (templateFileId !== 'YOUR_GOOGLE_DOC_TEMPLATE_ID') {
-                const { data: newFile } = await drive.files.copy({
-                    fileId: templateFileId,
-                    requestBody: {
-                        name: `[WIZBI] Project Specification: ${displayName}`,
-                        parents: [parentFolderId]
-                    }
-                });
+// --- NEW --- STAGE 4: Create Google Doc & Populate Placeholders ---
+let specDocUrl = '';
+try {
+    await log('stage.docs.create.start');
+    const auth = await google.auth.getClient({ scopes: ['https://www.googleapis.com/auth/drive'] });
+    const drive = google.drive({ version: 'v3', auth });
+    const docs = google.docs({ version: 'v1', auth });
+
+    const templateFileId = '18Rs1tt0j4xL6lj9NFKSPAit_-smk-EOmCTdecvpco8U'; 
+    const parentFolderId = '1MBK_KI0o7y45Y8WFV3pbPT_MBDh4wvt0';
     
-                if (newFile.id) {
-                     await drive.permissions.create({
-                        fileId: newFile.id,
-                        requestBody: { role: 'reader', type: 'anyone' }
-                    });
-                    specDocUrl = `https://docs.google.com/document/d/${newFile.id}/edit`;
-                    await log('stage.docs.create.success', { specDocUrl });
-                } else {
-                     await log('stage.docs.create.failed', { error: 'No file ID returned' });
-                }
-            } else {
-                 await log('stage.docs.create.skipped', { reason: 'Template ID not configured' });
+    if (templateFileId.length > 20) { // Basic check
+        const { data: newFile } = await drive.files.copy({
+            fileId: templateFileId,
+            requestBody: {
+                name: `[WIZBI] Project Specification: ${displayName}`,
+                parents: [parentFolderId]
             }
-        } catch (docError: any) {
-            await log('stage.docs.create.error', { error: docError.message });
+        });
+
+        if (newFile.id) {
+            // Make document public
+            await drive.permissions.create({
+                fileId: newFile.id,
+                requestBody: { role: 'reader', type: 'anyone' }
+            });
+            specDocUrl = `https://docs.google.com/document/d/${newFile.id}/edit`;
+            await log('stage.docs.create.success', { specDocUrl });
+
+            // Populate placeholders
+            const creationDate = new Date().toLocaleDateString('he-IL'); // Israeli date format
+            const orgData = (await ORGS_COLLECTION.doc(orgId).get()).data();
+            
+            await docs.documents.batchUpdate({
+                documentId: newFile.id,
+                requestBody: {
+                    requests: [
+                        { replaceAllText: { containsText: { text: '{{PROJECT_DISPLAY_NAME}}', matchCase: true }, replaceText: displayName } },
+                        { replaceAllText: { containsText: { text: '{{PROJECT_ID}}', matchCase: true }, replaceText: projectId } },
+                        { replaceAllText: { containsText: { text: '{{ORGANIZATION_NAME}}', matchCase: true }, replaceText: orgData?.name || 'N/A' } },
+                        { replaceAllText: { containsText: { text: '{{TEMPLATE_NAME}}', matchCase: true }, replaceText: template } },
+                        { replaceAllText: { containsText: { text: '{{CREATION_DATE}}', matchCase: true }, replaceText: creationDate } },
+                        { replaceAllText: { containsText: { text: '{{GITHUB_REPO_URL}}', matchCase: true }, replaceText: githubRepo.url } },
+                        { replaceAllText: { containsText: { text: '{{PROD_URL}}', matchCase: true }, replaceText: `https://${projectId}.web.app` } },
+                        { replaceAllText: { containsText: { text: '{{QA_URL}}', matchCase: true }, replaceText: `https://${projectId}-qa.web.app` } },
+                        { replaceAllText: { containsText: { text: '{{FIREBASE_CONSOLE_URL}}', matchCase: true }, replaceText: `https://console.firebase.google.com/project/${gcpInfra.projectId}` } },
+                        { replaceAllText: { containsText: { text: '{{GCP_CONSOLE_URL}}', matchCase: true }, replaceText: `https://console.cloud.google.com/?project=${gcpInfra.projectId}` } },
+                    ]
+                }
+            });
+            await log('stage.docs.populate.success', { documentId: newFile.id });
+
+        } else {
+            await log('stage.docs.create.failed', { error: 'No file ID returned' });
         }
-        // --- END NEW LOGIC ---
+    } else {
+        await log('stage.docs.create.skipped', { reason: 'Template ID not configured' });
+    }
+} catch (docError: any) {
+    await log('stage.docs.create.error', { error: docError.message, stack: docError.stack });
+}
+// --- END NEW LOGIC ---
 
         await PROJECTS_COLLECTION.doc(projectId).update({ 
             state: 'ready', 
