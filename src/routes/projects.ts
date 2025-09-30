@@ -1,6 +1,6 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
 // File path: src/routes/projects.ts
-// FINAL VERSION: Handles billing failures gracefully and allows for manual intervention.
+// FINAL, ADVANCED VERSION: Flexible link management with icons, colors, and global links.
 
 import { Router, Request, Response, NextFunction } from 'express';
 import admin from 'firebase-admin';
@@ -19,7 +19,6 @@ interface AuthenticatedRequest extends Request {
   userProfile?: UserProfile;
 }
 
-// Custom error for billing issues
 class BillingError extends Error {
     public gcpProjectId: string;
     constructor(message: string, gcpProjectId: string) {
@@ -29,29 +28,26 @@ class BillingError extends Error {
     }
 }
 
-
 const router = Router();
 const db = getDb();
 const PROJECTS_COLLECTION = db.collection('projects');
 const USERS_COLLECTION = db.collection('users');
 const ORGS_COLLECTION = db.collection('orgs');
+const SETTINGS_COLLECTION = db.collection('settings');
 
-// --- Logger ---
 async function projectLogger(projectId: string, evt: string, meta: Record<string, any> = {}) {
     const logEntry = { ts: new Date().toISOString(), severity: 'INFO', evt, ...meta };
     console.log(JSON.stringify({ projectId, ...logEntry }));
     try {
-        PROJECTS_COLLECTION.doc(projectId).collection('logs').add({
+        await PROJECTS_COLLECTION.doc(projectId).collection('logs').add({
             ...logEntry,
             serverTimestamp: admin.firestore.FieldValue.serverTimestamp()
-        }).catch(error => console.error(`ASYNC LOG FAILED: Failed to write log to Firestore for project ${projectId}`, error));
+        });
     } catch (error) { 
         console.error(`SYNC LOG FAILED: Failed to write log to Firestore for project ${projectId}`, error); 
     }
 }
 
-
-// --- Auth Middleware ---
 async function verifyFirebaseToken(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   try {
     const token = req.headers['x-firebase-id-token'] as string || (req.headers.authorization || '').slice(7);
@@ -92,87 +88,64 @@ async function runFullProvisioning(projectId: string) {
     const log = (evt: string, meta?: Record<string, any>) => projectLogger(projectId, evt, meta);
     
     try {
-        // --- STAGE 1: GCP ---
         await log('stage.gcp.start');
         const projectDoc = await PROJECTS_COLLECTION.doc(projectId).get();
         if (!projectDoc.exists) throw new Error('Project document not found in Firestore.');
-
         const { displayName, orgId, template } = projectDoc.data()!;
         const orgDoc = await ORGS_COLLECTION.doc(orgId).get();
         if (!orgDoc.exists || !orgDoc.data()!.gcpFolderId) throw new Error('Parent organization data or GCP Folder ID is invalid.');
-
         await PROJECTS_COLLECTION.doc(projectId).update({ state: 'provisioning_gcp' });
-        
-        // This function now throws a specific 'BillingError' if needed
         const gcpInfra = await GcpService.provisionProjectInfrastructure(projectId, displayName, orgDoc.data()!.gcpFolderId);
-        
         await PROJECTS_COLLECTION.doc(projectId).update({
             state: 'pending_github',
-            gcpProjectId: gcpInfra.projectId,
-            gcpProjectNumber: gcpInfra.projectNumber,
-            gcpServiceAccount: gcpInfra.serviceAccountEmail,
-            gcpWifProvider: gcpInfra.wifProviderName
+            gcpProjectId: gcpInfra.projectId, gcpProjectNumber: gcpInfra.projectNumber,
+            gcpServiceAccount: gcpInfra.serviceAccountEmail, gcpWifProvider: gcpInfra.wifProviderName
         });
         await log('stage.gcp.success', { nextState: 'pending_github' });
-        
-        // --- STAGE 2: GitHub ---
         await log('stage.github.start');
         if (!orgDoc.data()!.githubTeamSlug) throw new Error('Parent organization data or GitHub Team Slug is invalid.');
-        
         await PROJECTS_COLLECTION.doc(projectId).update({ state: 'provisioning_github' });
         const projectInfo = {
-            id: projectId, 
-            displayName: displayName,
+            id: projectId, displayName: displayName,
             gcpRegion: process.env.GCP_DEFAULT_REGION || 'europe-west1'
         };
         const githubRepo = await GithubService.createGithubRepoFromTemplate(projectInfo, orgDoc.data()!.githubTeamSlug, template);
-
         await PROJECTS_COLLECTION.doc(projectId).update({
             state: 'pending_secrets', githubRepoUrl: githubRepo.url
         });
         await log('stage.github.success', { nextState: 'pending_secrets' });
-
-        // --- STAGE 3: Finalize (Secrets & Deployment) ---
         await log('stage.finalize.start');
         await PROJECTS_COLLECTION.doc(projectId).update({ state: 'injecting_secrets' });
-        
         const secretsToCreate = {
-            GCP_PROJECT_ID: gcpInfra.projectId,
-            GCP_REGION: process.env.GCP_DEFAULT_REGION || 'europe-west1',
-            WIF_PROVIDER: gcpInfra.wifProviderName,
-            DEPLOYER_SA: gcpInfra.serviceAccountEmail,
+            GCP_PROJECT_ID: gcpInfra.projectId, GCP_REGION: process.env.GCP_DEFAULT_REGION || 'europe-west1',
+            WIF_PROVIDER: gcpInfra.wifProviderName, DEPLOYER_SA: gcpInfra.serviceAccountEmail,
         };
         await GithubService.createRepoSecrets(projectId, secretsToCreate);
         await GithubService.triggerInitialDeployment(projectId);
-
-        await PROJECTS_COLLECTION.doc(projectId).update({ state: 'ready', error: null }); // Clear any previous error
+        await PROJECTS_COLLECTION.doc(projectId).update({ 
+            state: 'ready', error: null,
+        });
         await log('stage.finalize.success', { finalState: 'ready' });
-
     } catch (e: any) {
         if (e instanceof BillingError) {
             const billingUrl = `https://console.cloud.google.com/billing/linkedaccount?project=${e.gcpProjectId}`;
             const errorMessage = `Manual action required: Please link billing account. URL: ${billingUrl}`;
             await PROJECTS_COLLECTION.doc(projectId).update({ 
-                state: 'pending_billing', 
-                error: errorMessage,
-                gcpProjectId: e.gcpProjectId // Ensure gcpProjectId is saved
+                state: 'pending_billing', error: errorMessage, gcpProjectId: e.gcpProjectId
             });
             await log('stage.gcp.billing_failed_manual_intervention', { error: e.message, gcpProjectId: e.gcpProjectId, billingUrl });
-            return; // Stop the process here until user retries
+            return; 
         }
-
         const errorMessage = (e as Error).message || 'An unknown error occurred';
         const projectDoc = await PROJECTS_COLLECTION.doc(projectId).get();
         const currentState = projectDoc.data()?.state || 'unknown';
-        const failedState = `failed_${currentState.replace('provisioning_', '').replace('injecting_', '').replace('pending_', '')}`;
-        
+        const failedState = `failed_${currentState.replace(/provisioning_|injecting_|pending_/g, '')}`;
         await PROJECTS_COLLECTION.doc(projectId).update({ state: failedState, error: errorMessage });
         await log(`stage.${currentState.replace('pending_','provisioning_')}.failed`, { error: errorMessage, stack: (e as Error).stack });
     }
 }
 
 // --- ROUTES ---
-
 router.get('/projects', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
     try {
         let query: admin.firestore.Query | admin.firestore.CollectionReference = PROJECTS_COLLECTION;
@@ -214,36 +187,28 @@ router.post('/projects', requireAdminAuth, async (req: AuthenticatedRequest, res
     if (!orgId || !displayName || !shortName || !template) {
         return res.status(400).json({ error: 'Missing required fields' });
     }
-
     let projectId = '';
     try {
         const orgDoc = await ORGS_COLLECTION.doc(orgId).get();
         if (!orgDoc.exists) return res.status(404).json({ error: 'Organization not found' });
-        
         const orgName = orgDoc.data()?.name || 'unknown';
         const orgSlug = orgName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
         const formattedShortName = shortName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
         projectId = `wizbi-${orgSlug}-${formattedShortName}`;
-
         const projectDocRef = PROJECTS_COLLECTION.doc(projectId);
         if ((await projectDocRef.get()).exists) {
             return res.status(409).json({ error: `Project ID '${projectId}' already exists.` });
         }
-        
         await projectLogger(projectId, 'project.create.init', { orgId, displayName, shortName, template });
         await projectDocRef.set({
             displayName, orgId, shortName, template,
             createdAt: new Date().toISOString(),
             state: 'pending_gcp',
+            externalLinks: []
         });
         await projectLogger(projectId, 'project.create.success', { finalProjectId: projectId });
-        
-        // Acknowledge the request immediately
         res.status(201).json({ ok: true, id: projectId });
-
-        // Run the long process in the background
         runFullProvisioning(projectId);
-
     } catch (error: any) {
         const eid = projectId || 'unknown-project';
         await projectLogger(eid, 'project.create.fatal', { error: (error as Error).message, stack: (error as Error).stack });
@@ -251,23 +216,99 @@ router.post('/projects', requireAdminAuth, async (req: AuthenticatedRequest, res
     }
 });
 
-// --- UNIFIED PROVISIONING/RETRY ENDPOINT ---
 router.post('/projects/:id/provision', requireAdminAuth, async (req: Request, res: Response) => {
     const { id } = req.params;
     const projectDoc = await PROJECTS_COLLECTION.doc(id).get();
     const state = projectDoc.data()?.state;
-
     if (state && (state.startsWith('provisioning') || state.startsWith('injecting'))) {
         return res.status(409).json({ ok: false, error: 'Provisioning is already in progress.'});
     }
-
-    // Allow retry from failed_billing or pending_billing states
     if (state === 'pending_billing' || state === 'failed_billing' || state.startsWith('failed')) {
         res.status(202).json({ ok: true, message: 'Retrying full provisioning process.' });
         runFullProvisioning(id);
     } else {
         res.status(202).json({ ok: true, message: 'Full provisioning process initiated.' });
         runFullProvisioning(id);
+    }
+});
+
+// --- PROJECT LINK MANAGEMENT ---
+router.post('/projects/:id/links', requireAdminAuth, async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const { url, name, color, icon } = req.body;
+    if (!url || !name || !color || !icon) {
+        return res.status(400).json({ error: 'Missing required fields for link.' });
+    }
+    try {
+        const newLink = { id: new Date().getTime().toString(), url, name, color, icon };
+        await PROJECTS_COLLECTION.doc(id).update({
+            externalLinks: admin.firestore.FieldValue.arrayUnion(newLink)
+        });
+        res.status(201).json({ ok: true, link: newLink });
+    } catch (error: any) {
+        res.status(500).json({ ok: false, error: 'Failed to add link', detail: error.message });
+    }
+});
+
+router.delete('/projects/:projectId/links/:linkId', requireAdminAuth, async (req: Request, res: Response) => {
+    const { projectId, linkId } = req.params;
+    try {
+        const projectDoc = await PROJECTS_COLLECTION.doc(projectId).get();
+        if (!projectDoc.exists) return res.status(404).json({ error: 'Project not found' });
+        const projectData = projectDoc.data()!;
+        const linkToDelete = (projectData.externalLinks || []).find((link: any) => link.id === linkId);
+        if (!linkToDelete) return res.status(404).json({ error: 'Link not found' });
+        await PROJECTS_COLLECTION.doc(projectId).update({
+            externalLinks: admin.firestore.FieldValue.arrayRemove(linkToDelete)
+        });
+        res.status(200).json({ ok: true });
+    } catch (error: any) {
+        res.status(500).json({ ok: false, error: 'Failed to delete link', detail: error.message });
+    }
+});
+
+// --- GLOBAL LINK MANAGEMENT ---
+const GLOBAL_LINKS_DOC = SETTINGS_COLLECTION.doc('globalLinks');
+
+router.get('/global-links', requireAdminAuth, async (req: Request, res: Response) => {
+    try {
+        const doc = await GLOBAL_LINKS_DOC.get();
+        if (!doc.exists) return res.json({ links: [] });
+        res.json({ links: doc.data()?.links || [] });
+    } catch (error: any) {
+        res.status(500).json({ ok: false, error: 'Failed to get global links' });
+    }
+});
+
+router.post('/global-links', requireAdminAuth, async (req: Request, res: Response) => {
+    const { url, name, color, icon } = req.body;
+    if (!url || !name || !color || !icon) {
+        return res.status(400).json({ error: 'Missing required fields for link.' });
+    }
+    try {
+        const newLink = { id: new Date().getTime().toString(), url, name, color, icon };
+        await GLOBAL_LINKS_DOC.set({
+            links: admin.firestore.FieldValue.arrayUnion(newLink)
+        }, { merge: true });
+        res.status(201).json({ ok: true, link: newLink });
+    } catch (error: any) {
+        res.status(500).json({ ok: false, error: 'Failed to add global link' });
+    }
+});
+
+router.delete('/global-links/:linkId', requireAdminAuth, async (req: Request, res: Response) => {
+    const { linkId } = req.params;
+    try {
+        const doc = await GLOBAL_LINKS_DOC.get();
+        if (!doc.exists) return res.status(404).json({ error: 'No global links found' });
+        const linkToDelete = (doc.data()?.links || []).find((link: any) => link.id === linkId);
+        if (!linkToDelete) return res.status(404).json({ error: 'Global link not found' });
+        await GLOBAL_LINKS_DOC.update({
+            links: admin.firestore.FieldValue.arrayRemove(linkToDelete)
+        });
+        res.status(200).json({ ok: true });
+    } catch (error: any) {
+        res.status(500).json({ ok: false, error: 'Failed to delete global link' });
     }
 });
 
@@ -308,9 +349,7 @@ router.delete('/projects/:id', requireAdminAuth, async (req: Request, res: Respo
 });
 
 export default router;
-
 export { BillingError };
-
 export const log = (evt: string, meta: Record<string, any> = {}) => {
   console.log(JSON.stringify({ ts: new Date().toISOString(), severity: 'INFO', evt, ...meta }));
 }

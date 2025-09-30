@@ -62,6 +62,13 @@
       </header>
 
       <div id="tabContentProjects" class="tab-content">
+        <div class="global-links-bar">
+            <div id="globalLinksContainer" class="global-links-container"></div>
+            <button id="btnAddGlobalLink" class="btn btn-secondary btn-sm" title="Add Global Link">
+                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" width="20" height="20"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
+                <span>Add Global Link</span>
+            </button>
+        </div>
         <div class="page-header">
           <h2>Projects</h2>
           <button id="btnShowProvisionProject" class="btn btn-primary">Provision New Project</button>
@@ -207,7 +214,6 @@
           <div class="modal-header">
               <h3 id="logsModalTitle">Logs</h3>
               <div>
-                <button id="btnCopyLogs" class="btn btn-secondary btn-sm">Copy Logs</button>
                 <button class="close-button" data-close="logsModal">&times;</button>
               </div>
           </div>
@@ -217,6 +223,44 @@
       </div>
   </div>
 
-<script src="/admin/admin.js"></script>
+  <div id="addLinkModal" class="modal-overlay hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="addLinkModalTitle">Add New Link</h3>
+        <button class="close-button" data-close="addLinkModal">&times;</button>
+      </div>
+      <form id="addLinkForm">
+        <div class="modal-body">
+            <input type="hidden" id="addLinkContextId"> <div class="form-group">
+                <label for="linkName">Link Name (Tooltip)</label>
+                <input type="text" id="linkName" placeholder="e.g., Project Specification" required>
+            </div>
+            <div class="form-group">
+                <label for="linkUrl">URL</label>
+                <input type="url" id="linkUrl" placeholder="https://..." required>
+            </div>
+            <div class="form-group">
+                <label>Icon</label>
+                <div id="iconPicker" class="icon-picker"></div>
+            </div>
+            <div class="form-group">
+                <label>Icon Color</label>
+                <div class="color-picker">
+                    <input type="radio" id="color-default" name="linkColor" value="default" checked><label for="color-default" class="color-swatch default" title="Default"></label>
+                    <input type="radio" id="color-blue" name="linkColor" value="blue"><label for="color-blue" class="color-swatch blue" title="Blue"></label>
+                    <input type="radio" id="color-green" name="linkColor" value="green"><label for="color-green" class="color-swatch green" title="Green"></label>
+                    <input type="radio" id="color-yellow" name="linkColor" value="yellow"><label for="color-yellow" class="color-swatch yellow" title="Yellow"></label>
+                    <input type="radio" id="color-red" name="linkColor" value="red"><label for="color-red" class="color-swatch red" title="Red"></label>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-close="addLinkModal">Cancel</button>
+            <button type="submit" class="btn btn-primary">Add Link</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  <script src="/admin/admin.js"></script>
 </body>
 </html>
