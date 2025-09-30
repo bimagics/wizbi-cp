@@ -1,6 +1,6 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
 // File path: src/routes/projects.ts
-// FINAL, FIXED VERSION: Corrects the missing Google Docs API scope.
+// FINAL & DEFINITIVE VERSION: Uses explicit JWT auth client for impersonation.
 
 import { Router, Request, Response, NextFunction } from 'express';
 import admin from 'firebase-admin';
@@ -8,6 +8,7 @@ import { getDb } from '../services/firebaseAdmin';
 import * as GcpService from '../services/gcp';
 import * as GithubService from '../services/github';
 import { google } from 'googleapis';
+import { docs_v1 } from 'googleapis';
 
 // --- Interfaces & Types ---
 interface UserProfile {
@@ -20,7 +21,6 @@ interface AuthenticatedRequest extends Request {
   userProfile?: UserProfile;
 }
 
-// Custom error for billing issues
 class BillingError extends Error {
     public gcpProjectId: string;
     constructor(message: string, gcpProjectId: string) {
@@ -30,29 +30,26 @@ class BillingError extends Error {
     }
 }
 
-
 const router = Router();
 const db = getDb();
 const PROJECTS_COLLECTION = db.collection('projects');
 const USERS_COLLECTION = db.collection('users');
 const ORGS_COLLECTION = db.collection('orgs');
+const SETTINGS_COLLECTION = db.collection('settings');
 
-// --- Logger ---
 async function projectLogger(projectId: string, evt: string, meta: Record<string, any> = {}) {
     const logEntry = { ts: new Date().toISOString(), severity: 'INFO', evt, ...meta };
     console.log(JSON.stringify({ projectId, ...logEntry }));
     try {
-        PROJECTS_COLLECTION.doc(projectId).collection('logs').add({
+        await PROJECTS_COLLECTION.doc(projectId).collection('logs').add({
             ...logEntry,
             serverTimestamp: admin.firestore.FieldValue.serverTimestamp()
-        }).catch(error => console.error(`ASYNC LOG FAILED: Failed to write log to Firestore for project ${projectId}`, error));
+        });
     } catch (error) { 
         console.error(`SYNC LOG FAILED: Failed to write log to Firestore for project ${projectId}`, error); 
     }
 }
 
-
-// --- Auth Middleware ---
 async function verifyFirebaseToken(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   try {
     const token = req.headers['x-firebase-id-token'] as string || (req.headers.authorization || '').slice(7);
@@ -90,82 +87,135 @@ export const requireAdminAuth = [...requireAuth, requireSuperAdmin];
 
 // --- REUSABLE CORE LOGIC ---
 
-/**
- * Creates and populates a Google Doc for a given project.
- * @param projectId The ID of the project.
- * @param projectData The project's data from Firestore.
- * @returns The URL of the newly created document.
- */
+async function getOrCreateParentFolderId(drive: any): Promise<string> {
+    const settingsDocRef = SETTINGS_COLLECTION.doc('drive');
+    const settingsDoc = await settingsDocRef.get();
+    
+    if (settingsDoc.exists && settingsDoc.data()?.parentFolderId) {
+        console.log("Found existing parent folder ID in settings.");
+        return settingsDoc.data()!.parentFolderId;
+    }
+
+    console.log("No parent folder ID found. Creating a new one...");
+    const { data: newFolder } = await drive.files.create({
+        requestBody: {
+            name: 'WIZBI Project Documents',
+            mimeType: 'application/vnd.google-apps.folder',
+        },
+        fields: 'id',
+    });
+
+    if (!newFolder.id) {
+        throw new Error('Failed to create the parent Google Drive folder.');
+    }
+
+    await drive.permissions.create({
+        fileId: newFolder.id,
+        requestBody: { role: 'reader', type: 'anyone' },
+    });
+
+    await settingsDocRef.set({ parentFolderId: newFolder.id });
+    console.log(`Successfully created and saved new parent folder ID: ${newFolder.id}`);
+    return newFolder.id;
+}
+
+
 async function createAndPopulateSpecDoc(projectId: string, projectData: admin.firestore.DocumentData): Promise<string> {
     const log = (evt: string, meta?: Record<string, any>) => projectLogger(projectId, evt, meta);
     const { displayName, orgId, template, gcpProjectId, githubRepoUrl, createdAt } = projectData;
 
     try {
         log('stage.docs.create.start');
-        // --- THE FIX IS HERE: Added 'https://www.googleapis.com/auth/documents' scope ---
-        const auth = await google.auth.getClient({ 
+        
+        const gsuiteAdmin = process.env.GSUITE_ADMIN_USER;
+        if (!gsuiteAdmin) {
+            throw new Error('GSUITE_ADMIN_USER environment variable is not set.');
+        }
+
+        // --- THE FINAL FIX: Use JWT Auth Client for impersonation ---
+        const auth = new google.auth.JWT({
+            // The service account email is automatically picked up from the environment
             scopes: [
                 'https://www.googleapis.com/auth/drive',
                 'https://www.googleapis.com/auth/documents'
-            ] 
+            ],
+            subject: gsuiteAdmin // Impersonate this user
         });
+
         const drive = google.drive({ version: 'v3', auth });
         const docs = google.docs({ version: 'v1', auth });
 
-        const templateFileId = '18Rs1tt0j4xL6lj9NFKSPAit_-smk-EOmCTdecvpco8U';
-        const parentFolderId = '1MBK_KI0o7y45Y8WFV3pbPT_MBDh4wvt0';
+        const parentFolderId = await getOrCreateParentFolderId(drive);
 
-        if (!templateFileId || templateFileId.length < 20) {
-            log('stage.docs.create.skipped', { reason: 'Template ID not configured' });
-            return '';
-        }
-
-        const { data: newFile } = await drive.files.copy({
-            fileId: templateFileId,
+        const { data: newFile } = await drive.files.create({
             requestBody: {
                 name: `[WIZBI] Project Specification: ${displayName}`,
-                parents: [parentFolderId]
-            }
+                mimeType: 'application/vnd.google-apps.document',
+                parents: [parentFolderId],
+            },
+            fields: 'id',
         });
 
         if (!newFile.id) {
-            throw new Error('No file ID returned from Google Drive API on copy.');
+            throw new Error('No file ID returned from Google Drive API on create.');
         }
 
-        await drive.permissions.create({
-            fileId: newFile.id,
-            requestBody: { role: 'reader', type: 'anyone' }
-        });
         const specDocUrl = `https://docs.google.com/document/d/${newFile.id}/edit`;
         log('stage.docs.create.success', { specDocUrl });
 
         const creationDate = new Date(createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
         const orgData = (await ORGS_COLLECTION.doc(orgId).get()).data();
         
+        const content = `[WIZBI] Project Specification: ${displayName}\n` +
+                        `Version: 1.0 | Status: Inception | Last Updated: ${creationDate}\n\n` +
+                        `## 1. Project Overview\n\n` +
+                        `### 1.1. Executive Summary & Vision\n* **One-Liner:** \n* **Problem Statement:** \n* **Vision & Goal:** \n\n` +
+                        `### 1.2. Key Performance Indicators (KPIs)\n*AI-Actionable: The following KPIs are defined to measure the success of this project.*\n* \`kpi_1\`:\n* \`kpi_2\`:\n* \`kpi_3\`:\n\n` +
+                        `## 2. System & Resource Links (Auto-Generated)\n\n`;
+        
+        const requests: docs_v1.Schema$Request[] = [{
+            insertText: { location: { index: 1 }, text: content, }
+        }, {
+            insertTable: { location: { index: content.length + 1 }, rows: 8, columns: 2 }
+        }];
+
         await docs.documents.batchUpdate({
             documentId: newFile.id,
-            requestBody: {
-                requests: [
-                    { replaceAllText: { containsText: { text: '{{PROJECT_DISPLAY_NAME}}', matchCase: true }, replaceText: displayName } },
-                    { replaceAllText: { containsText: { text: '{{PROJECT_ID}}', matchCase: true }, replaceText: projectId } },
-                    { replaceAllText: { containsText: { text: '{{ORGANIZATION_NAME}}', matchCase: true }, replaceText: orgData?.name || 'N/A' } },
-                    { replaceAllText: { containsText: { text: '{{TEMPLATE_NAME}}', matchCase: true }, replaceText: template } },
-                    { replaceAllText: { containsText: { text: '{{CREATION_DATE}}', matchCase: true }, replaceText: creationDate } },
-                    { replaceAllText: { containsText: { text: '{{GITHUB_REPO_URL}}', matchCase: true }, replaceText: githubRepoUrl } },
-                    { replaceAllText: { containsText: { text: '{{PROD_URL}}', matchCase: true }, replaceText: `https://${projectId}.web.app` } },
-                    { replaceAllText: { containsText: { text: '{{QA_URL}}', matchCase: true }, replaceText: `https://${projectId}-qa.web.app` } },
-                    { replaceAllText: { containsText: { text: '{{FIREBASE_CONSOLE_URL}}', matchCase: true }, replaceText: `https://console.firebase.google.com/project/${gcpProjectId}` } },
-                    { replaceAllText: { containsText: { text: '{{GCP_CONSOLE_URL}}', matchCase: true }, replaceText: `https://console.cloud.google.com/?project=${gcpProjectId}` } },
-                ]
-            }
+            requestBody: { requests },
         });
-        log('stage.docs.populate.success', { documentId: newFile.id });
 
+        const tableRequests: docs_v1.Schema$Request[] = [
+            { insertText: { location: { index: content.length + 50 }, text: `https://console.cloud.google.com/?project=${gcpProjectId}` } },
+            { insertText: { location: { index: content.length + 49 }, text: "Google Cloud Console" } },
+            { insertText: { location: { index: content.length + 45 }, text: `https://console.firebase.google.com/project/${gcpProjectId}` } },
+            { insertText: { location: { index: content.length + 44 }, text: "Firebase Console" } },
+            { insertText: { location: { index: content.length + 40 }, text: `https://${projectId}-qa.web.app` } },
+            { insertText: { location: { index: content.length + 39 }, text: "QA Site" } },
+            { insertText: { location: { index: content.length + 35 }, text: `https://${projectId}.web.app` } },
+            { insertText: { location: { index: content.length + 34 }, text: "Production Site" } },
+            { insertText: { location: { index: content.length + 30 }, text: githubRepoUrl } },
+            { insertText: { location: { index: content.length + 29 }, text: "GitHub Repository" } },
+            { insertText: { location: { index: content.length + 25 }, text: template } },
+            { insertText: { location: { index: content.length + 24 }, text: "Source Template" } },
+            { insertText: { location: { index: content.length + 20 }, text: orgData?.name || 'N/A' } },
+            { insertText: { location: { index: content.length + 19 }, text: "Organization" } },
+            { insertText: { location: { index: content.length + 15 }, text: projectId } },
+            { insertText: { location: { index: content.length + 14 }, text: "Project ID" } },
+            { insertText: { location: { index: content.length + 10 }, text: "Link" } },
+            { insertText: { location: { index: content.length + 9 }, text: "Resource" } },
+        ];
+
+        await docs.documents.batchUpdate({
+             documentId: newFile.id,
+             requestBody: { requests: tableRequests }
+        });
+
+        log('stage.docs.populate.success', { documentId: newFile.id });
         return specDocUrl;
 
     } catch (error: any) {
         log('stage.docs.create.error', { error: error.message, stack: error.stack });
-        return ''; // Return empty string on failure, the process should not halt
+        throw error;
     }
 }
 
@@ -174,94 +224,67 @@ async function runFullProvisioning(projectId: string) {
     const log = (evt: string, meta?: Record<string, any>) => projectLogger(projectId, evt, meta);
     
     try {
-        // --- STAGE 1: GCP ---
         await log('stage.gcp.start');
         let projectDoc = await PROJECTS_COLLECTION.doc(projectId).get();
         if (!projectDoc.exists) throw new Error('Project document not found in Firestore.');
-
         const { displayName, orgId, template } = projectDoc.data()!;
         const orgDoc = await ORGS_COLLECTION.doc(orgId).get();
         if (!orgDoc.exists || !orgDoc.data()!.gcpFolderId) throw new Error('Parent organization data or GCP Folder ID is invalid.');
-
         await PROJECTS_COLLECTION.doc(projectId).update({ state: 'provisioning_gcp' });
-        
         const gcpInfra = await GcpService.provisionProjectInfrastructure(projectId, displayName, orgDoc.data()!.gcpFolderId);
-        
         await PROJECTS_COLLECTION.doc(projectId).update({
             state: 'pending_github',
-            gcpProjectId: gcpInfra.projectId,
-            gcpProjectNumber: gcpInfra.projectNumber,
-            gcpServiceAccount: gcpInfra.serviceAccountEmail,
-            gcpWifProvider: gcpInfra.wifProviderName
+            gcpProjectId: gcpInfra.projectId, gcpProjectNumber: gcpInfra.projectNumber,
+            gcpServiceAccount: gcpInfra.serviceAccountEmail, gcpWifProvider: gcpInfra.wifProviderName
         });
         await log('stage.gcp.success', { nextState: 'pending_github' });
-        
-        // --- STAGE 2: GitHub ---
         await log('stage.github.start');
         if (!orgDoc.data()!.githubTeamSlug) throw new Error('Parent organization data or GitHub Team Slug is invalid.');
-        
         await PROJECTS_COLLECTION.doc(projectId).update({ state: 'provisioning_github' });
         const projectInfo = {
-            id: projectId, 
-            displayName: displayName,
+            id: projectId, displayName: displayName,
             gcpRegion: process.env.GCP_DEFAULT_REGION || 'europe-west1'
         };
         const githubRepo = await GithubService.createGithubRepoFromTemplate(projectInfo, orgDoc.data()!.githubTeamSlug, template);
-
         await PROJECTS_COLLECTION.doc(projectId).update({
             state: 'pending_secrets', githubRepoUrl: githubRepo.url
         });
         await log('stage.github.success', { nextState: 'pending_secrets' });
-
-        // --- STAGE 3: Finalize (Secrets & Deployment) ---
         await log('stage.finalize.start');
         await PROJECTS_COLLECTION.doc(projectId).update({ state: 'injecting_secrets' });
-        
         const secretsToCreate = {
-            GCP_PROJECT_ID: gcpInfra.projectId,
-            GCP_REGION: process.env.GCP_DEFAULT_REGION || 'europe-west1',
-            WIF_PROVIDER: gcpInfra.wifProviderName,
-            DEPLOYER_SA: gcpInfra.serviceAccountEmail,
+            GCP_PROJECT_ID: gcpInfra.projectId, GCP_REGION: process.env.GCP_DEFAULT_REGION || 'europe-west1',
+            WIF_PROVIDER: gcpInfra.wifProviderName, DEPLOYER_SA: gcpInfra.serviceAccountEmail,
         };
         await GithubService.createRepoSecrets(projectId, secretsToCreate);
         await GithubService.triggerInitialDeployment(projectId);
-        
         projectDoc = await PROJECTS_COLLECTION.doc(projectId).get();
-        const specDocUrl = await createAndPopulateSpecDoc(projectId, projectDoc.data()!);
-
+        const specDocUrl = await createAndPopulateSpecDoc(projectId, projectDoc.data()!).catch(() => ''); 
         await PROJECTS_COLLECTION.doc(projectId).update({ 
-            state: 'ready', 
-            error: null,
+            state: 'ready', error: null,
             specDocUrl: specDocUrl || null
         });
         await log('stage.finalize.success', { finalState: 'ready' });
-
     } catch (e: any) {
         if (e instanceof BillingError) {
             const billingUrl = `https://console.cloud.google.com/billing/linkedaccount?project=${e.gcpProjectId}`;
             const errorMessage = `Manual action required: Please link billing account. URL: ${billingUrl}`;
             await PROJECTS_COLLECTION.doc(projectId).update({ 
-                state: 'pending_billing', 
-                error: errorMessage,
-                gcpProjectId: e.gcpProjectId
+                state: 'pending_billing', error: errorMessage, gcpProjectId: e.gcpProjectId
             });
             await log('stage.gcp.billing_failed_manual_intervention', { error: e.message, gcpProjectId: e.gcpProjectId, billingUrl });
             return; 
         }
-
         const errorMessage = (e as Error).message || 'An unknown error occurred';
         const projectDoc = await PROJECTS_COLLECTION.doc(projectId).get();
         const currentState = projectDoc.data()?.state || 'unknown';
-        const failedState = `failed_${currentState.replace('provisioning_', '').replace('injecting_', '').replace('pending_', '')}`;
-        
+        const failedState = `failed_${currentState.replace(/provisioning_|injecting_|pending_/g, '')}`;
         await PROJECTS_COLLECTION.doc(projectId).update({ state: failedState, error: errorMessage });
         await log(`stage.${currentState.replace('pending_','provisioning_')}.failed`, { error: errorMessage, stack: (e as Error).stack });
     }
 }
 
 // --- ROUTES ---
-// ... (The rest of the routes remain exactly the same as the previous version)
-
 router.get('/projects', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
     try {
         let query: admin.firestore.Query | admin.firestore.CollectionReference = PROJECTS_COLLECTION;
@@ -335,11 +358,9 @@ router.post('/projects/:id/provision', requireAdminAuth, async (req: Request, re
     const { id } = req.params;
     const projectDoc = await PROJECTS_COLLECTION.doc(id).get();
     const state = projectDoc.data()?.state;
-
     if (state && (state.startsWith('provisioning') || state.startsWith('injecting'))) {
         return res.status(409).json({ ok: false, error: 'Provisioning is already in progress.'});
     }
-
     if (state === 'pending_billing' || state === 'failed_billing' || state.startsWith('failed')) {
         res.status(202).json({ ok: true, message: 'Retrying full provisioning process.' });
         runFullProvisioning(id);
@@ -363,17 +384,13 @@ router.post('/projects/:id/generate-doc', requireAdminAuth, async (req: Request,
         if (projectData.specDocUrl) {
             return res.status(400).json({ error: 'Document already exists for this project.' });
         }
-
         const specDocUrl = await createAndPopulateSpecDoc(id, projectData);
         if (!specDocUrl) {
             throw new Error('Document creation failed. Check logs for details.');
         }
-
         await PROJECTS_COLLECTION.doc(id).update({ specDocUrl });
         log('project.doc.generate.success', { specDocUrl });
-        
         res.status(200).json({ ok: true, message: 'Document generated successfully.', specDocUrl });
-
     } catch (error: any) {
         log('project.doc.generate.error', { error: error.message });
         res.status(500).json({ ok: false, error: 'Failed to generate document', detail: error.message });
