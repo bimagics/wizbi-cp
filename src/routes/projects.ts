@@ -1,6 +1,6 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
 // File path: src/routes/projects.ts
-// FINAL & MOST ROBUST VERSION: Creates a Google Doc from scratch, removing all template dependencies.
+// FINAL, MOST ROBUST VERSION: Creates a Google Doc from scratch, removing all template dependencies.
 
 import { Router, Request, Response, NextFunction } from 'express';
 import admin from 'firebase-admin';
@@ -8,6 +8,7 @@ import { getDb } from '../services/firebaseAdmin';
 import * as GcpService from '../services/gcp';
 import * as GithubService from '../services/github';
 import { google } from 'googleapis';
+import { docs_v1 } from 'googleapis';
 
 // --- Interfaces & Types ---
 interface UserProfile {
@@ -115,7 +116,10 @@ async function getOrCreateParentFolderId(drive: any): Promise<string> {
 
     await drive.permissions.create({
         fileId: newFolder.id,
-        requestBody: { role: 'reader', type: 'anyone' },
+        requestBody: {
+            role: 'reader',
+            type: 'anyone',
+        },
     });
 
     await settingsDocRef.set({ parentFolderId: newFolder.id });
@@ -141,7 +145,6 @@ async function createAndPopulateSpecDoc(projectId: string, projectData: admin.fi
 
         const parentFolderId = await getOrCreateParentFolderId(drive);
 
-        // --- NEW LOGIC: Create a blank document ---
         const { data: newFile } = await drive.files.create({
             requestBody: {
                 name: `[WIZBI] Project Specification: ${displayName}`,
@@ -161,41 +164,61 @@ async function createAndPopulateSpecDoc(projectId: string, projectData: admin.fi
         const creationDate = new Date(createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
         const orgData = (await ORGS_COLLECTION.doc(orgId).get()).data();
         
-        // --- NEW LOGIC: Build the document content from scratch ---
-        const requests = [
-            { insertText: { location: { index: 1 }, text: `# [WIZBI] Project Specification: ${displayName}\n` } },
-            { insertText: { location: { index: 1 }, text: `**Version:** 1.0 | **Status:** Inception | **Last Updated:** ${creationDate}\n\n` } },
-            { insertText: { location: { index: 1 }, text: `## 1. Project Overview\n\n` } },
-            { insertText: { location: { index: 1 }, text: `### 1.1. Executive Summary & Vision\n* **One-Liner:** \n* **Problem Statement:** \n* **Vision & Goal:** \n\n` } },
-            { insertText: { location: { index: 1 }, text: `### 1.2. Key Performance Indicators (KPIs)\n*AI-Actionable: The following KPIs are defined to measure the success of this project.*\n* \`kpi_1\`:\n* \`kpi_2\`:\n* \`kpi_3\`:\n\n` } },
-            { insertText: { location: { index: 1 }, text: `## 2. System & Resource Links (Auto-Generated)\n\n` } },
-            // This creates the table
-            { insertTable: { location: { index: 1 }, rows: 8, columns: 2 } },
-            // Populate table headers and rows (note: indexes are relative to the start of the table)
-            { insertText: { location: { index: 5 }, text: "Resource" } },
-            { insertText: { location: { index: 20 }, text: "Link" } },
-            { insertText: { location: { index: 30 }, text: "Project ID" } },
-            { insertText: { location: { index: 45 }, text: `${projectId}` } },
-            { insertText: { location: { index: 55 }, text: "Organization" } },
-            { insertText: { location: { index: 70 }, text: `${orgData?.name || 'N/A'}` } },
-            { insertText: { location: { index: 80 }, text: "Source Template" } },
-            { insertText: { location: { index: 95 }, text: `${template}` } },
-            { insertText: { location: { index: 105 }, text: "GitHub Repository" } },
-            { insertText: { location: { index: 120 }, text: `${githubRepoUrl}` } },
-            { insertText: { location: { index: 130 }, text: "Production Site" } },
-            { insertText: { location: { index: 145 }, text: `https://${projectId}.web.app` } },
-            { insertText: { location: { index: 155 }, text: "QA Site" } },
-            { insertText: { location: { index: 170 }, text: `https://${projectId}-qa.web.app` } },
-            { insertText: { location: { index: 180 }, text: "Firebase Console" } },
-            { insertText: { location: { index: 195 }, text: `https://console.firebase.google.com/project/${gcpProjectId}` } },
-            { insertText: { location: { index: 1 }, text: `## 3. Scope & Features\n\n...` } }, // Add more sections as needed
-        ];
+        // --- Build the document content from scratch using batchUpdate ---
+        const content = `[WIZBI] Project Specification: ${displayName}\n` +
+                        `Version: 1.0 | Status: Inception | Last Updated: ${creationDate}\n\n` +
+                        `## 1. Project Overview\n\n` +
+                        `### 1.1. Executive Summary & Vision\n* **One-Liner:** \n* **Problem Statement:** \n* **Vision & Goal:** \n\n` +
+                        `### 1.2. Key Performance Indicators (KPIs)\n*AI-Actionable: The following KPIs are defined to measure the success of this project.*\n* \`kpi_1\`:\n* \`kpi_2\`:\n* \`kpi_3\`:\n\n` +
+                        `## 2. System & Resource Links (Auto-Generated)\n\n`;
         
-        // Reverse requests to insert from bottom to top, preserving indices
+        const requests: docs_v1.Schema$Request[] = [{
+            insertText: {
+                location: { index: 1 },
+                text: content,
+            }
+        }, {
+            insertTable: {
+                location: { index: content.length + 1 },
+                rows: 8,
+                columns: 2
+            }
+        }];
+
+        // The batchUpdate needs to happen in sequence, so we can't do it all at once with just text.
+        // We'll do a second update for the table content.
         await docs.documents.batchUpdate({
             documentId: newFile.id,
-            requestBody: { requests: requests.reverse() },
+            requestBody: { requests },
         });
+
+        // The starting index for table content is tricky. Let's start with a safe high number and go down.
+        const tableRequests: docs_v1.Schema$Request[] = [
+            { insertText: { location: { index: content.length + 50 }, text: `https://console.cloud.google.com/?project=${gcpProjectId}` } },
+            { insertText: { location: { index: content.length + 49 }, text: "Google Cloud Console" } },
+            { insertText: { location: { index: content.length + 45 }, text: `https://console.firebase.google.com/project/${gcpProjectId}` } },
+            { insertText: { location: { index: content.length + 44 }, text: "Firebase Console" } },
+            { insertText: { location: { index: content.length + 40 }, text: `https://${projectId}-qa.web.app` } },
+            { insertText: { location: { index: content.length + 39 }, text: "QA Site" } },
+            { insertText: { location: { index: content.length + 35 }, text: `https://${projectId}.web.app` } },
+            { insertText: { location: { index: content.length + 34 }, text: "Production Site" } },
+            { insertText: { location: { index: content.length + 30 }, text: githubRepoUrl } },
+            { insertText: { location: { index: content.length + 29 }, text: "GitHub Repository" } },
+            { insertText: { location: { index: content.length + 25 }, text: template } },
+            { insertText: { location: { index: content.length + 24 }, text: "Source Template" } },
+            { insertText: { location: { index: content.length + 20 }, text: orgData?.name || 'N/A' } },
+            { insertText: { location: { index: content.length + 19 }, text: "Organization" } },
+            { insertText: { location: { index: content.length + 15 }, text: projectId } },
+            { insertText: { location: { index: content.length + 14 }, text: "Project ID" } },
+            { insertText: { location: { index: content.length + 10 }, text: "Link" } },
+            { insertText: { location: { index: content.length + 9 }, text: "Resource" } },
+        ];
+
+        await docs.documents.batchUpdate({
+             documentId: newFile.id,
+             requestBody: { requests: tableRequests }
+        });
+
 
         log('stage.docs.populate.success', { documentId: newFile.id });
         return specDocUrl;
@@ -272,8 +295,6 @@ async function runFullProvisioning(projectId: string) {
 }
 
 // --- ROUTES ---
-// ... (The rest of the routes are identical, no changes needed there)
-
 router.get('/projects', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
     try {
         let query: admin.firestore.Query | admin.firestore.CollectionReference = PROJECTS_COLLECTION;
