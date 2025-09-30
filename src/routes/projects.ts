@@ -1,6 +1,6 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
 // File path: src/routes/projects.ts
-// FINAL, MOST ROBUST VERSION: Creates a Google Doc from scratch, removing all template dependencies.
+// FINAL, CORRECTED VERSION: Implements GSuite user impersonation for Domain-Wide Delegation.
 
 import { Router, Request, Response, NextFunction } from 'express';
 import admin from 'firebase-admin';
@@ -21,7 +21,6 @@ interface AuthenticatedRequest extends Request {
   userProfile?: UserProfile;
 }
 
-// Custom error for billing issues
 class BillingError extends Error {
     public gcpProjectId: string;
     constructor(message: string, gcpProjectId: string) {
@@ -31,30 +30,26 @@ class BillingError extends Error {
     }
 }
 
-
 const router = Router();
 const db = getDb();
 const PROJECTS_COLLECTION = db.collection('projects');
 const USERS_COLLECTION = db.collection('users');
 const ORGS_COLLECTION = db.collection('orgs');
-const SETTINGS_COLLECTION = db.collection('settings'); // For storing global settings
+const SETTINGS_COLLECTION = db.collection('settings');
 
-// --- Logger ---
 async function projectLogger(projectId: string, evt: string, meta: Record<string, any> = {}) {
     const logEntry = { ts: new Date().toISOString(), severity: 'INFO', evt, ...meta };
     console.log(JSON.stringify({ projectId, ...logEntry }));
     try {
-        PROJECTS_COLLECTION.doc(projectId).collection('logs').add({
+        await PROJECTS_COLLECTION.doc(projectId).collection('logs').add({
             ...logEntry,
             serverTimestamp: admin.firestore.FieldValue.serverTimestamp()
-        }).catch(error => console.error(`ASYNC LOG FAILED: Failed to write log to Firestore for project ${projectId}`, error));
+        });
     } catch (error) { 
         console.error(`SYNC LOG FAILED: Failed to write log to Firestore for project ${projectId}`, error); 
     }
 }
 
-
-// --- Auth Middleware ---
 async function verifyFirebaseToken(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   try {
     const token = req.headers['x-firebase-id-token'] as string || (req.headers.authorization || '').slice(7);
@@ -116,10 +111,7 @@ async function getOrCreateParentFolderId(drive: any): Promise<string> {
 
     await drive.permissions.create({
         fileId: newFolder.id,
-        requestBody: {
-            role: 'reader',
-            type: 'anyone',
-        },
+        requestBody: { role: 'reader', type: 'anyone' },
     });
 
     await settingsDocRef.set({ parentFolderId: newFolder.id });
@@ -127,19 +119,27 @@ async function getOrCreateParentFolderId(drive: any): Promise<string> {
     return newFolder.id;
 }
 
-
 async function createAndPopulateSpecDoc(projectId: string, projectData: admin.firestore.DocumentData): Promise<string> {
     const log = (evt: string, meta?: Record<string, any>) => projectLogger(projectId, evt, meta);
     const { displayName, orgId, template, gcpProjectId, githubRepoUrl, createdAt } = projectData;
 
     try {
         log('stage.docs.create.start');
+        
+        // --- THE FINAL FIX: Impersonate a GSuite user ---
+        const gsuiteAdmin = process.env.GSUITE_ADMIN_USER;
+        if (!gsuiteAdmin) {
+            throw new Error('GSUITE_ADMIN_USER environment variable is not set.');
+        }
+
         const auth = await google.auth.getClient({ 
             scopes: [
                 'https://www.googleapis.com/auth/drive',
                 'https://www.googleapis.com/auth/documents'
-            ] 
+            ],
+            subject: gsuiteAdmin // Tell the auth client to impersonate this user
         });
+        
         const drive = google.drive({ version: 'v3', auth });
         const docs = google.docs({ version: 'v1', auth });
 
@@ -164,7 +164,6 @@ async function createAndPopulateSpecDoc(projectId: string, projectData: admin.fi
         const creationDate = new Date(createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
         const orgData = (await ORGS_COLLECTION.doc(orgId).get()).data();
         
-        // --- Build the document content from scratch using batchUpdate ---
         const content = `[WIZBI] Project Specification: ${displayName}\n` +
                         `Version: 1.0 | Status: Inception | Last Updated: ${creationDate}\n\n` +
                         `## 1. Project Overview\n\n` +
@@ -173,26 +172,16 @@ async function createAndPopulateSpecDoc(projectId: string, projectData: admin.fi
                         `## 2. System & Resource Links (Auto-Generated)\n\n`;
         
         const requests: docs_v1.Schema$Request[] = [{
-            insertText: {
-                location: { index: 1 },
-                text: content,
-            }
+            insertText: { location: { index: 1 }, text: content, }
         }, {
-            insertTable: {
-                location: { index: content.length + 1 },
-                rows: 8,
-                columns: 2
-            }
+            insertTable: { location: { index: content.length + 1 }, rows: 8, columns: 2 }
         }];
 
-        // The batchUpdate needs to happen in sequence, so we can't do it all at once with just text.
-        // We'll do a second update for the table content.
         await docs.documents.batchUpdate({
             documentId: newFile.id,
             requestBody: { requests },
         });
 
-        // The starting index for table content is tricky. Let's start with a safe high number and go down.
         const tableRequests: docs_v1.Schema$Request[] = [
             { insertText: { location: { index: content.length + 50 }, text: `https://console.cloud.google.com/?project=${gcpProjectId}` } },
             { insertText: { location: { index: content.length + 49 }, text: "Google Cloud Console" } },
@@ -218,7 +207,6 @@ async function createAndPopulateSpecDoc(projectId: string, projectData: admin.fi
              documentId: newFile.id,
              requestBody: { requests: tableRequests }
         });
-
 
         log('stage.docs.populate.success', { documentId: newFile.id });
         return specDocUrl;
