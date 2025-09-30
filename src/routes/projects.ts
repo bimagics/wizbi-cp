@@ -1,12 +1,13 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
 // File path: src/routes/projects.ts
-// FINAL VERSION: Handles billing failures gracefully and allows for manual intervention.
+// FINAL VERSION: Includes Google Doc creation and links in the UI.
 
 import { Router, Request, Response, NextFunction } from 'express';
 import admin from 'firebase-admin';
 import { getDb } from '../services/firebaseAdmin';
 import * as GcpService from '../services/gcp';
 import * as GithubService from '../services/github';
+import { google } from 'googleapis'; // Import googleapis
 
 // --- Interfaces & Types ---
 interface UserProfile {
@@ -103,7 +104,6 @@ async function runFullProvisioning(projectId: string) {
 
         await PROJECTS_COLLECTION.doc(projectId).update({ state: 'provisioning_gcp' });
         
-        // This function now throws a specific 'BillingError' if needed
         const gcpInfra = await GcpService.provisionProjectInfrastructure(projectId, displayName, orgDoc.data()!.gcpFolderId);
         
         await PROJECTS_COLLECTION.doc(projectId).update({
@@ -145,20 +145,63 @@ async function runFullProvisioning(projectId: string) {
         await GithubService.createRepoSecrets(projectId, secretsToCreate);
         await GithubService.triggerInitialDeployment(projectId);
 
-        await PROJECTS_COLLECTION.doc(projectId).update({ state: 'ready', error: null }); // Clear any previous error
+        // --- NEW --- STAGE 4: Create Google Doc ---
+        let specDocUrl = '';
+        try {
+            await log('stage.docs.create.start');
+            const auth = await google.auth.getClient({ scopes: ['https://www.googleapis.com/auth/drive'] });
+            const drive = google.drive({ version: 'v3', auth });
+            
+            // !! IMPORTANT: Replace these with your actual IDs from Step 1 !!
+            const templateFileId = '18Rs1tt0j4xL6lj9NFKSPAit_-smk-EOmCTdecvpco8U'; 
+            const parentFolderId = '1MBK_KI0o7y45Y8WFV3pbPT_MBDh4wvt0';
+            
+            if (templateFileId !== 'YOUR_GOOGLE_DOC_TEMPLATE_ID') {
+                const { data: newFile } = await drive.files.copy({
+                    fileId: templateFileId,
+                    requestBody: {
+                        name: `[WIZBI] Project Specification: ${displayName}`,
+                        parents: [parentFolderId]
+                    }
+                });
+    
+                if (newFile.id) {
+                     await drive.permissions.create({
+                        fileId: newFile.id,
+                        requestBody: { role: 'reader', type: 'anyone' }
+                    });
+                    specDocUrl = `https://docs.google.com/document/d/${newFile.id}/edit`;
+                    await log('stage.docs.create.success', { specDocUrl });
+                } else {
+                     await log('stage.docs.create.failed', { error: 'No file ID returned' });
+                }
+            } else {
+                 await log('stage.docs.create.skipped', { reason: 'Template ID not configured' });
+            }
+        } catch (docError: any) {
+            await log('stage.docs.create.error', { error: docError.message });
+        }
+        // --- END NEW LOGIC ---
+
+        await PROJECTS_COLLECTION.doc(projectId).update({ 
+            state: 'ready', 
+            error: null,
+            specDocUrl: specDocUrl || null // Add the new field
+        });
         await log('stage.finalize.success', { finalState: 'ready' });
 
     } catch (e: any) {
+        // ... (existing error handling code remains the same)
         if (e instanceof BillingError) {
             const billingUrl = `https://console.cloud.google.com/billing/linkedaccount?project=${e.gcpProjectId}`;
             const errorMessage = `Manual action required: Please link billing account. URL: ${billingUrl}`;
             await PROJECTS_COLLECTION.doc(projectId).update({ 
                 state: 'pending_billing', 
                 error: errorMessage,
-                gcpProjectId: e.gcpProjectId // Ensure gcpProjectId is saved
+                gcpProjectId: e.gcpProjectId
             });
             await log('stage.gcp.billing_failed_manual_intervention', { error: e.message, gcpProjectId: e.gcpProjectId, billingUrl });
-            return; // Stop the process here until user retries
+            return; 
         }
 
         const errorMessage = (e as Error).message || 'An unknown error occurred';
@@ -187,6 +230,7 @@ router.get('/projects', requireAuth, async (req: AuthenticatedRequest, res: Resp
     } catch(e: any) { res.status(500).json({ error: "Failed to list projects" }); }
 });
 
+// ... (rest of the file remains the same)
 router.get('/projects/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
     try {
         const { id } = req.params;
@@ -238,10 +282,7 @@ router.post('/projects', requireAdminAuth, async (req: AuthenticatedRequest, res
         });
         await projectLogger(projectId, 'project.create.success', { finalProjectId: projectId });
         
-        // Acknowledge the request immediately
         res.status(201).json({ ok: true, id: projectId });
-
-        // Run the long process in the background
         runFullProvisioning(projectId);
 
     } catch (error: any) {
@@ -251,7 +292,6 @@ router.post('/projects', requireAdminAuth, async (req: AuthenticatedRequest, res
     }
 });
 
-// --- UNIFIED PROVISIONING/RETRY ENDPOINT ---
 router.post('/projects/:id/provision', requireAdminAuth, async (req: Request, res: Response) => {
     const { id } = req.params;
     const projectDoc = await PROJECTS_COLLECTION.doc(id).get();
@@ -261,7 +301,6 @@ router.post('/projects/:id/provision', requireAdminAuth, async (req: Request, re
         return res.status(409).json({ ok: false, error: 'Provisioning is already in progress.'});
     }
 
-    // Allow retry from failed_billing or pending_billing states
     if (state === 'pending_billing' || state === 'failed_billing' || state.startsWith('failed')) {
         res.status(202).json({ ok: true, message: 'Retrying full provisioning process.' });
         runFullProvisioning(id);
