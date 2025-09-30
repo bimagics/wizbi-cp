@@ -1,5 +1,5 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
-// This is the full and final code for admin.js, with graceful handling for billing failures.
+// This is the full and final code for admin.js, with Google Doc and Firebase links.
 document.addEventListener('DOMContentLoaded', () => {
     const firebaseAuth = firebase.auth();
     const googleProvider = new firebase.auth.GoogleAuthProvider();
@@ -23,6 +23,9 @@ document.addEventListener('DOMContentLoaded', () => {
         RETRY: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5M20 19v-5h-5M4 19h5v-5M20 4h-5v5"/></svg>`,
         COPY: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" width="16" height="16"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>`,
         BILLING: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path></svg>`,
+        // --- NEW ICONS ---
+        DOCS: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>`,
+        FIREBASE: `<svg fill="currentColor" viewBox="0 0 24 24"><path d="M18.82 9.22l-4.39-4.39a1.68 1.68 0 00-2.37 0L4 12.87V13a1.69 1.69 0 00.49 1.2l5.77 5.76a1.68 1.68 0 002.37 0l6.19-6.18a1.68 1.68 0 000-2.36zM7.3 13.5l2.45-4.32 4.31 4.31-4.31 2.45-2.45-2.44zM4.11 8.35L11 1.49a1.68 1.68 0 012.37 0l4.39 4.39-7.82 7.82L4.11 8.35z"></path></svg>`,
     };
 
     const DOM = {
@@ -115,7 +118,6 @@ document.addEventListener('DOMContentLoaded', () => {
             button.innerHTML = `${item.icon}<span>${item.id}</span>`;
             button.addEventListener('click', () => {
                 switchTab(item.id);
-                // Close mobile menu on navigation
                 if (window.innerWidth <= 992) {
                     document.body.classList.remove('mobile-menu-open');
                 }
@@ -137,13 +139,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function setupSidebarToggle() {
-        // Desktop Toggle
         DOM.sidebarToggleDesktop.addEventListener('click', () => {
             document.body.classList.toggle('sidebar-collapsed');
             localStorage.setItem('sidebarCollapsed', document.body.classList.contains('sidebar-collapsed'));
         });
 
-        // Mobile Toggle
         DOM.hamburgerButton.addEventListener('click', () => {
             document.body.classList.toggle('mobile-menu-open');
         });
@@ -151,7 +151,6 @@ document.addEventListener('DOMContentLoaded', () => {
             document.body.classList.remove('mobile-menu-open');
         });
         
-        // Check local storage for saved state on desktop
         if (window.innerWidth > 992 && localStorage.getItem('sidebarCollapsed') === 'true') {
             document.body.classList.add('sidebar-collapsed');
         }
@@ -279,6 +278,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     ${isPendingBilling ? `<a href="${billingUrl}" target="_blank" class="icon-button billing-link" title="Link Billing Account">${ICONS.BILLING}</a>` : ''}
                     ${p.gcpProjectId ? `<a href="https://console.cloud.google.com/run?project=${p.gcpProjectId}" target="_blank" class="icon-button" title="Cloud Run Services">${ICONS.CLOUDRUN}</a>` : ''}
                     ${p.githubRepoUrl ? `<a href="${p.githubRepoUrl}" target="_blank" class="icon-button" title="GitHub Repo">${ICONS.GITHUB}</a>` : ''}
+                    ${p.gcpProjectId ? `<a href="https://console.firebase.google.com/project/${p.gcpProjectId}" target="_blank" class="icon-button" title="Firebase Console">${ICONS.FIREBASE}</a>` : ''}
+                    ${p.specDocUrl ? `<a href="${p.specDocUrl}" target="_blank" class="icon-button" title="Specification Document">${ICONS.DOCS}</a>` : ''}
                     ${isReady ? `<a href="https://${p.id}.web.app" target="_blank" class="icon-button" title="Production Site">${ICONS.LINK}</a>` : ''}
                     ${isReady ? `<a href="https://${p.id}-qa.web.app" target="_blank" class="icon-button" title="QA Site" style="color: var(--warning-color);">${ICONS.LINK}</a>` : ''}
                 </div></td>
@@ -367,7 +368,7 @@ document.addEventListener('DOMContentLoaded', () => {
             e.target.reset(); DOM.fullProjectIdPreview.value = '';
             document.getElementById('formProvisionProjectCard').classList.add('hidden');
             await loadProjects();
-            startProjectPolling(newProject.id); // Start polling immediately
+            startProjectPolling(newProject.id);
         } catch (error) { alert(`Failed to create project entry: ${error.message}`); }
     });
 
@@ -409,7 +410,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const { action, id, uid, type, name, description } = button.dataset;
         
-        if (action === 'provision') { // This is the single unified action now
+        if (action === 'provision') {
              try {
                 await callApi(`/projects/${id}/provision`, { method: 'POST' });
                 startProjectPolling(id);
@@ -535,7 +536,6 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // --- Automated Provisioning Logic ---
     function isProjectInProcess(state) {
-        // pending_billing is now considered an "in process" but paused state.
         return state && (state.startsWith('provisioning') || state.startsWith('injecting') || state.startsWith('pending_') || state.startsWith('deleting'));
     }
 
@@ -587,8 +587,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 row.outerHTML = generateProjectRowHTML(projectWithOrg);
             }
 
-            // Do not stop polling on pending_billing, but don't start it either if that's the initial state.
-            // The user action (Retry) will trigger the continuation.
             if (!isProjectInProcess(project.state) || project.state === 'pending_billing') {
                 stopProjectPolling(projectId);
             }
