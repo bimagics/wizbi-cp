@@ -217,6 +217,17 @@
       </div>
   </div>
 
-<script src="/admin/admin.js"></script>
+  <div id="docPreviewModal" class="modal-overlay hidden">
+    <div class="modal-content modal-xl">
+        <div class="modal-header">
+            <h3 id="docPreviewModalTitle">Document Preview</h3>
+            <button class="close-button" data-close="docPreviewModal">&times;</button>
+        </div>
+        <div class="modal-body doc-preview-body">
+            <iframe id="docPreviewFrame" src="about:blank" frameborder="0"></iframe>
+        </div>
+    </div>
+  </div>
+  <script src="/admin/admin.js"></script>
 </body>
 </html>
