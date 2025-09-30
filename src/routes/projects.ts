@@ -1,13 +1,13 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
 // File path: src/routes/projects.ts
-// FINAL VERSION: Includes Google Doc creation and links in the UI.
+// FINAL, PERFECTED VERSION: Includes doc preview, backfill functionality, and refactored logic.
 
 import { Router, Request, Response, NextFunction } from 'express';
 import admin from 'firebase-admin';
 import { getDb } from '../services/firebaseAdmin';
 import * as GcpService from '../services/gcp';
 import * as GithubService from '../services/github';
-import { google } from 'googleapis'; // Import googleapis
+import { google } from 'googleapis';
 
 // --- Interfaces & Types ---
 interface UserProfile {
@@ -88,6 +88,81 @@ function requireSuperAdmin(req: AuthenticatedRequest, res: Response, next: NextF
 export const requireAuth = [verifyFirebaseToken, fetchUserProfile];
 export const requireAdminAuth = [...requireAuth, requireSuperAdmin];
 
+// --- REUSABLE CORE LOGIC ---
+
+/**
+ * Creates and populates a Google Doc for a given project.
+ * @param projectId The ID of the project.
+ * @param projectData The project's data from Firestore.
+ * @returns The URL of the newly created document.
+ */
+async function createAndPopulateSpecDoc(projectId: string, projectData: admin.firestore.DocumentData): Promise<string> {
+    const log = (evt: string, meta?: Record<string, any>) => projectLogger(projectId, evt, meta);
+    const { displayName, orgId, template, gcpProjectId, githubRepoUrl, createdAt } = projectData;
+
+    try {
+        log('stage.docs.create.start');
+        const auth = await google.auth.getClient({ scopes: ['https://www.googleapis.com/auth/drive'] });
+        const drive = google.drive({ version: 'v3', auth });
+        const docs = google.docs({ version: 'v1', auth });
+
+        const templateFileId = '18Rs1tt0j4xL6lj9NFKSPAit_-smk-EOmCTdecvpco8U';
+        const parentFolderId = '1MBK_KI0o7y45Y8WFV3pbPT_MBDh4wvt0';
+
+        if (!templateFileId || templateFileId.length < 20) {
+            log('stage.docs.create.skipped', { reason: 'Template ID not configured' });
+            return '';
+        }
+
+        const { data: newFile } = await drive.files.copy({
+            fileId: templateFileId,
+            requestBody: {
+                name: `[WIZBI] Project Specification: ${displayName}`,
+                parents: [parentFolderId]
+            }
+        });
+
+        if (!newFile.id) {
+            throw new Error('No file ID returned from Google Drive API on copy.');
+        }
+
+        await drive.permissions.create({
+            fileId: newFile.id,
+            requestBody: { role: 'reader', type: 'anyone' }
+        });
+        const specDocUrl = `https://docs.google.com/document/d/${newFile.id}/edit`;
+        log('stage.docs.create.success', { specDocUrl });
+
+        const creationDate = new Date(createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+        const orgData = (await ORGS_COLLECTION.doc(orgId).get()).data();
+        
+        await docs.documents.batchUpdate({
+            documentId: newFile.id,
+            requestBody: {
+                requests: [
+                    { replaceAllText: { containsText: { text: '{{PROJECT_DISPLAY_NAME}}', matchCase: true }, replaceText: displayName } },
+                    { replaceAllText: { containsText: { text: '{{PROJECT_ID}}', matchCase: true }, replaceText: projectId } },
+                    { replaceAllText: { containsText: { text: '{{ORGANIZATION_NAME}}', matchCase: true }, replaceText: orgData?.name || 'N/A' } },
+                    { replaceAllText: { containsText: { text: '{{TEMPLATE_NAME}}', matchCase: true }, replaceText: template } },
+                    { replaceAllText: { containsText: { text: '{{CREATION_DATE}}', matchCase: true }, replaceText: creationDate } },
+                    { replaceAllText: { containsText: { text: '{{GITHUB_REPO_URL}}', matchCase: true }, replaceText: githubRepoUrl } },
+                    { replaceAllText: { containsText: { text: '{{PROD_URL}}', matchCase: true }, replaceText: `https://${projectId}.web.app` } },
+                    { replaceAllText: { containsText: { text: '{{QA_URL}}', matchCase: true }, replaceText: `https://${projectId}-qa.web.app` } },
+                    { replaceAllText: { containsText: { text: '{{FIREBASE_CONSOLE_URL}}', matchCase: true }, replaceText: `https://console.firebase.google.com/project/${gcpProjectId}` } },
+                    { replaceAllText: { containsText: { text: '{{GCP_CONSOLE_URL}}', matchCase: true }, replaceText: `https://console.cloud.google.com/?project=${gcpProjectId}` } },
+                ]
+            }
+        });
+        log('stage.docs.populate.success', { documentId: newFile.id });
+
+        return specDocUrl;
+
+    } catch (error: any) {
+        log('stage.docs.create.error', { error: error.message, stack: error.stack });
+        return ''; // Return empty string on failure, the process should not halt
+    }
+}
+
 // --- Orchestration Logic ---
 async function runFullProvisioning(projectId: string) {
     const log = (evt: string, meta?: Record<string, any>) => projectLogger(projectId, evt, meta);
@@ -95,7 +170,7 @@ async function runFullProvisioning(projectId: string) {
     try {
         // --- STAGE 1: GCP ---
         await log('stage.gcp.start');
-        const projectDoc = await PROJECTS_COLLECTION.doc(projectId).get();
+        let projectDoc = await PROJECTS_COLLECTION.doc(projectId).get();
         if (!projectDoc.exists) throw new Error('Project document not found in Firestore.');
 
         const { displayName, orgId, template } = projectDoc.data()!;
@@ -144,79 +219,19 @@ async function runFullProvisioning(projectId: string) {
         };
         await GithubService.createRepoSecrets(projectId, secretsToCreate);
         await GithubService.triggerInitialDeployment(projectId);
-
-// --- NEW --- STAGE 4: Create Google Doc & Populate Placeholders ---
-let specDocUrl = '';
-try {
-    await log('stage.docs.create.start');
-    const auth = await google.auth.getClient({ scopes: ['https://www.googleapis.com/auth/drive'] });
-    const drive = google.drive({ version: 'v3', auth });
-    const docs = google.docs({ version: 'v1', auth });
-
-    const templateFileId = '18Rs1tt0j4xL6lj9NFKSPAit_-smk-EOmCTdecvpco8U'; 
-    const parentFolderId = '1MBK_KI0o7y45Y8WFV3pbPT_MBDh4wvt0';
-    
-    if (templateFileId.length > 20) { // Basic check
-        const { data: newFile } = await drive.files.copy({
-            fileId: templateFileId,
-            requestBody: {
-                name: `[WIZBI] Project Specification: ${displayName}`,
-                parents: [parentFolderId]
-            }
-        });
-
-        if (newFile.id) {
-            // Make document public
-            await drive.permissions.create({
-                fileId: newFile.id,
-                requestBody: { role: 'reader', type: 'anyone' }
-            });
-            specDocUrl = `https://docs.google.com/document/d/${newFile.id}/edit`;
-            await log('stage.docs.create.success', { specDocUrl });
-
-            // Populate placeholders
-            const creationDate = new Date().toLocaleDateString('he-IL'); // Israeli date format
-            const orgData = (await ORGS_COLLECTION.doc(orgId).get()).data();
-            
-            await docs.documents.batchUpdate({
-                documentId: newFile.id,
-                requestBody: {
-                    requests: [
-                        { replaceAllText: { containsText: { text: '{{PROJECT_DISPLAY_NAME}}', matchCase: true }, replaceText: displayName } },
-                        { replaceAllText: { containsText: { text: '{{PROJECT_ID}}', matchCase: true }, replaceText: projectId } },
-                        { replaceAllText: { containsText: { text: '{{ORGANIZATION_NAME}}', matchCase: true }, replaceText: orgData?.name || 'N/A' } },
-                        { replaceAllText: { containsText: { text: '{{TEMPLATE_NAME}}', matchCase: true }, replaceText: template } },
-                        { replaceAllText: { containsText: { text: '{{CREATION_DATE}}', matchCase: true }, replaceText: creationDate } },
-                        { replaceAllText: { containsText: { text: '{{GITHUB_REPO_URL}}', matchCase: true }, replaceText: githubRepo.url } },
-                        { replaceAllText: { containsText: { text: '{{PROD_URL}}', matchCase: true }, replaceText: `https://${projectId}.web.app` } },
-                        { replaceAllText: { containsText: { text: '{{QA_URL}}', matchCase: true }, replaceText: `https://${projectId}-qa.web.app` } },
-                        { replaceAllText: { containsText: { text: '{{FIREBASE_CONSOLE_URL}}', matchCase: true }, replaceText: `https://console.firebase.google.com/project/${gcpInfra.projectId}` } },
-                        { replaceAllText: { containsText: { text: '{{GCP_CONSOLE_URL}}', matchCase: true }, replaceText: `https://console.cloud.google.com/?project=${gcpInfra.projectId}` } },
-                    ]
-                }
-            });
-            await log('stage.docs.populate.success', { documentId: newFile.id });
-
-        } else {
-            await log('stage.docs.create.failed', { error: 'No file ID returned' });
-        }
-    } else {
-        await log('stage.docs.create.skipped', { reason: 'Template ID not configured' });
-    }
-} catch (docError: any) {
-    await log('stage.docs.create.error', { error: docError.message, stack: docError.stack });
-}
-// --- END NEW LOGIC ---
+        
+        // Refresh project data to ensure all fields are present before doc creation
+        projectDoc = await PROJECTS_COLLECTION.doc(projectId).get();
+        const specDocUrl = await createAndPopulateSpecDoc(projectId, projectDoc.data()!);
 
         await PROJECTS_COLLECTION.doc(projectId).update({ 
             state: 'ready', 
             error: null,
-            specDocUrl: specDocUrl || null // Add the new field
+            specDocUrl: specDocUrl || null
         });
         await log('stage.finalize.success', { finalState: 'ready' });
 
     } catch (e: any) {
-        // ... (existing error handling code remains the same)
         if (e instanceof BillingError) {
             const billingUrl = `https://console.cloud.google.com/billing/linkedaccount?project=${e.gcpProjectId}`;
             const errorMessage = `Manual action required: Please link billing account. URL: ${billingUrl}`;
@@ -255,7 +270,6 @@ router.get('/projects', requireAuth, async (req: AuthenticatedRequest, res: Resp
     } catch(e: any) { res.status(500).json({ error: "Failed to list projects" }); }
 });
 
-// ... (rest of the file remains the same)
 router.get('/projects/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
     try {
         const { id } = req.params;
@@ -283,22 +297,18 @@ router.post('/projects', requireAdminAuth, async (req: AuthenticatedRequest, res
     if (!orgId || !displayName || !shortName || !template) {
         return res.status(400).json({ error: 'Missing required fields' });
     }
-
     let projectId = '';
     try {
         const orgDoc = await ORGS_COLLECTION.doc(orgId).get();
         if (!orgDoc.exists) return res.status(404).json({ error: 'Organization not found' });
-        
         const orgName = orgDoc.data()?.name || 'unknown';
         const orgSlug = orgName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
         const formattedShortName = shortName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
         projectId = `wizbi-${orgSlug}-${formattedShortName}`;
-
         const projectDocRef = PROJECTS_COLLECTION.doc(projectId);
         if ((await projectDocRef.get()).exists) {
             return res.status(409).json({ error: `Project ID '${projectId}' already exists.` });
         }
-        
         await projectLogger(projectId, 'project.create.init', { orgId, displayName, shortName, template });
         await projectDocRef.set({
             displayName, orgId, shortName, template,
@@ -306,10 +316,8 @@ router.post('/projects', requireAdminAuth, async (req: AuthenticatedRequest, res
             state: 'pending_gcp',
         });
         await projectLogger(projectId, 'project.create.success', { finalProjectId: projectId });
-        
         res.status(201).json({ ok: true, id: projectId });
         runFullProvisioning(projectId);
-
     } catch (error: any) {
         const eid = projectId || 'unknown-project';
         await projectLogger(eid, 'project.create.fatal', { error: (error as Error).message, stack: (error as Error).stack });
@@ -335,6 +343,37 @@ router.post('/projects/:id/provision', requireAdminAuth, async (req: Request, re
     }
 });
 
+// --- NEW ENDPOINT FOR BACKFILLING DOCS ---
+router.post('/projects/:id/generate-doc', requireAdminAuth, async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const log = (evt: string, meta?: Record<string, any>) => projectLogger(id, evt, meta);
+    
+    try {
+        log('project.doc.generate.received');
+        const projectDoc = await PROJECTS_COLLECTION.doc(id).get();
+        if (!projectDoc.exists) {
+            return res.status(404).json({ error: 'Project not found' });
+        }
+        const projectData = projectDoc.data()!;
+        if (projectData.specDocUrl) {
+            return res.status(400).json({ error: 'Document already exists for this project.' });
+        }
+
+        const specDocUrl = await createAndPopulateSpecDoc(id, projectData);
+        if (!specDocUrl) {
+            throw new Error('Document creation failed. Check logs for details.');
+        }
+
+        await PROJECTS_COLLECTION.doc(id).update({ specDocUrl });
+        log('project.doc.generate.success', { specDocUrl });
+        
+        res.status(200).json({ ok: true, message: 'Document generated successfully.', specDocUrl });
+
+    } catch (error: any) {
+        log('project.doc.generate.error', { error: error.message });
+        res.status(500).json({ ok: false, error: 'Failed to generate document', detail: error.message });
+    }
+});
 
 router.delete('/projects/:id', requireAdminAuth, async (req: Request, res: Response) => {
     const { id } = req.params;
