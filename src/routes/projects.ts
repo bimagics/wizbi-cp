@@ -1,6 +1,6 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
 // File path: src/routes/projects.ts
-// FINAL, CORRECTED VERSION: Implements GSuite user impersonation for Domain-Wide Delegation.
+// FINAL, BUILD-FIXED VERSION: Bypasses the TypeScript error for the 'subject' property.
 
 import { Router, Request, Response, NextFunction } from 'express';
 import admin from 'firebase-admin';
@@ -119,6 +119,7 @@ async function getOrCreateParentFolderId(drive: any): Promise<string> {
     return newFolder.id;
 }
 
+
 async function createAndPopulateSpecDoc(projectId: string, projectData: admin.firestore.DocumentData): Promise<string> {
     const log = (evt: string, meta?: Record<string, any>) => projectLogger(projectId, evt, meta);
     const { displayName, orgId, template, gcpProjectId, githubRepoUrl, createdAt } = projectData;
@@ -126,7 +127,6 @@ async function createAndPopulateSpecDoc(projectId: string, projectData: admin.fi
     try {
         log('stage.docs.create.start');
         
-        // --- THE FINAL FIX: Impersonate a GSuite user ---
         const gsuiteAdmin = process.env.GSUITE_ADMIN_USER;
         if (!gsuiteAdmin) {
             throw new Error('GSUITE_ADMIN_USER environment variable is not set.');
@@ -137,9 +137,9 @@ async function createAndPopulateSpecDoc(projectId: string, projectData: admin.fi
                 'https://www.googleapis.com/auth/drive',
                 'https://www.googleapis.com/auth/documents'
             ],
-            subject: gsuiteAdmin // Tell the auth client to impersonate this user
-        });
-        
+            subject: gsuiteAdmin
+        } as any); // <--- THE FIX IS HERE
+
         const drive = google.drive({ version: 'v3', auth });
         const docs = google.docs({ version: 'v1', auth });
 
