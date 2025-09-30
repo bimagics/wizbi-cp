@@ -1,14 +1,12 @@
 // --- REPLACE THE ENTIRE FILE CONTENT ---
 // File path: src/routes/projects.ts
-// FINAL & DEFINITIVE VERSION: Uses explicit JWT auth client for impersonation.
+// FINAL, ADVANCED VERSION: Flexible link management with icons, colors, and global links.
 
 import { Router, Request, Response, NextFunction } from 'express';
 import admin from 'firebase-admin';
 import { getDb } from '../services/firebaseAdmin';
 import * as GcpService from '../services/gcp';
 import * as GithubService from '../services/github';
-import { google } from 'googleapis';
-import { docs_v1 } from 'googleapis';
 
 // --- Interfaces & Types ---
 interface UserProfile {
@@ -85,147 +83,13 @@ function requireSuperAdmin(req: AuthenticatedRequest, res: Response, next: NextF
 export const requireAuth = [verifyFirebaseToken, fetchUserProfile];
 export const requireAdminAuth = [...requireAuth, requireSuperAdmin];
 
-// --- REUSABLE CORE LOGIC ---
-
-async function getOrCreateParentFolderId(drive: any): Promise<string> {
-    const settingsDocRef = SETTINGS_COLLECTION.doc('drive');
-    const settingsDoc = await settingsDocRef.get();
-    
-    if (settingsDoc.exists && settingsDoc.data()?.parentFolderId) {
-        console.log("Found existing parent folder ID in settings.");
-        return settingsDoc.data()!.parentFolderId;
-    }
-
-    console.log("No parent folder ID found. Creating a new one...");
-    const { data: newFolder } = await drive.files.create({
-        requestBody: {
-            name: 'WIZBI Project Documents',
-            mimeType: 'application/vnd.google-apps.folder',
-        },
-        fields: 'id',
-    });
-
-    if (!newFolder.id) {
-        throw new Error('Failed to create the parent Google Drive folder.');
-    }
-
-    await drive.permissions.create({
-        fileId: newFolder.id,
-        requestBody: { role: 'reader', type: 'anyone' },
-    });
-
-    await settingsDocRef.set({ parentFolderId: newFolder.id });
-    console.log(`Successfully created and saved new parent folder ID: ${newFolder.id}`);
-    return newFolder.id;
-}
-
-
-async function createAndPopulateSpecDoc(projectId: string, projectData: admin.firestore.DocumentData): Promise<string> {
-    const log = (evt: string, meta?: Record<string, any>) => projectLogger(projectId, evt, meta);
-    const { displayName, orgId, template, gcpProjectId, githubRepoUrl, createdAt } = projectData;
-
-    try {
-        log('stage.docs.create.start');
-        
-        const gsuiteAdmin = process.env.GSUITE_ADMIN_USER;
-        if (!gsuiteAdmin) {
-            throw new Error('GSUITE_ADMIN_USER environment variable is not set.');
-        }
-
-        // --- THE FINAL FIX: Use JWT Auth Client for impersonation ---
-        const auth = new google.auth.JWT({
-            // The service account email is automatically picked up from the environment
-            scopes: [
-                'https://www.googleapis.com/auth/drive',
-                'https://www.googleapis.com/auth/documents'
-            ],
-            subject: gsuiteAdmin // Impersonate this user
-        });
-
-        const drive = google.drive({ version: 'v3', auth });
-        const docs = google.docs({ version: 'v1', auth });
-
-        const parentFolderId = await getOrCreateParentFolderId(drive);
-
-        const { data: newFile } = await drive.files.create({
-            requestBody: {
-                name: `[WIZBI] Project Specification: ${displayName}`,
-                mimeType: 'application/vnd.google-apps.document',
-                parents: [parentFolderId],
-            },
-            fields: 'id',
-        });
-
-        if (!newFile.id) {
-            throw new Error('No file ID returned from Google Drive API on create.');
-        }
-
-        const specDocUrl = `https://docs.google.com/document/d/${newFile.id}/edit`;
-        log('stage.docs.create.success', { specDocUrl });
-
-        const creationDate = new Date(createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-        const orgData = (await ORGS_COLLECTION.doc(orgId).get()).data();
-        
-        const content = `[WIZBI] Project Specification: ${displayName}\n` +
-                        `Version: 1.0 | Status: Inception | Last Updated: ${creationDate}\n\n` +
-                        `## 1. Project Overview\n\n` +
-                        `### 1.1. Executive Summary & Vision\n* **One-Liner:** \n* **Problem Statement:** \n* **Vision & Goal:** \n\n` +
-                        `### 1.2. Key Performance Indicators (KPIs)\n*AI-Actionable: The following KPIs are defined to measure the success of this project.*\n* \`kpi_1\`:\n* \`kpi_2\`:\n* \`kpi_3\`:\n\n` +
-                        `## 2. System & Resource Links (Auto-Generated)\n\n`;
-        
-        const requests: docs_v1.Schema$Request[] = [{
-            insertText: { location: { index: 1 }, text: content, }
-        }, {
-            insertTable: { location: { index: content.length + 1 }, rows: 8, columns: 2 }
-        }];
-
-        await docs.documents.batchUpdate({
-            documentId: newFile.id,
-            requestBody: { requests },
-        });
-
-        const tableRequests: docs_v1.Schema$Request[] = [
-            { insertText: { location: { index: content.length + 50 }, text: `https://console.cloud.google.com/?project=${gcpProjectId}` } },
-            { insertText: { location: { index: content.length + 49 }, text: "Google Cloud Console" } },
-            { insertText: { location: { index: content.length + 45 }, text: `https://console.firebase.google.com/project/${gcpProjectId}` } },
-            { insertText: { location: { index: content.length + 44 }, text: "Firebase Console" } },
-            { insertText: { location: { index: content.length + 40 }, text: `https://${projectId}-qa.web.app` } },
-            { insertText: { location: { index: content.length + 39 }, text: "QA Site" } },
-            { insertText: { location: { index: content.length + 35 }, text: `https://${projectId}.web.app` } },
-            { insertText: { location: { index: content.length + 34 }, text: "Production Site" } },
-            { insertText: { location: { index: content.length + 30 }, text: githubRepoUrl } },
-            { insertText: { location: { index: content.length + 29 }, text: "GitHub Repository" } },
-            { insertText: { location: { index: content.length + 25 }, text: template } },
-            { insertText: { location: { index: content.length + 24 }, text: "Source Template" } },
-            { insertText: { location: { index: content.length + 20 }, text: orgData?.name || 'N/A' } },
-            { insertText: { location: { index: content.length + 19 }, text: "Organization" } },
-            { insertText: { location: { index: content.length + 15 }, text: projectId } },
-            { insertText: { location: { index: content.length + 14 }, text: "Project ID" } },
-            { insertText: { location: { index: content.length + 10 }, text: "Link" } },
-            { insertText: { location: { index: content.length + 9 }, text: "Resource" } },
-        ];
-
-        await docs.documents.batchUpdate({
-             documentId: newFile.id,
-             requestBody: { requests: tableRequests }
-        });
-
-        log('stage.docs.populate.success', { documentId: newFile.id });
-        return specDocUrl;
-
-    } catch (error: any) {
-        log('stage.docs.create.error', { error: error.message, stack: error.stack });
-        throw error;
-    }
-}
-
 // --- Orchestration Logic ---
 async function runFullProvisioning(projectId: string) {
     const log = (evt: string, meta?: Record<string, any>) => projectLogger(projectId, evt, meta);
     
     try {
         await log('stage.gcp.start');
-        let projectDoc = await PROJECTS_COLLECTION.doc(projectId).get();
+        const projectDoc = await PROJECTS_COLLECTION.doc(projectId).get();
         if (!projectDoc.exists) throw new Error('Project document not found in Firestore.');
         const { displayName, orgId, template } = projectDoc.data()!;
         const orgDoc = await ORGS_COLLECTION.doc(orgId).get();
@@ -258,11 +122,8 @@ async function runFullProvisioning(projectId: string) {
         };
         await GithubService.createRepoSecrets(projectId, secretsToCreate);
         await GithubService.triggerInitialDeployment(projectId);
-        projectDoc = await PROJECTS_COLLECTION.doc(projectId).get();
-        const specDocUrl = await createAndPopulateSpecDoc(projectId, projectDoc.data()!).catch(() => ''); 
         await PROJECTS_COLLECTION.doc(projectId).update({ 
             state: 'ready', error: null,
-            specDocUrl: specDocUrl || null
         });
         await log('stage.finalize.success', { finalState: 'ready' });
     } catch (e: any) {
@@ -343,6 +204,7 @@ router.post('/projects', requireAdminAuth, async (req: AuthenticatedRequest, res
             displayName, orgId, shortName, template,
             createdAt: new Date().toISOString(),
             state: 'pending_gcp',
+            externalLinks: []
         });
         await projectLogger(projectId, 'project.create.success', { finalProjectId: projectId });
         res.status(201).json({ ok: true, id: projectId });
@@ -370,32 +232,86 @@ router.post('/projects/:id/provision', requireAdminAuth, async (req: Request, re
     }
 });
 
-router.post('/projects/:id/generate-doc', requireAdminAuth, async (req: Request, res: Response) => {
+// --- PROJECT LINK MANAGEMENT ---
+router.post('/projects/:id/links', requireAdminAuth, async (req: Request, res: Response) => {
     const { id } = req.params;
-    const log = (evt: string, meta?: Record<string, any>) => projectLogger(id, evt, meta);
-    
+    const { url, name, color, icon } = req.body;
+    if (!url || !name || !color || !icon) {
+        return res.status(400).json({ error: 'Missing required fields for link.' });
+    }
     try {
-        log('project.doc.generate.received');
-        const projectDoc = await PROJECTS_COLLECTION.doc(id).get();
-        if (!projectDoc.exists) {
-            return res.status(404).json({ error: 'Project not found' });
-        }
-        const projectData = projectDoc.data()!;
-        if (projectData.specDocUrl) {
-            return res.status(400).json({ error: 'Document already exists for this project.' });
-        }
-        const specDocUrl = await createAndPopulateSpecDoc(id, projectData);
-        if (!specDocUrl) {
-            throw new Error('Document creation failed. Check logs for details.');
-        }
-        await PROJECTS_COLLECTION.doc(id).update({ specDocUrl });
-        log('project.doc.generate.success', { specDocUrl });
-        res.status(200).json({ ok: true, message: 'Document generated successfully.', specDocUrl });
+        const newLink = { id: new Date().getTime().toString(), url, name, color, icon };
+        await PROJECTS_COLLECTION.doc(id).update({
+            externalLinks: admin.firestore.FieldValue.arrayUnion(newLink)
+        });
+        res.status(201).json({ ok: true, link: newLink });
     } catch (error: any) {
-        log('project.doc.generate.error', { error: error.message });
-        res.status(500).json({ ok: false, error: 'Failed to generate document', detail: error.message });
+        res.status(500).json({ ok: false, error: 'Failed to add link', detail: error.message });
     }
 });
+
+router.delete('/projects/:projectId/links/:linkId', requireAdminAuth, async (req: Request, res: Response) => {
+    const { projectId, linkId } = req.params;
+    try {
+        const projectDoc = await PROJECTS_COLLECTION.doc(projectId).get();
+        if (!projectDoc.exists) return res.status(404).json({ error: 'Project not found' });
+        const projectData = projectDoc.data()!;
+        const linkToDelete = (projectData.externalLinks || []).find((link: any) => link.id === linkId);
+        if (!linkToDelete) return res.status(404).json({ error: 'Link not found' });
+        await PROJECTS_COLLECTION.doc(projectId).update({
+            externalLinks: admin.firestore.FieldValue.arrayRemove(linkToDelete)
+        });
+        res.status(200).json({ ok: true });
+    } catch (error: any) {
+        res.status(500).json({ ok: false, error: 'Failed to delete link', detail: error.message });
+    }
+});
+
+// --- GLOBAL LINK MANAGEMENT ---
+const GLOBAL_LINKS_DOC = SETTINGS_COLLECTION.doc('globalLinks');
+
+router.get('/global-links', requireAdminAuth, async (req: Request, res: Response) => {
+    try {
+        const doc = await GLOBAL_LINKS_DOC.get();
+        if (!doc.exists) return res.json({ links: [] });
+        res.json({ links: doc.data()?.links || [] });
+    } catch (error: any) {
+        res.status(500).json({ ok: false, error: 'Failed to get global links' });
+    }
+});
+
+router.post('/global-links', requireAdminAuth, async (req: Request, res: Response) => {
+    const { url, name, color, icon } = req.body;
+    if (!url || !name || !color || !icon) {
+        return res.status(400).json({ error: 'Missing required fields for link.' });
+    }
+    try {
+        const newLink = { id: new Date().getTime().toString(), url, name, color, icon };
+        await GLOBAL_LINKS_DOC.set({
+            links: admin.firestore.FieldValue.arrayUnion(newLink)
+        }, { merge: true });
+        res.status(201).json({ ok: true, link: newLink });
+    } catch (error: any) {
+        res.status(500).json({ ok: false, error: 'Failed to add global link' });
+    }
+});
+
+router.delete('/global-links/:linkId', requireAdminAuth, async (req: Request, res: Response) => {
+    const { linkId } = req.params;
+    try {
+        const doc = await GLOBAL_LINKS_DOC.get();
+        if (!doc.exists) return res.status(404).json({ error: 'No global links found' });
+        const linkToDelete = (doc.data()?.links || []).find((link: any) => link.id === linkId);
+        if (!linkToDelete) return res.status(404).json({ error: 'Global link not found' });
+        await GLOBAL_LINKS_DOC.update({
+            links: admin.firestore.FieldValue.arrayRemove(linkToDelete)
+        });
+        res.status(200).json({ ok: true });
+    } catch (error: any) {
+        res.status(500).json({ ok: false, error: 'Failed to delete global link' });
+    }
+});
+
 
 router.delete('/projects/:id', requireAdminAuth, async (req: Request, res: Response) => {
     const { id } = req.params;
