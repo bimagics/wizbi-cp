@@ -85,7 +85,7 @@ export async function createNewTemplate(newTemplateName: string, description: st
             owner: GITHUB_OWNER, name: newRepoName, description: description, private: true,
         });
         log('github.template.create.success', { repoName: repo.name, url: repo.html_url });
-        
+
         // **BUG FIX**: Use the improved polling function to wait for content
         await pollUntilRepoIsReady(client, newRepoName);
 
@@ -145,13 +145,13 @@ export async function createGithubRepoFromTemplate(project: ProjectData, teamSlu
         repo: repo.name, permission: 'admin',
     });
     log('github.repo.permissions.grant.success', { repoName: repo.name });
-    
+
     log('github.branch.dev.create.attempt', { repoName: newRepoName });
     const { data: mainBranch } = await client.git.getRef({ owner: GITHUB_OWNER, repo: newRepoName, ref: 'heads/main' });
     await client.git.createRef({ owner: GITHUB_OWNER, repo: newRepoName, ref: 'refs/heads/dev', sha: mainBranch.object.sha });
     log('github.branch.dev.create.success', { repoName: newRepoName });
 
-    const filesToCustomize = ['README.md', 'firebase.json'];
+    const filesToCustomize = ['README.md', 'firebase.json', '.env.example'];
     const branchesToUpdate = ['main', 'dev'];
 
     log('github.repo.customize.start', { repoName: repo.name, files: filesToCustomize, branches: branchesToUpdate });
@@ -175,7 +175,7 @@ async function customizeFileContent(repoName: string, filePath: string, replacem
 
         let content = Buffer.from(file.content, 'base64').toString('utf8');
         let originalContent = content;
-        
+
         if (filePath === 'package.json' && replacements.name) {
             const pkg = JSON.parse(content);
             pkg.name = replacements.name;
@@ -202,12 +202,17 @@ async function customizeFileContent(repoName: string, filePath: string, replacem
             branch: branch
         });
         log('github.file.update.success', { repoName, filePath, branch });
+
+        // Special log for local environment setup
+        if (filePath === '.env.example') {
+            log('github.local_env.customized', { repoName, branch, message: 'Local environment template (.env.example) has been customized with project-specific values' });
+        }
     } catch (error: any) {
         if (error.status === 404) {
-             log('github.file.customize.warn_not_found', { repoName, filePath, branch });
+            log('github.file.customize.warn_not_found', { repoName, filePath, branch });
         } else {
-             log('github.file.customize.error', { repoName, filePath, error: error.message, branch });
-             throw error;
+            log('github.file.customize.error', { repoName, filePath, error: error.message, branch });
+            throw error;
         }
     }
 }
@@ -216,7 +221,7 @@ export async function createRepoSecrets(repoName: string, secrets: RepoSecrets):
     log('github.secrets.get_public_key.attempt', { repoName });
     const { data: publicKey } = await client.actions.getRepoPublicKey({ owner: GITHUB_OWNER, repo: repoName });
     log('github.secrets.get_public_key.success', { repoName, keyId: publicKey.key_id });
-    
+
     await sodium.ready;
 
     log('github.secrets.create.start', { repoName, secret_names: Object.keys(secrets) });
@@ -226,7 +231,7 @@ export async function createRepoSecrets(repoName: string, secrets: RepoSecrets):
         const keyBytes = Buffer.from(publicKey.key, 'base64');
         const encryptedBytes = sodium.crypto_box_seal(messageBytes, keyBytes);
         const encryptedBase64 = Buffer.from(encryptedBytes).toString('base64');
-        
+
         await client.actions.createOrUpdateRepoSecret({
             owner: GITHUB_OWNER, repo: repoName, secret_name: secretName,
             encrypted_value: encryptedBase64,
@@ -292,8 +297,8 @@ export async function deleteGithubTeam(teamSlug: string): Promise<void> {
         if (error.status === 404) {
             log('github.team.delete.already_gone', { teamSlug });
         } else {
-             log('github.team.delete.error', { teamSlug, error: error.message });
-             throw new Error(`Failed to delete GitHub team '${teamSlug}': ${error.message}`);
+            log('github.team.delete.error', { teamSlug, error: error.message });
+            throw new Error(`Failed to delete GitHub team '${teamSlug}': ${error.message}`);
         }
     }
 }
