@@ -29,6 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
         BILLING: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path></svg>`,
         EXTERNAL_LINK: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>`,
         ERROR: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width: 18px; height: 18px; color: var(--error-color);"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>`,
+        SETTINGS: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>`,
     };
 
     const DOM = {
@@ -67,7 +68,7 @@ document.addEventListener('DOMContentLoaded', () => {
         hamburgerButton: document.getElementById('hamburgerButton'),
         mobileOverlay: document.getElementById('mobileOverlay'),
     };
-    
+
     // --- Core Functions ---
     const showView = (viewName) => {
         ['loginContainer', 'unauthorizedContainer', 'adminPanelContainer'].forEach(id => {
@@ -85,7 +86,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!response.ok) throw new Error(responseData.error || `HTTP error! status: ${response.status}`);
         return responseData;
     };
-    
+
     firebaseAuth.onAuthStateChanged(async (user) => {
         Object.values(activeProjectPollers).forEach(clearInterval);
         activeProjectPollers = {};
@@ -110,13 +111,14 @@ document.addEventListener('DOMContentLoaded', () => {
             showView('loginContainer');
         }
     });
-    
+
     function setupDashboard() {
         const navItems = [
-            { id: 'Projects', icon: ICONS.PROJECTS }, 
-            { id: 'Orgs', icon: ICONS.ORGS }, 
+            { id: 'Projects', icon: ICONS.PROJECTS },
+            { id: 'Orgs', icon: ICONS.ORGS },
             { id: 'Templates', icon: ICONS.TEMPLATES, adminOnly: true },
-            { id: 'Users', icon: ICONS.USERS, adminOnly: true }
+            { id: 'Users', icon: ICONS.USERS, adminOnly: true },
+            { id: 'Settings', icon: ICONS.SETTINGS, adminOnly: true }
         ];
         DOM.sidebarNav.innerHTML = '';
         navItems.forEach(item => {
@@ -140,7 +142,7 @@ document.addEventListener('DOMContentLoaded', () => {
         setupSidebarToggle();
         populateIconPicker();
     }
-    
+
     function switchTab(tabId) {
         Object.values(DOM.tabs).forEach(tab => tab.classList.add('hidden'));
         document.querySelectorAll('.nav-button').forEach(btn => btn.classList.remove('active'));
@@ -160,12 +162,12 @@ document.addEventListener('DOMContentLoaded', () => {
         DOM.mobileOverlay.addEventListener('click', () => {
             document.body.classList.remove('mobile-menu-open');
         });
-        
+
         if (window.innerWidth > 992 && localStorage.getItem('sidebarCollapsed') === 'true') {
             document.body.classList.add('sidebar-collapsed');
         }
     }
-    
+
     // --- Data Loading & Rendering ---
     let projectsCache = [], orgsCache = [], usersCache = [], templatesCache = [], globalLinksCache = [];
 
@@ -175,7 +177,7 @@ document.addEventListener('DOMContentLoaded', () => {
             await Promise.all([loadUsers(), loadTemplatesData()]);
         }
     }
-    
+
     async function loadProjects() {
         try {
             const newProjects = await callApi('/projects');
@@ -187,7 +189,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             projectsCache = newProjects;
             renderProjectsTable(projectsCache);
-        } catch(e) { console.error("Failed to load projects", e); }
+        } catch (e) { console.error("Failed to load projects", e); }
     }
     async function loadOrgs() {
         try {
@@ -195,11 +197,11 @@ document.addEventListener('DOMContentLoaded', () => {
             orgsCache = items;
             renderOrgsTable(items);
             updateOrgDropdown(items);
-        } catch(e) { console.error("Failed to load orgs", e); }
+        } catch (e) { console.error("Failed to load orgs", e); }
     }
     async function loadUsers() {
         if (!userProfile.roles?.superAdmin) return;
-        try { usersCache = await callApi('/users'); renderUsersTable(usersCache); } catch(e) { console.error("Failed to load users", e); }
+        try { usersCache = await callApi('/users'); renderUsersTable(usersCache); } catch (e) { console.error("Failed to load users", e); }
     }
     async function loadGlobalLinks() {
         try {
@@ -214,7 +216,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const { templates } = await callApi('/github/templates');
             templatesCache = templates;
             const select = document.getElementById('projectTemplate');
-            select.innerHTML = '<option value="" disabled selected>Select a Template</option>' + 
+            select.innerHTML = '<option value="" disabled selected>Select a Template</option>' +
                 templates.map(t => `<option value="${t.name}">${t.name.replace('template-', '').replace(/-/g, ' ')} (${t.description || 'No description'})</option>`).join('');
         } catch (e) {
             console.error("Failed to load templates for form", e);
@@ -284,7 +286,7 @@ document.addEventListener('DOMContentLoaded', () => {
             year: 'numeric', month: 'short', day: 'numeric',
             hour: '2-digit', minute: '2-digit'
         });
-        
+
         const externalLinksHtml = (p.externalLinks || []).map(link => `
             <div class="custom-link-wrapper">
                 <a href="${link.url}" target="_blank" class="icon-button" title="${link.name}" style="color: var(--${link.color}-color, var(--text-secondary));">
@@ -336,11 +338,11 @@ document.addEventListener('DOMContentLoaded', () => {
             actionsHtml += `<button class="btn btn-secondary btn-sm" data-action="provision" data-id="${project.id}" title="Retry Full Provisioning">${ICONS.RETRY} Retry</button>`;
         }
         if (!inProcess) {
-             actionsHtml += `<button class="icon-button delete" data-type="project" data-id="${project.id}" title="Delete Project">${ICONS.DELETE}</button>`;
+            actionsHtml += `<button class="icon-button delete" data-type="project" data-id="${project.id}" title="Delete Project">${ICONS.DELETE}</button>`;
         }
         return actionsHtml;
     }
-    
+
     const renderOrgsTable = (orgs) => {
         const tbody = document.getElementById('orgsTable').querySelector('tbody');
         tbody.innerHTML = orgs.length === 0 ? `<tr><td colspan="5">No organizations found.</td></tr>` : orgs.map(org => `
@@ -348,7 +350,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <td data-label="Name">${org.name}</td> <td data-label="ID">${org.id}</td> <td data-label="Phone">${org.phone || 'N/A'}</td>
                 <td data-label="Created">${new Date(org.createdAt).toLocaleDateString()}</td>
                 <td data-label="Actions" class="actions-cell"><div class="actions-cell-content">
-                   ${userProfile.roles?.superAdmin ? `<button class="icon-button delete" data-type="org" data-id="${org.id}" data-name="${org.name}" title="Delete Organization">${ICONS.DELETE}</button>`: ''}
+                   ${userProfile.roles?.superAdmin ? `<button class="icon-button delete" data-type="org" data-id="${org.id}" data-name="${org.name}" title="Delete Organization">${ICONS.DELETE}</button>` : ''}
                 </div></td>
             </tr>`).join('');
     };
@@ -378,11 +380,11 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btnShowProvisionProject').addEventListener('click', () => document.getElementById('formProvisionProjectCard').classList.toggle('hidden'));
     document.getElementById('btnShowCreateTemplate').addEventListener('click', () => document.getElementById('formCreateTemplateCard').classList.toggle('hidden'));
     DOM.btnAddGlobalLink.addEventListener('click', () => openAddLinkModal('global'));
-    
+
     document.getElementById('formCreateOrg').addEventListener('submit', async (e) => {
         e.preventDefault();
         const name = e.target.elements.orgName.value.trim();
-        if(!name) return;
+        if (!name) return;
         try {
             await callApi('/orgs', { method: 'POST', body: JSON.stringify({ name, phone: e.target.elements.orgPhone.value.trim() }) });
             e.target.reset(); document.getElementById('formCreateOrgCard').classList.add('hidden'); await loadOrgs();
@@ -393,9 +395,9 @@ document.addEventListener('DOMContentLoaded', () => {
         e.preventDefault();
         const { projectOrgId, projectShortName, projectDisplayName, projectTemplate } = e.target.elements;
         if (!projectOrgId.value || !projectShortName.value || !projectDisplayName.value || !projectTemplate.value) return;
-        const body = { 
-            orgId: projectOrgId.value, 
-            shortName: projectShortName.value.trim(), 
+        const body = {
+            orgId: projectOrgId.value,
+            shortName: projectShortName.value.trim(),
             displayName: projectDisplayName.value.trim(),
             template: projectTemplate.value
         };
@@ -439,15 +441,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const shortName = DOM.templateName.value.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
         DOM.fullTemplateNamePreview.value = shortName ? `template-${shortName}` : '';
     }
-    
+
     document.getElementById('adminPanelContainer').addEventListener('click', async (e) => {
         const button = e.target.closest('button[data-action], button[data-type]');
         if (!button) return;
 
         const { action, id, uid, type, name, description, projectId, linkId } = button.dataset;
-        
+
         if (action === 'provision') {
-             try {
+            try {
                 await callApi(`/projects/${id}/provision`, { method: 'POST' });
                 startProjectPolling(id);
             } catch (error) {
@@ -487,8 +489,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const user = usersCache.find(u => u.uid === uid);
             if (user) openUserEditModal(user);
         } else if (type === 'project' || type === 'org' || type === 'template') {
-             const entityId = type === 'template' ? name : id;
-             if (confirm(`FINAL CONFIRMATION: Are you sure you want to delete ${type} '${name || id}'? This is irreversible.`)) {
+            const entityId = type === 'template' ? name : id;
+            if (confirm(`FINAL CONFIRMATION: Are you sure you want to delete ${type} '${name || id}'? This is irreversible.`)) {
                 try {
                     const path = type === 'template' ? `/github/templates/${entityId}` : `/${type}s/${entityId}`;
                     await callApi(path, { method: 'DELETE' });
@@ -509,7 +511,7 @@ document.addEventListener('DOMContentLoaded', () => {
     DOM.projectsTable.querySelector('thead').addEventListener('click', (e) => {
         const header = e.target.closest('th[data-sortable]');
         if (!header) return;
-        
+
         const column = header.dataset.sortable;
         if (sortState.column === column) {
             sortState.direction = sortState.direction === 'asc' ? 'desc' : 'asc';
@@ -517,12 +519,12 @@ document.addEventListener('DOMContentLoaded', () => {
             sortState.column = column;
             sortState.direction = 'asc';
         }
-        
+
         projectsCache.sort((a, b) => {
             const valA = a[column] || '';
             const valB = b[column] || '';
             let comparison = 0;
-            if (valA > valB) { comparison = 1; } 
+            if (valA > valB) { comparison = 1; }
             else if (valA < valB) { comparison = -1; }
             return sortState.direction === 'asc' ? comparison : comparison * -1;
         });
@@ -531,7 +533,7 @@ document.addEventListener('DOMContentLoaded', () => {
         header.setAttribute('data-sort-dir', sortState.direction);
         renderProjectsTable(projectsCache);
     });
-    
+
     // --- Modals & State Management ---
     const openModal = (modalId) => document.getElementById(modalId).classList.remove('hidden');
     const closeModal = (modalId) => document.getElementById(modalId).classList.add('hidden');
@@ -608,13 +610,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 let metaString = Object.keys(meta).length > 0 ? JSON.stringify(meta, null, 2) : '';
                 return `<div class="log-entry"><span class="log-timestamp">${new Date(ts).toLocaleTimeString()}</span><span class="log-event ${isError ? 'log-event-error' : ''}">${evt}</span><pre class="log-meta">${metaString}</pre></div>`;
             }).join('');
-            
+
             DOM.logsModalContent.innerHTML = htmlLogs || 'No logs found.';
         } catch (error) {
             DOM.logsModalContent.innerHTML = `<span class="log-meta-error">Could not load logs: ${error.message}</span>`;
         }
     }
-    
+
     // --- Automated Provisioning Logic ---
     // ... (isProjectInProcess, getProgressForState, start/stop polling remain the same)
     function isProjectInProcess(state) {
@@ -660,7 +662,7 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 projectsCache.push(project);
             }
-            
+
             const org = orgsCache.find(o => o.id === project.orgId);
             const projectWithOrg = { ...project, orgName: org ? org.name : 'N/A' };
 
@@ -682,4 +684,132 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
     }
+
+    // --- Settings / Secrets Management (Additive — no existing code changed) ---
+    const CATEGORY_LABELS = {
+        github: { title: 'GitHub App', description: 'Required for provisioning new projects via GitHub.', icon: ICONS.GITHUB },
+        ai: { title: 'AI API Keys', description: 'Configure OpenAI and Gemini keys for AI features.', icon: '🤖' },
+        whatsapp: { title: 'WhatsApp', description: 'Configure WhatsApp Business API integration.', icon: '💬' },
+    };
+
+    async function loadSecrets() {
+        try {
+            const data = await callApi('/settings/secrets');
+            if (data.ok) renderSecretsUI(data.grouped, data.secrets);
+        } catch (e) {
+            console.error('Failed to load secrets', e);
+            document.getElementById('secretsContainer').innerHTML =
+                '<div class="card"><p style="color:var(--error-color);">Failed to load secrets status. Make sure the Settings API is deployed.</p></div>';
+        }
+    }
+
+    function renderSecretsUI(grouped, allSecrets) {
+        const container = document.getElementById('secretsContainer');
+        const banner = document.getElementById('secretsStatusBanner');
+        const statusIcon = document.getElementById('secretsStatusIcon');
+        const statusText = document.getElementById('secretsStatusText');
+
+        const total = allSecrets.length;
+        const configured = allSecrets.filter(s => s.configured).length;
+
+        banner.style.display = '';
+        if (configured === total) {
+            statusIcon.textContent = '✅';
+            statusText.textContent = `All ${total} secrets are configured.`;
+            banner.style.borderLeft = '4px solid var(--success-color)';
+        } else {
+            statusIcon.textContent = '⚠️';
+            statusText.textContent = `${configured}/${total} secrets configured. Set the remaining to enable full functionality.`;
+            banner.style.borderLeft = '4px solid var(--warning-color, #f59e0b)';
+        }
+
+        let html = '';
+        for (const [category, secrets] of Object.entries(grouped)) {
+            const meta = CATEGORY_LABELS[category] || { title: category, description: '', icon: '🔑' };
+            const catConfigured = secrets.filter(s => s.configured).length;
+            const catTotal = secrets.length;
+            const allDone = catConfigured === catTotal;
+
+            html += `<div class="card" style="margin-bottom: 1rem;">`;
+            html += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">`;
+            html += `<div style="display:flex;align-items:center;gap:10px;">`;
+            html += `<span style="font-size:1.5rem;">${typeof meta.icon === 'string' && meta.icon.startsWith('<') ? meta.icon : meta.icon}</span>`;
+            html += `<div><h3 style="margin:0;font-size:1.1rem;">${meta.title}</h3>`;
+            html += `<p style="margin:0;font-size:0.8rem;color:var(--text-secondary);">${meta.description}</p></div>`;
+            html += `</div>`;
+            html += `<span style="font-size:0.85rem;font-weight:600;color:${allDone ? 'var(--success-color)' : 'var(--warning-color, #f59e0b)'}">${catConfigured}/${catTotal}</span>`;
+            html += `</div>`;
+
+            secrets.forEach(secret => {
+                const statusBadge = secret.configured
+                    ? '<span style="color:var(--success-color);font-weight:600;font-size:0.85rem;">✅ Configured</span>'
+                    : '<span style="color:var(--warning-color, #f59e0b);font-weight:600;font-size:0.85rem;">⚠️ Not set</span>';
+
+                const inputType = secret.sensitive ? 'password' : 'text';
+                const isTextArea = secret.name === 'GITHUB_PRIVATE_KEY';
+
+                html += `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--border-color);" id="secret-row-${secret.name}">`;
+                html += `<div style="flex:1;"><label style="font-weight:500;font-size:0.9rem;">${secret.label}</label>`;
+                html += `<div style="font-size:0.75rem;color:var(--text-secondary);">${secret.name}</div></div>`;
+                html += `<div style="display:flex;align-items:center;gap:8px;">${statusBadge}`;
+
+                if (isTextArea) {
+                    html += `<textarea data-secret="${secret.name}" rows="3" cols="30" placeholder="Paste PEM content..." style="font-size:0.8rem;padding:6px 10px;border:1px solid var(--border-color);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-family:monospace;"></textarea>`;
+                } else {
+                    html += `<input type="${inputType}" data-secret="${secret.name}" placeholder="Enter value..." style="width:200px;font-size:0.85rem;padding:6px 10px;border:1px solid var(--border-color);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);">`;
+                }
+
+                html += `<button class="btn btn-primary btn-sm" onclick="window.__saveSecret('${secret.name}')" style="white-space:nowrap;">Save</button>`;
+                html += `</div></div>`;
+            });
+
+            html += `</div>`;
+        }
+        container.innerHTML = html;
+    }
+
+    // Global save function (accessible from onclick)
+    window.__saveSecret = async function (secretName) {
+        const input = document.querySelector(`[data-secret="${secretName}"]`);
+        if (!input) return;
+        const value = input.value.trim();
+        if (!value) { alert('Please enter a value.'); return; }
+
+        const btn = input.parentElement.querySelector('.btn');
+        const origText = btn.textContent;
+        btn.textContent = 'Saving...';
+        btn.disabled = true;
+
+        try {
+            const result = await callApi(`/settings/secrets/${secretName}`, {
+                method: 'PUT',
+                body: JSON.stringify({ value }),
+            });
+            if (result.ok) {
+                input.value = '';
+                btn.textContent = '✓ Saved';
+                setTimeout(() => { btn.textContent = origText; btn.disabled = false; }, 2000);
+                loadSecrets(); // Refresh status
+            } else {
+                throw new Error(result.error || 'Unknown error');
+            }
+        } catch (e) {
+            alert(`Failed to save secret: ${e.message}`);
+            btn.textContent = origText;
+            btn.disabled = false;
+        }
+    };
+
+    // Hook up refresh button (only if it exists)
+    const btnRefreshSecrets = document.getElementById('btnRefreshSecrets');
+    if (btnRefreshSecrets) {
+        btnRefreshSecrets.addEventListener('click', loadSecrets);
+    }
+
+    // Override switchTab to also trigger secrets loading
+    const origSwitchTab = switchTab;
+    switchTab = function (tabId) {
+        origSwitchTab(tabId);
+        if (tabId === 'Settings') loadSecrets();
+    };
 });

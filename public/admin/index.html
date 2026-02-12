@@ -186,6 +186,25 @@
           </div>
         </div>
       </div>
+
+      <div id="tabContentSettings" class="tab-content hidden">
+        <div class="page-header">
+          <h2>Settings</h2>
+          <button id="btnRefreshSecrets" class="btn btn-secondary">Refresh Status</button>
+        </div>
+
+        <div id="secretsStatusBanner" class="card" style="display:none;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span id="secretsStatusIcon" style="font-size:1.5rem;"></span>
+            <span id="secretsStatusText" style="font-weight:600;"></span>
+          </div>
+        </div>
+
+        <div id="secretsContainer">
+          <div class="settings-loading" style="text-align:center;padding:2rem;color:var(--text-secondary);">Loading secrets status...</div>
+        </div>
+      </div>
+
     </main>
   </div>
 
