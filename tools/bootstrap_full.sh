@@ -51,19 +51,31 @@ fi
 if [ -z "${BILLING_ACCOUNT:-}" ]; then
   echo ""
   echo -e "${BOLD}Available Billing Accounts:${NC}"
-  gcloud billing accounts list --format='table(name.basename(), displayName, open)' 2>/dev/null || true
-  echo ""
-  read -rp "$(echo -e ${BOLD})Enter Billing Account ID (e.g., XXXXXX-XXXXXX-XXXXXX): $(echo -e ${NC})" BILLING_ACCOUNT
-  if [ -z "$BILLING_ACCOUNT" ]; then
-    err "Billing Account is required."
+  # Store accounts in array for numbered selection
+  mapfile -t ACCOUNTS < <(gcloud billing accounts list --filter="open=true" --format='value(name.basename())' 2>/dev/null)
+  mapfile -t ACCOUNT_NAMES < <(gcloud billing accounts list --filter="open=true" --format='value(displayName)' 2>/dev/null)
+  
+  if [ ${#ACCOUNTS[@]} -eq 0 ]; then
+    err "No open billing accounts found."
     exit 1
+  elif [ ${#ACCOUNTS[@]} -eq 1 ]; then
+    BILLING_ACCOUNT="${ACCOUNTS[0]}"
+    echo "  Using: ${ACCOUNT_NAMES[0]} (${BILLING_ACCOUNT})"
+  else
+    for i in "${!ACCOUNTS[@]}"; do
+      echo "  $((i+1)). ${ACCOUNT_NAMES[$i]} (${ACCOUNTS[$i]})"
+    done
+    echo ""
+    read -rp "$(echo -e ${BOLD})Select billing account [1]: $(echo -e ${NC})" BILLING_CHOICE
+    BILLING_CHOICE="${BILLING_CHOICE:-1}"
+    BILLING_ACCOUNT="${ACCOUNTS[$((BILLING_CHOICE-1))]}"
   fi
+  echo ""
 fi
 
 # --- Admin Email ---
 if [ -z "${ADMIN_EMAIL:-}" ]; then
-  # Try to auto-detect from gcloud
-  DETECTED_EMAIL=$(gcloud config get-value account 2>/dev/null || echo "")
+  DETECTED_EMAIL=$(gcloud config get-value account 2>/dev/null | tr '[:upper:]' '[:lower:]' || echo "")
   if [ -n "$DETECTED_EMAIL" ]; then
     read -rp "$(echo -e ${BOLD})Admin email [$DETECTED_EMAIL]: $(echo -e ${NC})" ADMIN_EMAIL
     ADMIN_EMAIL="${ADMIN_EMAIL:-$DETECTED_EMAIL}"
@@ -71,12 +83,14 @@ if [ -z "${ADMIN_EMAIL:-}" ]; then
     read -rp "$(echo -e ${BOLD})Enter Admin email: $(echo -e ${NC})" ADMIN_EMAIL
   fi
 fi
+ADMIN_EMAIL=$(echo "$ADMIN_EMAIL" | tr '[:upper:]' '[:lower:]')
 
 # --- GitHub Owner (for CI/CD) ---
 if [ -z "${GITHUB_OWNER:-}" ]; then
   read -rp "$(echo -e ${BOLD})GitHub Org or User that owns this repo [bimagics]: $(echo -e ${NC})" GITHUB_OWNER
   GITHUB_OWNER="${GITHUB_OWNER:-bimagics}"
 fi
+GITHUB_OWNER=$(echo "$GITHUB_OWNER" | tr '[:upper:]' '[:lower:]')
 
 # --- GitHub Repo ---
 : "${GITHUB_REPO:=wizbi-cp}"
@@ -156,10 +170,15 @@ gcloud services enable \
 ok "All APIs enabled"
 
 step "Granting Cloud Build SA storage access"
-CB_SA="${PROJECT_NUMBER:-$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')}@cloudbuild.gserviceaccount.com"
+PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
+CB_SA="${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com"
+COMPUTE_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
 gcloud projects add-iam-policy-binding "$PROJECT_ID" \
   --member="serviceAccount:$CB_SA" \
-  --role="roles/storage.admin" --quiet 2>/dev/null || true
+  --role="roles/storage.admin" --quiet --no-user-output-enabled 2>/dev/null || true
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+  --member="serviceAccount:$COMPUTE_SA" \
+  --role="roles/storage.admin" --quiet --no-user-output-enabled 2>/dev/null || true
 ok "Cloud Build storage access granted"
 
 step "Creating Artifact Registry"
@@ -181,13 +200,13 @@ ok "Service Accounts created"
 
 step "Granting IAM roles"
 for ROLE in roles/run.admin roles/artifactregistry.writer roles/cloudbuild.builds.editor roles/iam.serviceAccountTokenCreator roles/secretmanager.secretAccessor roles/firebasehosting.admin roles/iam.serviceAccountUser; do
-  gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$DEPLOYER_SA" --role="$ROLE" --quiet 2>/dev/null || true
+  gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$DEPLOYER_SA" --role="$ROLE" --quiet --no-user-output-enabled 2>/dev/null || true
 done
 for ROLE in roles/secretmanager.secretAccessor roles/secretmanager.secretVersionAdder roles/datastore.user roles/iam.workloadIdentityPoolAdmin roles/firebase.admin roles/serviceusage.serviceUsageAdmin roles/iam.serviceAccountAdmin roles/resourcemanager.projectCreator; do
-  gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$PROVISIONER_SA" --role="$ROLE" --quiet 2>/dev/null || true
+  gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$PROVISIONER_SA" --role="$ROLE" --quiet --no-user-output-enabled 2>/dev/null || true
 done
 for ROLE in roles/resourcemanager.projectCreator roles/billing.user roles/serviceusage.serviceUsageAdmin; do
-  gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$FACTORY_SA" --role="$ROLE" --quiet 2>/dev/null || true
+  gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$FACTORY_SA" --role="$ROLE" --quiet --no-user-output-enabled 2>/dev/null || true
 done
 ok "IAM roles granted"
 
@@ -207,7 +226,7 @@ gcloud iam workload-identity-pools providers create-oidc "$WIF_PROVIDER" \
 gcloud iam service-accounts add-iam-policy-binding "$DEPLOYER_SA" \
   --role="roles/iam.workloadIdentityUser" \
   --member="principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/$WIF_POOL/attribute.repository/$GITHUB_OWNER/$GITHUB_REPO" \
-  --quiet 2>/dev/null || true
+  --quiet --no-user-output-enabled 2>/dev/null || true
 
 WIF_PROVIDER_PATH="projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${WIF_POOL}/providers/${WIF_PROVIDER}"
 ok "WIF configured"
@@ -222,27 +241,21 @@ if ! command -v firebase >/dev/null 2>&1; then
   npm install -g firebase-tools >/dev/null 2>&1 || true
 fi
 
-step "Authenticating Firebase CLI with gcloud"
-# In Cloud Shell, firebase login may fail. Use gcloud token instead.
-export GOOGLE_APPLICATION_CREDENTIALS=""
-firebase login --no-localhost 2>/dev/null || true
-
 step "Adding Firebase to project"
-gcloud firebase projects:addfirebase "$PROJECT_ID" 2>/dev/null || \
-  firebase projects:addfirebase "$PROJECT_ID" --non-interactive 2>/dev/null || true
+# Use REST API directly — Firebase CLI auth is broken in Cloud Shell
+TOKEN=$(gcloud auth print-access-token 2>/dev/null)
+curl -s -X POST -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  "https://firebase.googleapis.com/v1beta1/projects/${PROJECT_ID}:addFirebase" 2>/dev/null || true
 ok "Firebase added"
 
 step "Creating Hosting sites"
-# Use gcloud REST API as fallback if firebase CLI auth fails
-firebase hosting:sites:create "$HOSTING_SITE" --project "$PROJECT_ID" 2>/dev/null || \
-  curl -s -X POST -H "Authorization: Bearer $(gcloud auth print-access-token)" \
-    -H "Content-Type: application/json" \
-    "https://firebasehosting.googleapis.com/v1beta1/projects/$PROJECT_ID/sites?siteId=$HOSTING_SITE" 2>/dev/null || true
-
-firebase hosting:sites:create "${HOSTING_SITE}-qa" --project "$PROJECT_ID" 2>/dev/null || \
-  curl -s -X POST -H "Authorization: Bearer $(gcloud auth print-access-token)" \
-    -H "Content-Type: application/json" \
-    "https://firebasehosting.googleapis.com/v1beta1/projects/$PROJECT_ID/sites?siteId=${HOSTING_SITE}-qa" 2>/dev/null || true
+curl -s -X POST -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  "https://firebasehosting.googleapis.com/v1beta1/projects/$PROJECT_ID/sites?siteId=$HOSTING_SITE" 2>/dev/null || true
+curl -s -X POST -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  "https://firebasehosting.googleapis.com/v1beta1/projects/$PROJECT_ID/sites?siteId=${HOSTING_SITE}-qa" 2>/dev/null || true
 ok "Hosting sites: ${HOSTING_SITE}, ${HOSTING_SITE}-qa"
 
 # =========================================

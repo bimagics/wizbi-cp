@@ -47,8 +47,6 @@ Open it in your browser and log in with Google.
 In the Admin Panel, go to **Settings** and enter your API keys:
 
 - **GitHub App** — Required for project provisioning
-- **OpenAI / Gemini** — Optional, for AI features
-- **WhatsApp** — Optional, for WhatsApp integration
 
 ---
 
