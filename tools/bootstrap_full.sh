@@ -35,7 +35,7 @@ echo -e "${BOLD}Welcome! This script will set up your WIZBI Control Plane on GCP
 echo -e "You'll need a GCP Billing Account. Everything else is automatic.\n"
 
 # --- Project ID (auto-generate unique suffix) ---
-RANDOM_SUFFIX=$(cat /dev/urandom | tr -dc 'a-z0-9' | fold -w 4 | head -n 1)
+RANDOM_SUFFIX=$(head -c 100 /dev/urandom | tr -dc 'a-z0-9' | head -c 4)
 DEFAULT_PROJECT_ID="wizbi-cp-${RANDOM_SUFFIX}"
 if [ -z "${PROJECT_ID:-}" ]; then
   read -rp "$(echo -e ${BOLD})Enter Project ID [${DEFAULT_PROJECT_ID}]: $(echo -e ${NC})" PROJECT_ID
