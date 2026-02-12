@@ -1,119 +1,1444 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WIZBI - The Operating System for Your Business</title>
-    <link rel="stylesheet" href="/styles.css">
+    <title>WIZBI — Your Own Project Factory on Google Cloud</title>
+    <meta name="description"
+        content="One-click deploy a full PaaS on GCP. Provision projects, GitHub repos, CI/CD, and manage everything with an AI-powered control plane.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap"
+        rel="stylesheet">
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>">
+    <style>
+        :root {
+            --bg-primary: #0a0e1a;
+            --bg-secondary: #111827;
+            --bg-card: #1a1f2e;
+            --bg-terminal: #0d1117;
+            --border: #1e293b;
+            --border-glow: rgba(99, 102, 241, 0.3);
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent: #6366f1;
+            --accent-hover: #818cf8;
+            --accent-glow: rgba(99, 102, 241, 0.15);
+            --green: #22c55e;
+            --green-dim: #166534;
+            --cyan: #06b6d4;
+            --yellow: #eab308;
+            --font-sans: 'Inter', -apple-system, sans-serif;
+            --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            font-family: var(--font-sans);
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.7;
+            -webkit-font-smoothing: antialiased;
+            overflow-x: hidden;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 2rem;
+        }
+
+        /* HEADER */
+        .header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
+            padding: 1rem 0;
+            background: rgba(10, 14, 26, 0.85);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .header .container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: 900;
+            color: var(--text-primary);
+            text-decoration: none;
+            letter-spacing: -0.03em;
+        }
+
+        .logo span {
+            background: linear-gradient(135deg, var(--accent), var(--cyan));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        /* BUTTONS */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.6rem 1.25rem;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            text-decoration: none;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: var(--font-sans);
+        }
+
+        .btn-ghost {
+            background: transparent;
+            color: var(--text-secondary);
+            border: 1px solid var(--border);
+        }
+
+        .btn-ghost:hover {
+            color: var(--text-primary);
+            border-color: var(--text-muted);
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--accent-hover);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 20px rgba(99, 102, 241, 0.4);
+        }
+
+        .btn-lg {
+            padding: 0.85rem 2rem;
+            font-size: 1rem;
+            border-radius: 10px;
+        }
+
+        .cloud-shell-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 1rem 2.5rem;
+            background: linear-gradient(135deg, #1a73e8, #4285f4);
+            color: white;
+            border-radius: 12px;
+            font-size: 1.05rem;
+            font-weight: 700;
+            text-decoration: none;
+            transition: all 0.3s;
+            border: 1px solid rgba(66, 133, 244, 0.4);
+            box-shadow: 0 4px 25px rgba(26, 115, 232, 0.3);
+        }
+
+        .cloud-shell-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 40px rgba(26, 115, 232, 0.5);
+        }
+
+        .cloud-shell-btn svg {
+            width: 24px;
+            height: 24px;
+        }
+
+        /* HERO */
+        .hero {
+            padding: 10rem 0 5rem;
+            text-align: center;
+            position: relative;
+        }
+
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 800px;
+            height: 600px;
+            background: radial-gradient(ellipse, var(--accent-glow) 0%, transparent 70%);
+            pointer-events: none;
+        }
+
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.4rem 1rem;
+            background: var(--accent-glow);
+            border: 1px solid var(--border-glow);
+            border-radius: 100px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--accent-hover);
+            margin-bottom: 2rem;
+        }
+
+        .hero-badge .pulse {
+            width: 8px;
+            height: 8px;
+            background: var(--green);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.4;
+            }
+        }
+
+        .hero h1 {
+            font-size: 4rem;
+            font-weight: 900;
+            letter-spacing: -0.04em;
+            line-height: 1.1;
+            max-width: 900px;
+            margin: 0 auto 1.5rem;
+        }
+
+        .hero h1 .gradient {
+            background: linear-gradient(135deg, var(--accent) 0%, var(--cyan) 50%, var(--green) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .hero .subtitle {
+            font-size: 1.2rem;
+            color: var(--text-secondary);
+            max-width: 650px;
+            margin: 0 auto 3rem;
+            line-height: 1.8;
+        }
+
+        .hero-buttons {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .hero-note {
+            margin-top: 1.5rem;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        /* SECTION COMMONS */
+        .section-header {
+            text-align: center;
+            margin-bottom: 4rem;
+        }
+
+        .section-header h2 {
+            font-size: 2.5rem;
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            margin-bottom: 1rem;
+        }
+
+        .section-header p {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+            max-width: 550px;
+            margin: 0 auto;
+        }
+
+        /* ═══════════════════════════════════════════════════ */
+        /* PRODUCT PREVIEW (CSS-only admin panel mockup)       */
+        /* ═══════════════════════════════════════════════════ */
+        .preview-section {
+            padding: 6rem 0;
+        }
+
+        .preview-wrapper {
+            max-width: 1000px;
+            margin: 0 auto;
+            border-radius: 16px;
+            border: 1px solid var(--border);
+            background: var(--bg-secondary);
+            box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
+            overflow: hidden;
+            position: relative;
+        }
+
+        .preview-wrapper::before {
+            content: '';
+            position: absolute;
+            inset: -2px;
+            background: linear-gradient(135deg, var(--accent), var(--cyan), var(--green));
+            border-radius: 18px;
+            opacity: 0.2;
+            z-index: -1;
+            filter: blur(1px);
+        }
+
+        .preview-topbar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 16px;
+            background: #161b22;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .preview-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+
+        .preview-dot.r {
+            background: #ff5f57;
+        }
+
+        .preview-dot.y {
+            background: #febc2e;
+        }
+
+        .preview-dot.g {
+            background: #28c840;
+        }
+
+        .preview-url {
+            flex: 1;
+            text-align: center;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+            background: rgba(255, 255, 255, 0.05);
+            padding: 4px 12px;
+            border-radius: 6px;
+            margin: 0 40px;
+        }
+
+        .preview-body {
+            display: flex;
+            min-height: 400px;
+        }
+
+        /* Sidebar mock */
+        .mock-sidebar {
+            width: 220px;
+            background: #0f1318;
+            border-right: 1px solid var(--border);
+            padding: 1.5rem 0;
+            flex-shrink: 0;
+        }
+
+        .mock-sidebar-logo {
+            padding: 0 1.25rem;
+            font-weight: 800;
+            font-size: 1.2rem;
+            margin-bottom: 1.5rem;
+            color: var(--text-primary);
+        }
+
+        .mock-nav-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 0.6rem 1.25rem;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            cursor: default;
+            transition: all 0.2s;
+        }
+
+        .mock-nav-item.active {
+            color: var(--text-primary);
+            background: rgba(99, 102, 241, 0.1);
+            border-right: 3px solid var(--accent);
+        }
+
+        .mock-nav-item svg {
+            width: 18px;
+            height: 18px;
+        }
+
+        /* Content mock */
+        .mock-content {
+            flex: 1;
+            padding: 1.5rem 2rem;
+            overflow: hidden;
+        }
+
+        .mock-content-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .mock-content-header h3 {
+            font-size: 1.3rem;
+            font-weight: 700;
+        }
+
+        .mock-btn {
+            padding: 0.4rem 1rem;
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: default;
+        }
+
+        /* Mock table */
+        .mock-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.8rem;
+        }
+
+        .mock-table th {
+            text-align: left;
+            padding: 0.6rem 0.8rem;
+            color: var(--text-muted);
+            font-weight: 600;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .mock-table td {
+            padding: 0.75rem 0.8rem;
+            border-bottom: 1px solid rgba(30, 41, 59, 0.5);
+            color: var(--text-secondary);
+        }
+
+        .mock-table tr:hover td {
+            background: rgba(99, 102, 241, 0.03);
+        }
+
+        .mock-status {
+            display: inline-block;
+            padding: 0.15rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            font-weight: 600;
+        }
+
+        .status-live {
+            background: var(--green-dim);
+            color: var(--green);
+        }
+
+        .status-building {
+            background: rgba(234, 179, 8, 0.15);
+            color: var(--yellow);
+        }
+
+        .mock-link {
+            color: var(--cyan);
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+        }
+
+        /* ═══════════════════════════════════════════════════ */
+        /* VALUE PROPOSITION                                   */
+        /* ═══════════════════════════════════════════════════ */
+        .value-section {
+            padding: 6rem 0;
+            background: var(--bg-secondary);
+            border-top: 1px solid var(--border);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .value-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 2rem;
+        }
+
+        .value-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 2.5rem;
+            transition: all 0.3s;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .value-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .value-card:nth-child(1)::before {
+            background: linear-gradient(90deg, var(--accent), var(--cyan));
+        }
+
+        .value-card:nth-child(2)::before {
+            background: linear-gradient(90deg, var(--green), var(--cyan));
+        }
+
+        .value-card:nth-child(3)::before {
+            background: linear-gradient(90deg, var(--yellow), #f97316);
+        }
+
+        .value-card:nth-child(4)::before {
+            background: linear-gradient(90deg, #ec4899, var(--accent));
+        }
+
+        .value-card:hover {
+            border-color: var(--border-glow);
+            transform: translateY(-4px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .value-card:hover::before {
+            opacity: 1;
+        }
+
+        .value-icon {
+            font-size: 2.5rem;
+            margin-bottom: 1.25rem;
+        }
+
+        .value-card h3 {
+            font-size: 1.2rem;
+            font-weight: 700;
+            margin-bottom: 0.75rem;
+        }
+
+        .value-card p {
+            font-size: 0.95rem;
+            color: var(--text-secondary);
+            line-height: 1.7;
+        }
+
+        .value-card ul {
+            list-style: none;
+            margin-top: 1rem;
+        }
+
+        .value-card ul li {
+            padding: 0.3rem 0;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }
+
+        .value-card ul li::before {
+            content: '→ ';
+            color: var(--accent);
+            font-weight: 700;
+        }
+
+        /* ═══════════════════════════════════════════════════ */
+        /* CAPABILITIES (What the platform does)               */
+        /* ═══════════════════════════════════════════════════ */
+        .cap-section {
+            padding: 6rem 0;
+        }
+
+        .cap-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1.5rem;
+        }
+
+        .cap-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 2rem;
+            transition: all 0.3s;
+        }
+
+        .cap-card:hover {
+            border-color: var(--border-glow);
+            transform: translateY(-3px);
+        }
+
+        .cap-icon {
+            font-size: 1.8rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .cap-card h3 {
+            font-size: 1rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+
+        .cap-card p {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .cap-badge {
+            display: inline-block;
+            padding: 0.15rem 0.5rem;
+            border-radius: 6px;
+            font-size: 0.65rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-top: 0.75rem;
+        }
+
+        .badge-auto {
+            background: var(--green-dim);
+            color: var(--green);
+        }
+
+        .badge-managed {
+            background: rgba(6, 182, 212, 0.15);
+            color: var(--cyan);
+        }
+
+        .badge-ai {
+            background: rgba(236, 72, 153, 0.15);
+            color: #ec4899;
+        }
+
+        /* ═══════════════════════════════════════════════════ */
+        /* TERMINAL DEMO                                       */
+        /* ═══════════════════════════════════════════════════ */
+        .terminal-section {
+            padding: 4rem 0 6rem;
+        }
+
+        .terminal-wrapper {
+            max-width: 900px;
+            margin: 0 auto;
+            position: relative;
+        }
+
+        .terminal-wrapper::before {
+            content: '';
+            position: absolute;
+            inset: -2px;
+            background: linear-gradient(135deg, var(--accent), var(--cyan), var(--green));
+            border-radius: 14px;
+            opacity: 0.3;
+            z-index: -1;
+            filter: blur(1px);
+        }
+
+        .terminal {
+            background: var(--bg-terminal);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            overflow: hidden;
+            box-shadow: 0 25px 80px rgba(0, 0, 0, 0.5);
+        }
+
+        .terminal-bar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 16px;
+            background: #161b22;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .terminal-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+
+        .terminal-dot.red {
+            background: #ff5f57;
+        }
+
+        .terminal-dot.yellow {
+            background: #febc2e;
+        }
+
+        .terminal-dot.green {
+            background: #28c840;
+        }
+
+        .terminal-title {
+            flex: 1;
+            text-align: center;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+        }
+
+        .terminal-body {
+            padding: 1.5rem;
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            line-height: 1.9;
+            min-height: 420px;
+            max-height: 420px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .terminal-body::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 60px;
+            background: linear-gradient(transparent, var(--bg-terminal));
+            pointer-events: none;
+        }
+
+        .term-line {
+            opacity: 0;
+            animation: fadeInLine 0.3s forwards;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        @keyframes fadeInLine {
+            from {
+                opacity: 0;
+                transform: translateY(4px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .term-phase {
+            color: var(--cyan);
+            font-weight: 700;
+            display: block;
+            margin-top: 0.5rem;
+        }
+
+        .term-step {
+            color: var(--green);
+        }
+
+        .term-ok {
+            color: var(--green);
+        }
+
+        .term-warn {
+            color: var(--yellow);
+        }
+
+        .term-prompt {
+            color: var(--text-muted);
+        }
+
+        .term-value {
+            color: var(--accent-hover);
+            font-weight: 500;
+        }
+
+        .term-url {
+            color: var(--cyan);
+            text-decoration: underline;
+        }
+
+        .cursor {
+            display: inline-block;
+            width: 8px;
+            height: 16px;
+            background: var(--green);
+            animation: blink 1s infinite;
+            vertical-align: text-bottom;
+        }
+
+        @keyframes blink {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0;
+            }
+        }
+
+        /* ═══════════════════════════════════════════════════ */
+        /* HOW IT WORKS                                        */
+        /* ═══════════════════════════════════════════════════ */
+        .steps-section {
+            padding: 6rem 0;
+            background: var(--bg-secondary);
+            border-top: 1px solid var(--border);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .steps-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 2rem;
+            position: relative;
+        }
+
+        .steps-grid::before {
+            content: '';
+            position: absolute;
+            top: 40px;
+            left: 10%;
+            right: 10%;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, var(--accent), var(--cyan), var(--green), transparent);
+            opacity: 0.3;
+        }
+
+        .step-card {
+            text-align: center;
+            position: relative;
+        }
+
+        .step-number {
+            width: 56px;
+            height: 56px;
+            border-radius: 16px;
+            background: var(--bg-card);
+            border: 2px solid var(--accent);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            font-weight: 800;
+            color: var(--accent-hover);
+            margin-bottom: 1.25rem;
+            position: relative;
+            z-index: 1;
+        }
+
+        .step-card h3 {
+            font-size: 1rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+
+        .step-card p {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        /* CTA */
+        .cta-section {
+            padding: 6rem 0;
+            text-align: center;
+            position: relative;
+        }
+
+        .cta-section::before {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 600px;
+            height: 400px;
+            background: radial-gradient(ellipse, rgba(99, 102, 241, 0.1) 0%, transparent 70%);
+            pointer-events: none;
+        }
+
+        .cta-section h2 {
+            font-size: 2.8rem;
+            font-weight: 900;
+            margin-bottom: 1rem;
+        }
+
+        .cta-section p {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+            margin-bottom: 2.5rem;
+            max-width: 500px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        /* FOOTER */
+        .footer {
+            padding: 2.5rem 0;
+            border-top: 1px solid var(--border);
+            text-align: center;
+        }
+
+        .footer p {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+        }
+
+        /* RESPONSIVE */
+        @media (max-width: 992px) {
+            .hero h1 {
+                font-size: 3rem;
+            }
+
+            .cap-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .steps-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .steps-grid::before {
+                display: none;
+            }
+
+            .value-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .mock-sidebar {
+                width: 180px;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .hero {
+                padding: 8rem 0 4rem;
+            }
+
+            .hero h1 {
+                font-size: 2.2rem;
+            }
+
+            .hero .subtitle {
+                font-size: 1rem;
+            }
+
+            .cap-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .steps-grid {
+                grid-template-columns: 1fr;
+                gap: 1.5rem;
+            }
+
+            .terminal-body {
+                font-size: 0.75rem;
+                min-height: 350px;
+                max-height: 350px;
+            }
+
+            .cta-section h2 {
+                font-size: 2rem;
+            }
+
+            .header-actions .btn-ghost {
+                display: none;
+            }
+
+            .mock-sidebar {
+                display: none;
+            }
+
+            .preview-body {
+                min-height: 300px;
+            }
+        }
+    </style>
 </head>
+
 <body>
 
-    <header class="main-header">
+    <!-- HEADER -->
+    <header class="header">
         <div class="container">
-            <a href="#" class="logo">WIZBI 🚀</a>
-            <nav class="main-nav">
-                <a href="/admin/" class="btn btn-primary">Get Started</a>
-            </nav>
+            <a href="#" class="logo"><span>WIZBI</span> 🚀</a>
+            <div class="header-actions">
+                <a href="https://github.com/bimagics/wizbi-cp" class="btn btn-ghost" target="_blank">
+                    <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor">
+                        <path
+                            d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+                    </svg>
+                    GitHub
+                </a>
+                <a href="/admin/" class="btn btn-primary">Admin Panel</a>
+            </div>
         </div>
     </header>
 
     <main>
+        <!-- ═══ HERO ═══ -->
         <section class="hero">
             <div class="container">
-                <h1>The Operating System for Your Business</h1>
-                <p class="subtitle">Instantly provision complete, modern, and secure cloud infrastructure on GCP. We turn your ideas into reality, powered by AI and automation.</p>
-                <a href="/admin/" class="btn btn-primary btn-lg">Start Using WIZBI</a>
+                <div class="hero-badge">
+                    <div class="pulse"></div>Open-source · Deploy in 5 minutes
+                </div>
+                <h1>Your Own <span class="gradient">Project Factory</span> on Google Cloud</h1>
+                <p class="subtitle">One click deploys a complete PaaS on your GCP. Provision projects, GitHub repos,
+                    CI/CD pipelines, and manage everything through an admin panel — powered by AI.</p>
+                <div class="hero-buttons">
+                    <a href="https://shell.cloud.google.com/cloudshell/editor?cloudshell_git_repo=https://github.com/bimagics/wizbi-cp&cloudshell_git_branch=main&cloudshell_tutorial=tools/tutorial.md&cloudshell_workspace=."
+                        class="cloud-shell-btn" target="_blank">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M4 17l6-6-6-6" />
+                            <path d="M12 19h8" />
+                        </svg>
+                        Deploy on Google Cloud
+                    </a>
+                    <a href="#preview" class="btn btn-ghost btn-lg">See what you get ↓</a>
+                </div>
+                <p class="hero-note">Requires a GCP account with billing. Works on a brand-new empty project.</p>
             </div>
         </section>
 
-        <section class="features">
+        <!-- ═══ PRODUCT PREVIEW ═══ -->
+        <section class="preview-section" id="preview">
             <div class="container">
                 <div class="section-header">
-                    <h2>A Platform Built on Three Core Principles</h2>
-                    <p>Every technical decision is driven by our mission to empower businesses.</p>
+                    <h2>This Is What You Get</h2>
+                    <p>A real admin panel to provision and manage GCP projects for your entire team.</p>
                 </div>
-                <div class="features-grid">
-                    <div class="feature-card">
-                        <div class="feature-icon">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z" /></svg>
-                        </div>
-                        <h3>Automated Provisioning</h3>
-                        <p>From a GCP project to a GitHub repo with a secure CI/CD pipeline, everything is set up for you in minutes.</p>
+                <div class="preview-wrapper">
+                    <div class="preview-topbar">
+                        <div class="preview-dot r"></div>
+                        <div class="preview-dot y"></div>
+                        <div class="preview-dot g"></div>
+                        <span class="preview-url">🔒 https://my-company-cp.web.app/admin/</span>
                     </div>
-                    <div class="feature-card">
-                        <div class="feature-icon">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
+                    <div class="preview-body">
+                        <div class="mock-sidebar">
+                            <div class="mock-sidebar-logo">WizBI</div>
+                            <div class="mock-nav-item active">
+                                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                </svg>
+                                Projects
+                            </div>
+                            <div class="mock-nav-item">
+                                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                                </svg>
+                                Organizations
+                            </div>
+                            <div class="mock-nav-item">
+                                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                                </svg>
+                                Templates
+                            </div>
+                            <div class="mock-nav-item">
+                                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197" />
+                                </svg>
+                                Users
+                            </div>
+                            <div class="mock-nav-item">
+                                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                </svg>
+                                Settings
+                            </div>
                         </div>
-                        <h3>Template-Driven</h3>
-                        <p>Ensure uniformity and prevent configuration drift. New project templates are discovered automatically from GitHub.</p>
-                    </div>
-                    <div class="feature-card">
-                        <div class="feature-icon">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                        <div class="mock-content">
+                            <div class="mock-content-header">
+                                <h3>Projects</h3>
+                                <button class="mock-btn">Provision New Project</button>
+                            </div>
+                            <table class="mock-table">
+                                <thead>
+                                    <tr>
+                                        <th>Project Name</th>
+                                        <th>Organization</th>
+                                        <th>Status</th>
+                                        <th>Links</th>
+                                        <th>Created</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td style="color:var(--text-primary);font-weight:600;">Acme Landing Page</td>
+                                        <td>Acme Corp</td>
+                                        <td><span class="mock-status status-live">● Live</span></td>
+                                        <td><span class="mock-link">acme-landing.web.app</span></td>
+                                        <td>2 hours ago</td>
+                                    </tr>
+                                    <tr>
+                                        <td style="color:var(--text-primary);font-weight:600;">Widget Dashboard</td>
+                                        <td>Acme Corp</td>
+                                        <td><span class="mock-status status-live">● Live</span></td>
+                                        <td><span class="mock-link">widget-dash.web.app</span></td>
+                                        <td>Yesterday</td>
+                                    </tr>
+                                    <tr>
+                                        <td style="color:var(--text-primary);font-weight:600;">Mobile API v2</td>
+                                        <td>StartupX</td>
+                                        <td><span class="mock-status status-building">● Building</span></td>
+                                        <td><span class="mock-link">—</span></td>
+                                        <td>Just now</td>
+                                    </tr>
+                                    <tr>
+                                        <td style="color:var(--text-primary);font-weight:600;">Analytics Engine</td>
+                                        <td>StartupX</td>
+                                        <td><span class="mock-status status-live">● Live</span></td>
+                                        <td><span class="mock-link">analytics-eng.web.app</span></td>
+                                        <td>3 days ago</td>
+                                    </tr>
+                                    <tr>
+                                        <td style="color:var(--text-primary);font-weight:600;">CRM Backend</td>
+                                        <td>Acme Corp</td>
+                                        <td><span class="mock-status status-live">● Live</span></td>
+                                        <td><span class="mock-link">acme-crm-be.web.app</span></td>
+                                        <td>Last week</td>
+                                    </tr>
+                                </tbody>
+                            </table>
                         </div>
-                        <h3>Secure by Design</h3>
-                        <p>Fully isolated environments for each project, with keyless deployments using Workload Identity Federation (WIF).</p>
-                    </div>
-                     <div class="feature-card">
-                        <div class="feature-icon">
-                           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" /></svg>
-                        </div>
-                        <h3>Lean & Cost-Effective</h3>
-                        <p>A Serverless-first architecture using Cloud Run and Firestore that minimizes fixed costs and scales with your usage.</p>
-                    </div>
-                    <div class="feature-card">
-                        <div class="feature-icon">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2 1m0 0l-2-1m2 1V2M4 7l2 1M4 7l2-1M4 7v2.5M12 21.5v-2.5M12 18.5l-2-1m2 1l2-1m-2 1v-2.5m-8-5l2 1m-2-1l2-1m-2 1V9.5" /></svg>
-                        </div>
-                        <h3>Radical Simplicity</h3>
-                        <p>Interact with a clean, intuitive interface. All the complex cloud management is abstracted away and handled for you.</p>
-                    </div>
-                    <div class="feature-card">
-                        <div class="feature-icon">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7.014A8.003 8.003 0 0122 12c0 3-1 7-7.343 6.657z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.879 16.121A3 3 0 1014.12 11.88l-4.242 4.242z" /></svg>
-                        </div>
-                        <h3>AI-Powered Vision</h3>
-                        <p>Our long-term vision is to enable product development using natural language. The platform handles all the plumbing.</p>
                     </div>
                 </div>
             </div>
         </section>
 
-        <section class="tech-stack">
+        <!-- ═══ VALUE PROPOSITION ═══ -->
+        <section class="value-section">
             <div class="container">
                 <div class="section-header">
-                    <h2>Powered by a Modern, Scalable Tech Stack</h2>
+                    <h2>Why WIZBI?</h2>
+                    <p>Turn a bare GCP org into a production-grade project factory in minutes — then let AI take it
+                        further.</p>
                 </div>
-                <div class="tech-logos">
-                    <span>Google Cloud</span>
-                    <span>GitHub</span>
-                    <span>Firebase</span>
-                    <span>Node.js</span>
-                    <span>Docker</span>
-                    <span>TypeScript</span>
+                <div class="value-grid">
+                    <div class="value-card">
+                        <div class="value-icon">⚡</div>
+                        <h3>From Zero to Production in 5 Minutes</h3>
+                        <p>Click one button. Answer two questions. Get a fully provisioned GCP environment with Cloud
+                            Run, Firebase, Firestore, and CI/CD — ready for your team.</p>
+                        <ul>
+                            <li>No Terraform. No YAML. No manual clicking.</li>
+                            <li>Automated security: WIF, scoped service accounts, Secret Manager</li>
+                            <li>Works on a brand-new, empty GCP project</li>
+                        </ul>
+                    </div>
+                    <div class="value-card">
+                        <div class="value-icon">🏭</div>
+                        <h3>A Factory That Builds Factories</h3>
+                        <p>Once deployed, your Control Plane becomes a factory: create new GCP projects for your clients
+                            or products with one click from the admin panel.</p>
+                        <ul>
+                            <li>Each project: isolated GCP project + GitHub repo + CI/CD</li>
+                            <li>Use templates to guarantee consistency across all projects</li>
+                            <li>Multi-org support: manage multiple clients from one panel</li>
+                        </ul>
+                    </div>
+                    <div class="value-card">
+                        <div class="value-icon">🤖</div>
+                        <h3>AI-Powered Superpowers</h3>
+                        <p>Integrated with OpenAI and Gemini. Your team gets an intelligent agent that understands your
+                            infrastructure and can help build on top of it.</p>
+                        <ul>
+                            <li>Chat with your projects — ask about status, logs, costs</li>
+                            <li>WhatsApp integration for on-the-go management</li>
+                            <li>The AI sees your entire GCP setup and can help scale it</li>
+                        </ul>
+                    </div>
+                    <div class="value-card">
+                        <div class="value-icon">💰</div>
+                        <h3>Built for Real Economics</h3>
+                        <p>Serverless-first architecture means you only pay for what you use. The control plane itself
+                            runs on Cloud Run's generous free tier.</p>
+                        <ul>
+                            <li>$0/month baseline — scales with actual usage</li>
+                            <li>No VMs, no idle compute, no wasted money</li>
+                            <li>Full cost visibility per project</li>
+                        </ul>
+                    </div>
                 </div>
             </div>
         </section>
 
-        <section class="cta">
+        <!-- ═══ CAPABILITIES ═══ -->
+        <section class="cap-section">
             <div class="container">
-                <h2>Ready to Build?</h2>
-                <p>Get your next digital product up and running in minutes, not months.</p>
-                <a href="/admin/" class="btn btn-light btn-lg">Access the Control Plane</a>
+                <div class="section-header">
+                    <h2>What Gets Deployed</h2>
+                    <p>Every component is provisioned automatically — a complete platform on your own GCP project.</p>
+                </div>
+                <div class="cap-grid">
+                    <div class="cap-card">
+                        <div class="cap-icon">☁️</div>
+                        <h3>Cloud Run (Prod + QA)</h3>
+                        <p>Serverless backend containers — auto-scaling, zero idle cost.</p>
+                        <span class="cap-badge badge-auto">Auto-deployed</span>
+                    </div>
+                    <div class="cap-card">
+                        <div class="cap-icon">🔥</div>
+                        <h3>Firebase Hosting</h3>
+                        <p>Global CDN for the admin panel. Production + QA sites.</p>
+                        <span class="cap-badge badge-auto">Auto-deployed</span>
+                    </div>
+                    <div class="cap-card">
+                        <div class="cap-icon">🗄️</div>
+                        <h3>Firestore Database</h3>
+                        <p>NoSQL database for projects, orgs, users, and configuration.</p>
+                        <span class="cap-badge badge-auto">Auto-deployed</span>
+                    </div>
+                    <div class="cap-card">
+                        <div class="cap-icon">🐳</div>
+                        <h3>Artifact Registry</h3>
+                        <p>Private Docker registry for secure container images.</p>
+                        <span class="cap-badge badge-auto">Auto-deployed</span>
+                    </div>
+                    <div class="cap-card">
+                        <div class="cap-icon">🔐</div>
+                        <h3>Secret Manager</h3>
+                        <p>13 secrets managed — API keys never touch your codebase.</p>
+                        <span class="cap-badge badge-managed">Managed</span>
+                    </div>
+                    <div class="cap-card">
+                        <div class="cap-icon">🔑</div>
+                        <h3>Workload Identity (WIF)</h3>
+                        <p>Keyless auth from GitHub Actions. No service account keys.</p>
+                        <span class="cap-badge badge-auto">Auto-deployed</span>
+                    </div>
+                    <div class="cap-card">
+                        <div class="cap-icon">👥</div>
+                        <h3>3 Service Accounts</h3>
+                        <p>Deployer, Provisioner, Factory — minimal, scoped roles each.</p>
+                        <span class="cap-badge badge-auto">Auto-deployed</span>
+                    </div>
+                    <div class="cap-card">
+                        <div class="cap-icon">🔄</div>
+                        <h3>GitHub Actions CI/CD</h3>
+                        <p>Push to <code style="color:var(--cyan)">dev</code> → QA. Push to <code
+                                style="color:var(--green)">main</code> → Prod.</p>
+                        <span class="cap-badge badge-managed">Managed</span>
+                    </div>
+                    <div class="cap-card">
+                        <div class="cap-icon">🤖</div>
+                        <h3>AI Agent Integration</h3>
+                        <p>OpenAI + Gemini APIs. Chat with your infrastructure via web or WhatsApp.</p>
+                        <span class="cap-badge badge-ai">AI-Powered</span>
+                    </div>
+                </div>
             </div>
         </section>
 
+        <!-- ═══ TERMINAL DEMO ═══ -->
+        <section class="terminal-section" id="demo">
+            <div class="container">
+                <div class="section-header">
+                    <h2>Watch the Setup</h2>
+                    <p>This is exactly what happens when you click "Deploy on Google Cloud".</p>
+                </div>
+                <div class="terminal-wrapper">
+                    <div class="terminal">
+                        <div class="terminal-bar">
+                            <div class="terminal-dot red"></div>
+                            <div class="terminal-dot yellow"></div>
+                            <div class="terminal-dot green"></div>
+                            <span class="terminal-title">wizbi-cp — Google Cloud Shell</span>
+                        </div>
+                        <div class="terminal-body" id="terminalBody">
+                            <span class="cursor" id="cursor"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══ STEPS ═══ -->
+        <section class="steps-section">
+            <div class="container">
+                <div class="section-header">
+                    <h2>Four Steps. Five Minutes.</h2>
+                    <p>From zero to a running project factory on your own GCP.</p>
+                </div>
+                <div class="steps-grid">
+                    <div class="step-card">
+                        <div class="step-number">1</div>
+                        <h3>Click Deploy</h3>
+                        <p>Click the button — Cloud Shell opens with the repo cloned and ready.</p>
+                    </div>
+                    <div class="step-card">
+                        <div class="step-number">2</div>
+                        <h3>Enter Billing</h3>
+                        <p>The script asks for your billing account ID. That's the only required input.</p>
+                    </div>
+                    <div class="step-card">
+                        <div class="step-number">3</div>
+                        <h3>Wait ~5 Minutes</h3>
+                        <p>14 APIs, databases, service accounts, containers, hosting — all automatic.</p>
+                    </div>
+                    <div class="step-card">
+                        <div class="step-number">4</div>
+                        <h3>Start Building</h3>
+                        <p>Open the Admin Panel, configure API keys in Settings, and start provisioning.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══ CTA ═══ -->
+        <section class="cta-section">
+            <div class="container">
+                <h2>Ready to Deploy?</h2>
+                <p>Get your own project factory running on Google Cloud in under 5 minutes. No config files, no manual
+                    setup.</p>
+                <div style="display:flex;flex-direction:column;align-items:center;gap:1rem;">
+                    <a href="https://shell.cloud.google.com/cloudshell/editor?cloudshell_git_repo=https://github.com/bimagics/wizbi-cp&cloudshell_git_branch=main&cloudshell_tutorial=tools/tutorial.md&cloudshell_workspace=."
+                        class="cloud-shell-btn" target="_blank">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M4 17l6-6-6-6" />
+                            <path d="M12 19h8" />
+                        </svg>
+                        Deploy on Google Cloud
+                    </a>
+                    <p class="hero-note">Free to host. You only pay for GCP usage (Cloud Run is free-tier eligible).</p>
+                </div>
+            </div>
+        </section>
     </main>
 
-    <footer class="main-footer">
+    <footer class="footer">
         <div class="container">
-            <p>&copy; 2025 WIZBI. All rights reserved.</p>
+            <p>&copy; 2026 WIZBI by <a href="https://github.com/bimagics" style="color: var(--accent);">bimagics</a>.
+                Open-source under MIT.</p>
         </div>
     </footer>
 
+    <!-- TERMINAL ANIMATION -->
+    <script>
+        (function () {
+            const terminalBody = document.getElementById('terminalBody');
+            const cursor = document.getElementById('cursor');
+            const lines = [
+                { t: 'phase', x: '━━━  WIZBI Control Plane — Setup Wizard  ━━━' },
+                { t: 'normal', x: 'Welcome! This will set up your WIZBI Control Plane on GCP.' },
+                { t: 'normal', x: '' },
+                { t: 'prompt', x: 'Enter Billing Account ID: ', v: '01A2B3-C4D5E6-F7G8H9' },
+                { t: 'prompt', x: 'Project ID [wizbi-cp]: ', v: 'my-company-cp' },
+                { t: 'prompt', x: 'Proceed? [Y/n]: ', v: 'Y' },
+                { t: 'normal', x: '' },
+                { t: 'phase', x: '━━━  Phase 1/5 — GCP Foundation  ━━━' },
+                { t: 'step', x: '>>> Creating GCP project: my-company-cp' },
+                { t: 'ok', x: '✓  Project created' },
+                { t: 'ok', x: '✓  Billing linked' },
+                { t: 'step', x: '>>> Enabling 14 APIs...' },
+                { t: 'ok', x: '✓  All APIs enabled' },
+                { t: 'ok', x: '✓  Artifact Registry created' },
+                { t: 'ok', x: '✓  Firestore (Native Mode) initialized' },
+                { t: 'ok', x: '✓  3 Service Accounts created (deployer, provisioner, factory)' },
+                { t: 'ok', x: '✓  IAM roles assigned' },
+                { t: 'ok', x: '✓  Workload Identity Federation configured' },
+                { t: 'normal', x: '' },
+                { t: 'phase', x: '━━━  Phase 2/5 — Firebase  ━━━' },
+                { t: 'ok', x: '✓  Firebase initialized' },
+                { t: 'ok', x: '✓  Hosting: my-company-cp.web.app + my-company-cp-qa.web.app' },
+                { t: 'ok', x: '✓  Auth: Google Sign-In enabled' },
+                { t: 'normal', x: '' },
+                { t: 'phase', x: '━━━  Phase 3/5 — Secrets  ━━━' },
+                { t: 'ok', x: '✓  13 secrets created in Secret Manager' },
+                { t: 'warn', x: '⚠  GitHub & AI keys = placeholders → configure in Admin Panel' },
+                { t: 'normal', x: '' },
+                { t: 'phase', x: '━━━  Phase 4/5 — Build & Deploy  ━━━' },
+                { t: 'step', x: '>>> Building Docker image...' },
+                { t: 'ok', x: '✓  Image pushed to Artifact Registry' },
+                { t: 'step', x: '>>> Deploying Cloud Run services...' },
+                { t: 'ok', x: '✓  Production: cp-unified (europe-west1)' },
+                { t: 'ok', x: '✓  QA: cp-unified-qa (europe-west1)' },
+                { t: 'ok', x: '✓  Firebase Hosting deployed' },
+                { t: 'normal', x: '' },
+                { t: 'phase', x: '━━━  Phase 5/5 — CI/CD  ━━━' },
+                { t: 'ok', x: '✓  GitHub Actions workflow configured' },
+                { t: 'normal', x: '' },
+                { t: 'phase', x: '╔═════════════════════════════════════════════════════╗' },
+                { t: 'phase', x: '║       ✅  WIZBI Control Plane — Setup Complete!     ║' },
+                { t: 'phase', x: '╚═════════════════════════════════════════════════════╝' },
+                { t: 'normal', x: '' },
+                { t: 'url', x: '🌍 Admin Panel:  https://my-company-cp.web.app/admin/' },
+                { t: 'normal', x: '' },
+                { t: 'step', x: 'Next: Open Admin → Settings → enter your API keys.' },
+                { t: 'ok', x: 'Done! 🚀' },
+            ];
+            let i = 0, running = false;
+            function delay(l) {
+                if (l.t === 'phase') return 400;
+                if (l.t === 'step') return 600;
+                if (l.t === 'prompt') return 800;
+                if (l.t === 'ok') return 200;
+                if (l.t === 'normal' && l.x === '') return 100;
+                return 300;
+            }
+            function render(l) {
+                const el = document.createElement('div');
+                el.className = 'term-line';
+                if (l.t === 'phase') el.innerHTML = '<span class="term-phase">' + l.x + '</span>';
+                else if (l.t === 'step') el.innerHTML = '<span class="term-step">' + l.x + '</span>';
+                else if (l.t === 'ok') el.innerHTML = '<span class="term-ok">' + l.x + '</span>';
+                else if (l.t === 'warn') el.innerHTML = '<span class="term-warn">' + l.x + '</span>';
+                else if (l.t === 'prompt') el.innerHTML = '<span class="term-prompt">' + l.x + '</span><span class="term-value">' + (l.v || '↵') + '</span>';
+                else if (l.t === 'url') { var p = l.x.split('https://'); el.innerHTML = p[0] + '<span class="term-url">https://' + p[1] + '</span>'; }
+                else el.textContent = l.x || '\u00A0';
+                terminalBody.insertBefore(el, cursor);
+                terminalBody.scrollTop = terminalBody.scrollHeight;
+            }
+            function next() {
+                if (i >= lines.length) {
+                    cursor.style.display = 'none';
+                    setTimeout(function () { i = 0; terminalBody.innerHTML = ''; terminalBody.appendChild(cursor); cursor.style.display = ''; running = false; go(); }, 6000);
+                    return;
+                }
+                render(lines[i]);
+                var d = delay(lines[i]);
+                i++;
+                setTimeout(next, d);
+            }
+            function go() { if (running) return; running = true; next(); }
+            new IntersectionObserver(function (entries) {
+                entries.forEach(function (e) { if (e.isIntersecting) go(); });
+            }, { threshold: 0.3 }).observe(terminalBody);
+        })();
+    </script>
 </body>
+
 </html>

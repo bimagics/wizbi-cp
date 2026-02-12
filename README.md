@@ -40,7 +40,8 @@ The core of WIZBI is its ability to automate the entire lifecycle of a new proje
     * **Firebase Integration:** Adds Firebase services, including Firestore and Hosting, to the new project.
     * **Secure CI/CD Setup:** Provisions a dedicated Service Account and configures Workload Identity Federation (WIF) for secure, keyless deployments from GitHub.
     * **GitHub Repo Creation:** Clones the selected template into a new private GitHub repository.
-    * **Dynamic Customization:** Automatically scans files like `README.md` and `firebase.json` in the new repo, replacing placeholders (`{{PROJECT_ID}}`) with the actual project details.
+    * **Dynamic Customization:** Automatically scans files like `README.md`, `firebase.json`, and `.env.example` in the new repo, replacing placeholders (`{{PROJECT_ID}}`, `{{GCP_REGION}}`) with the actual project details.
+    * **Local Development Setup:** Each new project includes a pre-configured `.env.example` file with project-specific values, making it easy for developers to set up their local testing environment.
     * **Secret Injection:** Securely injects all necessary deployment secrets (like `GCP_PROJECT_ID`, `WIF_PROVIDER`, etc.) into the new repository's GitHub Actions secrets.
 4.  **Ready to Develop:** Within minutes, the new project is fully configured and ready. Developers can push code to the `dev` or `main` branches to trigger automated, secure deployments to their QA and Production environments.
 
