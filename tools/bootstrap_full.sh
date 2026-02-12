@@ -169,17 +169,18 @@ gcloud services enable \
   --quiet
 ok "All APIs enabled"
 
-step "Granting Cloud Build SA storage access"
+step "Granting Cloud Build SA permissions"
 PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
 CB_SA="${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com"
 COMPUTE_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
-gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-  --member="serviceAccount:$CB_SA" \
-  --role="roles/storage.admin" --quiet --no-user-output-enabled 2>/dev/null || true
-gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-  --member="serviceAccount:$COMPUTE_SA" \
-  --role="roles/storage.admin" --quiet --no-user-output-enabled 2>/dev/null || true
-ok "Cloud Build storage access granted"
+for SA in "$CB_SA" "$COMPUTE_SA"; do
+  for ROLE in roles/storage.admin roles/artifactregistry.writer roles/logging.logWriter; do
+    gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+      --member="serviceAccount:$SA" \
+      --role="$ROLE" --quiet --no-user-output-enabled 2>/dev/null || true
+  done
+done
+ok "Cloud Build permissions granted"
 
 step "Creating Artifact Registry"
 gcloud artifacts repositories create "$AR_REPO" \
@@ -244,18 +245,31 @@ fi
 step "Adding Firebase to project"
 # Use REST API directly — Firebase CLI auth is broken in Cloud Shell
 TOKEN=$(gcloud auth print-access-token 2>/dev/null)
-curl -s -X POST -H "Authorization: Bearer $TOKEN" \
+ADD_FB_RESULT=$(curl -s -X POST -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  "https://firebase.googleapis.com/v1beta1/projects/${PROJECT_ID}:addFirebase" 2>/dev/null || true
+  "https://firebase.googleapis.com/v1beta1/projects/${PROJECT_ID}:addFirebase" 2>/dev/null)
+echo "$ADD_FB_RESULT" | grep -q '"error"' && warn "Firebase may already be added" || true
 ok "Firebase added"
+
+# Wait for Firebase to fully provision before creating hosting sites
+step "Waiting for Firebase to be ready"
+for i in $(seq 1 12); do
+  FB_CHECK=$(curl -s -H "Authorization: Bearer $TOKEN" \
+    "https://firebase.googleapis.com/v1beta1/projects/${PROJECT_ID}" 2>/dev/null)
+  echo "$FB_CHECK" | grep -q '"projectId"' && break
+  echo -n "."
+  sleep 5
+done
+echo ""
+ok "Firebase ready"
 
 step "Creating Hosting sites"
 curl -s -X POST -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  "https://firebasehosting.googleapis.com/v1beta1/projects/$PROJECT_ID/sites?siteId=$HOSTING_SITE" 2>/dev/null || true
+  "https://firebasehosting.googleapis.com/v1beta1/projects/$PROJECT_ID/sites?siteId=$HOSTING_SITE" >/dev/null 2>&1 || true
 curl -s -X POST -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  "https://firebasehosting.googleapis.com/v1beta1/projects/$PROJECT_ID/sites?siteId=${HOSTING_SITE}-qa" 2>/dev/null || true
+  "https://firebasehosting.googleapis.com/v1beta1/projects/$PROJECT_ID/sites?siteId=${HOSTING_SITE}-qa" >/dev/null 2>&1 || true
 ok "Hosting sites: ${HOSTING_SITE}, ${HOSTING_SITE}-qa"
 
 # =========================================
