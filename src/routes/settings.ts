@@ -17,18 +17,7 @@ const SECRET_DEFINITIONS = [
     { name: 'GITHUB_APP_ID', category: 'github', label: 'GitHub App ID', sensitive: false },
     { name: 'GITHUB_PRIVATE_KEY', category: 'github', label: 'GitHub Private Key', sensitive: true },
     { name: 'GITHUB_INSTALLATION_ID', category: 'github', label: 'GitHub Installation ID', sensitive: false },
-    // AI
-    { name: 'OPENAI_API_KEY_PROD', category: 'ai', label: 'OpenAI API Key (Prod)', sensitive: true },
-    { name: 'OPENAI_API_KEY_QA', category: 'ai', label: 'OpenAI API Key (QA)', sensitive: true },
-    { name: 'GEMINI_API_KEY_PROD', category: 'ai', label: 'Gemini API Key (Prod)', sensitive: true },
-    { name: 'GEMINI_API_KEY_QA', category: 'ai', label: 'Gemini API Key (QA)', sensitive: true },
-    // WhatsApp
-    { name: 'WHATSAPP_VERIFY_TOKEN_PROD', category: 'whatsapp', label: 'Verify Token (Prod)', sensitive: true },
-    { name: 'WHATSAPP_VERIFY_TOKEN_QA', category: 'whatsapp', label: 'Verify Token (QA)', sensitive: true },
-    { name: 'WHATSAPP_ACCESS_TOKEN_PROD', category: 'whatsapp', label: 'Access Token (Prod)', sensitive: true },
-    { name: 'WHATSAPP_ACCESS_TOKEN_QA', category: 'whatsapp', label: 'Access Token (QA)', sensitive: true },
-    { name: 'WABA_PHONE_NUMBER_ID_PROD', category: 'whatsapp', label: 'Phone Number ID (Prod)', sensitive: false },
-    { name: 'WABA_PHONE_NUMBER_ID_QA', category: 'whatsapp', label: 'Phone Number ID (QA)', sensitive: false },
+
 ];
 
 // ── GET /api/settings/secrets ─────────────────────────────────

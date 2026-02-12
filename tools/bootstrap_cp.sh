@@ -112,10 +112,9 @@ else
   echo "Skipping Firebase actions (login required). You can run later:\n  firebase login\n  firebase projects:addfirebase $PROJECT_ID\n  firebase hosting:sites:create $HOSTING_SITE --project $PROJECT_ID\n  firebase hosting:sites:create ${HOSTING_SITE}-qa --project $PROJECT_ID"
 fi
 
-echo ">>> Create placeholder secrets (QA/PROD)"
-for S in WHATSAPP_VERIFY_TOKEN WHATSAPP_ACCESS_TOKEN WABA_PHONE_NUMBER_ID OPENAI_API_KEY GEMINI_API_KEY; do
-  echo "placeholder" | gcloud secrets create "${S}_QA"   --data-file=- 2>/dev/null || gcloud secrets versions add "${S}_QA"   --data-file=- >/dev/null
-  echo "placeholder" | gcloud secrets create "${S}_PROD" --data-file=- 2>/dev/null || gcloud secrets versions add "${S}_PROD" --data-file=- >/dev/null
+echo ">>> Create placeholder secrets for GitHub App"
+for S in GITHUB_APP_ID GITHUB_PRIVATE_KEY GITHUB_INSTALLATION_ID; do
+  echo "placeholder" | gcloud secrets create "$S" --data-file=- 2>/dev/null || gcloud secrets versions add "$S" --data-file=- >/dev/null
 done
 
 cat <<EOF

@@ -7,9 +7,9 @@
 #
 # Minimal input needed:
 #   - Billing Account ID
-#   - Project ID (optional, defaults to wizbi-cp)
+#   - Project ID (optional, auto-generated with unique suffix)
 #
-# All API keys (GitHub App, OpenAI, etc.) can be configured AFTER
+# All API keys (GitHub App, etc.) can be configured AFTER
 # deployment through the Admin Panel Settings tab.
 # ==============================================================
 set -euo pipefail
@@ -34,10 +34,12 @@ phase "WIZBI Control Plane — Setup Wizard"
 echo -e "${BOLD}Welcome! This script will set up your WIZBI Control Plane on GCP.${NC}"
 echo -e "You'll need a GCP Billing Account. Everything else is automatic.\n"
 
-# --- Project ID ---
+# --- Project ID (auto-generate unique suffix) ---
+RANDOM_SUFFIX=$(cat /dev/urandom | tr -dc 'a-z0-9' | fold -w 4 | head -n 1)
+DEFAULT_PROJECT_ID="wizbi-cp-${RANDOM_SUFFIX}"
 if [ -z "${PROJECT_ID:-}" ]; then
-  read -rp "$(echo -e ${BOLD})Enter Project ID [wizbi-cp]: $(echo -e ${NC})" PROJECT_ID
-  PROJECT_ID="${PROJECT_ID:-wizbi-cp}"
+  read -rp "$(echo -e ${BOLD})Enter Project ID [${DEFAULT_PROJECT_ID}]: $(echo -e ${NC})" PROJECT_ID
+  PROJECT_ID="${PROJECT_ID:-$DEFAULT_PROJECT_ID}"
 fi
 
 # --- Region ---
@@ -84,10 +86,6 @@ fi
 : "${GITHUB_PRIVATE_KEY_FILE:=}"
 : "${GITHUB_INSTALLATION_ID:=}"
 : "${GITHUB_PAT:=}"
-
-# --- Optional: External API keys (can be set later via Admin Panel) ---
-: "${OPENAI_API_KEY:=}"
-: "${GEMINI_API_KEY:=}"
 
 # --- Defaults ---
 : "${FIRESTORE_LOCATION:=eur3}"
@@ -157,6 +155,13 @@ gcloud services enable \
   --quiet
 ok "All APIs enabled"
 
+step "Granting Cloud Build SA storage access"
+CB_SA="${PROJECT_NUMBER:-$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')}@cloudbuild.gserviceaccount.com"
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+  --member="serviceAccount:$CB_SA" \
+  --role="roles/storage.admin" --quiet 2>/dev/null || true
+ok "Cloud Build storage access granted"
+
 step "Creating Artifact Registry"
 gcloud artifacts repositories create "$AR_REPO" \
   --repository-format=docker --location="$REGION" \
@@ -217,13 +222,27 @@ if ! command -v firebase >/dev/null 2>&1; then
   npm install -g firebase-tools >/dev/null 2>&1 || true
 fi
 
+step "Authenticating Firebase CLI with gcloud"
+# In Cloud Shell, firebase login may fail. Use gcloud token instead.
+export GOOGLE_APPLICATION_CREDENTIALS=""
+firebase login --no-localhost 2>/dev/null || true
+
 step "Adding Firebase to project"
-firebase projects:addfirebase "$PROJECT_ID" --non-interactive 2>/dev/null || true
+gcloud firebase projects:addfirebase "$PROJECT_ID" 2>/dev/null || \
+  firebase projects:addfirebase "$PROJECT_ID" --non-interactive 2>/dev/null || true
 ok "Firebase added"
 
 step "Creating Hosting sites"
-firebase hosting:sites:create "$HOSTING_SITE" --project "$PROJECT_ID" 2>/dev/null || true
-firebase hosting:sites:create "${HOSTING_SITE}-qa" --project "$PROJECT_ID" 2>/dev/null || true
+# Use gcloud REST API as fallback if firebase CLI auth fails
+firebase hosting:sites:create "$HOSTING_SITE" --project "$PROJECT_ID" 2>/dev/null || \
+  curl -s -X POST -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+    -H "Content-Type: application/json" \
+    "https://firebasehosting.googleapis.com/v1beta1/projects/$PROJECT_ID/sites?siteId=$HOSTING_SITE" 2>/dev/null || true
+
+firebase hosting:sites:create "${HOSTING_SITE}-qa" --project "$PROJECT_ID" 2>/dev/null || \
+  curl -s -X POST -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+    -H "Content-Type: application/json" \
+    "https://firebasehosting.googleapis.com/v1beta1/projects/$PROJECT_ID/sites?siteId=${HOSTING_SITE}-qa" 2>/dev/null || true
 ok "Hosting sites: ${HOSTING_SITE}, ${HOSTING_SITE}-qa"
 
 # =========================================
@@ -256,22 +275,6 @@ else
   warn "GitHub App secrets set as placeholders — configure later in Admin Panel → Settings"
 fi
 
-# External API keys
-for S in WHATSAPP_VERIFY_TOKEN WHATSAPP_ACCESS_TOKEN WABA_PHONE_NUMBER_ID OPENAI_API_KEY GEMINI_API_KEY; do
-  upsert_secret "${S}_QA" "placeholder"
-  upsert_secret "${S}_PROD" "placeholder"
-done
-
-# Set real values if provided
-if [ -n "$OPENAI_API_KEY" ]; then
-  upsert_secret "OPENAI_API_KEY_PROD" "$OPENAI_API_KEY"
-  upsert_secret "OPENAI_API_KEY_QA" "$OPENAI_API_KEY"
-fi
-if [ -n "$GEMINI_API_KEY" ]; then
-  upsert_secret "GEMINI_API_KEY_PROD" "$GEMINI_API_KEY"
-  upsert_secret "GEMINI_API_KEY_QA" "$GEMINI_API_KEY"
-fi
-
 ok "All secrets created"
 
 # =========================================
@@ -295,7 +298,6 @@ CLOUD_RUN_ENV+=",FIREBASE_PROJECT_ID=$PROJECT_ID"
 CLOUD_RUN_ENV+=",GCP_PROJECT_ID=$PROJECT_ID"
 CLOUD_RUN_ENV+=",BILLING_ACCOUNT_ID=$BILLING_ACCOUNT"
 CLOUD_RUN_ENV+=",CORS_ORIGIN=*"
-CLOUD_RUN_ENV+=",WHATSAPP_ENABLED=false"
 CLOUD_RUN_ENV+=",ADMINS=$ADMIN_EMAIL"
 CLOUD_RUN_ENV+=",GCP_CONTROL_PLANE_PROJECT_NUMBER=$PROJECT_NUMBER"
 CLOUD_RUN_ENV+=",GITHUB_OWNER=$GITHUB_OWNER"
@@ -416,7 +418,7 @@ echo ""
 echo -e "${BOLD}Next Steps:${NC}"
 echo "  1. Open ${PROD_URL}/admin/"
 echo "  2. Log in with ${ADMIN_EMAIL}"
-echo "  3. Go to Settings → enter your API keys (GitHub App, OpenAI, etc.)"
+echo "  3. Go to Settings → configure your GitHub App keys"
 echo "  4. Start provisioning projects!"
 echo ""
 echo -e "${BOLD}CI/CD:${NC}"

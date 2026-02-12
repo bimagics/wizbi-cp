@@ -11,7 +11,7 @@ import healthRouter from './routes/health';
 import userRouter from './routes/user';
 import projectsRouter from './routes/projects';
 import orgsRouter from './routes/orgs';
-import whatsappRouter from './routes/whatsapp';
+
 import githubRouter from './routes/github';
 import settingsRouter from './routes/settings';
 
@@ -76,12 +76,6 @@ async function main() {
   );
 
   // --- Body Parsers ---
-  // IMPORTANT: The WhatsApp webhook needs the raw body for signature verification, so it's registered before express.json()
-  app.use(
-    "/api/whatsapp/webhook", // Assuming this is the path you use
-    express.raw({ type: "application/json", limit: "1mb" }),
-    whatsappRouter
-  );
 
   // JSON parser for all other API routes
   app.use(express.json({ limit: '2mb' }));
