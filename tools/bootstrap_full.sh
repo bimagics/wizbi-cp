@@ -169,18 +169,7 @@ gcloud services enable \
   --quiet
 ok "All APIs enabled"
 
-step "Granting Cloud Build SA permissions"
-PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
-CB_SA="${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com"
-COMPUTE_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
-for SA in "$CB_SA" "$COMPUTE_SA"; do
-  for ROLE in roles/storage.admin roles/artifactregistry.writer roles/logging.logWriter; do
-    gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-      --member="serviceAccount:$SA" \
-      --role="$ROLE" --quiet --no-user-output-enabled 2>/dev/null || true
-  done
-done
-ok "Cloud Build permissions granted"
+# Cloud Build SA permissions no longer needed — we build locally with Docker
 
 step "Creating Artifact Registry"
 gcloud artifacts repositories create "$AR_REPO" \
@@ -199,16 +188,17 @@ gcloud iam service-accounts create wizbi-provisioner --display-name="WIZBI Provi
 gcloud iam service-accounts create wizbi-factory     --display-name="WIZBI Project Factory" 2>/dev/null || true
 ok "Service Accounts created"
 
-step "Granting IAM roles"
+step "Granting IAM roles (parallel)"
 for ROLE in roles/run.admin roles/artifactregistry.writer roles/cloudbuild.builds.editor roles/iam.serviceAccountTokenCreator roles/secretmanager.secretAccessor roles/firebasehosting.admin roles/iam.serviceAccountUser; do
-  gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$DEPLOYER_SA" --role="$ROLE" --quiet --no-user-output-enabled 2>/dev/null || true
+  gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$DEPLOYER_SA" --role="$ROLE" --quiet --no-user-output-enabled 2>/dev/null &
 done
 for ROLE in roles/secretmanager.secretAccessor roles/secretmanager.secretVersionAdder roles/datastore.user roles/iam.workloadIdentityPoolAdmin roles/firebase.admin roles/serviceusage.serviceUsageAdmin roles/iam.serviceAccountAdmin roles/resourcemanager.projectCreator; do
-  gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$PROVISIONER_SA" --role="$ROLE" --quiet --no-user-output-enabled 2>/dev/null || true
+  gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$PROVISIONER_SA" --role="$ROLE" --quiet --no-user-output-enabled 2>/dev/null &
 done
 for ROLE in roles/resourcemanager.projectCreator roles/billing.user roles/serviceusage.serviceUsageAdmin; do
-  gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$FACTORY_SA" --role="$ROLE" --quiet --no-user-output-enabled 2>/dev/null || true
+  gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$FACTORY_SA" --role="$ROLE" --quiet --no-user-output-enabled 2>/dev/null &
 done
+wait
 ok "IAM roles granted"
 
 step "Setting up Workload Identity Federation for GitHub Actions"
@@ -237,31 +227,26 @@ ok "WIF configured"
 # =========================================
 phase "Phase 2/5 — Firebase"
 
-step "Installing Firebase CLI"
-if ! command -v firebase >/dev/null 2>&1; then
-  npm install -g firebase-tools >/dev/null 2>&1 || true
-fi
-
 step "Adding Firebase to project"
-# Use REST API directly — Firebase CLI auth is broken in Cloud Shell
 TOKEN=$(gcloud auth print-access-token 2>/dev/null)
 ADD_FB_RESULT=$(curl -s -X POST -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   "https://firebase.googleapis.com/v1beta1/projects/${PROJECT_ID}:addFirebase" 2>/dev/null)
-echo "$ADD_FB_RESULT" | grep -q '"error"' && warn "Firebase may already be added" || true
-ok "Firebase added"
 
-# Wait for Firebase to fully provision before creating hosting sites
-step "Waiting for Firebase to be ready"
-for i in $(seq 1 12); do
-  FB_CHECK=$(curl -s -H "Authorization: Bearer $TOKEN" \
-    "https://firebase.googleapis.com/v1beta1/projects/${PROJECT_ID}" 2>/dev/null)
-  echo "$FB_CHECK" | grep -q '"projectId"' && break
-  echo -n "."
-  sleep 5
-done
-echo ""
-ok "Firebase ready"
+# Extract operation name and poll until done
+OP_NAME=$(echo "$ADD_FB_RESULT" | grep -o '"name": *"[^"]*"' | head -1 | sed 's/"name": *"//;s/"//')
+if [ -n "$OP_NAME" ]; then
+  echo -n "  Waiting for Firebase"
+  for i in $(seq 1 24); do
+    OP_RESULT=$(curl -s -H "Authorization: Bearer $TOKEN" \
+      "https://firebase.googleapis.com/v1beta1/${OP_NAME}" 2>/dev/null)
+    echo "$OP_RESULT" | grep -q '"done": *true' && break
+    echo -n "."
+    sleep 5
+  done
+  echo ""
+fi
+ok "Firebase added"
 
 step "Creating Hosting sites"
 curl -s -X POST -H "Authorization: Bearer $TOKEN" \
@@ -309,15 +294,16 @@ ok "All secrets created"
 # =========================================
 phase "Phase 4/5 — Build & Deploy"
 
-step "Building container image (this takes ~2-3 minutes)"
+step "Building container image (local Docker build)"
 gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet 2>/dev/null || true
 
-# Use Cloud Build (always available in Cloud Shell)
-gcloud builds submit . \
-  --tag="$IMAGE_TAG" \
-  --project="$PROJECT_ID" \
-  --quiet
-ok "Image built: $IMAGE_TAG"
+# Build locally — faster and avoids Cloud Build SA permission issues
+docker build -t "$IMAGE_TAG" . --quiet
+ok "Image built"
+
+step "Pushing image to Artifact Registry"
+docker push "$IMAGE_TAG" --quiet 2>/dev/null || docker push "$IMAGE_TAG"
+ok "Image pushed: $IMAGE_TAG"
 
 # Build env vars for Cloud Run
 CLOUD_RUN_ENV="NODE_ENV=production"
