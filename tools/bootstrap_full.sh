@@ -37,7 +37,7 @@ echo -e "You'll need a GCP Billing Account. Everything else is automatic.\n"
 if [ -z "${DEVSHELL_PROJECT_ID:-}" ]; then
   warn "It looks like you are NOT running in Google Cloud Shell."
   warn "This script is optimized for Cloud Shell execution."
-  warn "Run in Cloud Shell: https://shell.cloud.google.com"
+  warn "Run in Cloud Shell: https://console.cloud.google.com"
   read -rp "Continue anyway? [y/N] " FORCE_RUN
   if [[ ! "$FORCE_RUN" =~ ^[Yy]$ ]]; then exit 1; fi
 fi

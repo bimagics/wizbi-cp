@@ -79,13 +79,13 @@ All within minutes, with live progress in the Admin Panel.
 
 - A GCP Organization with a Billing Account
 - A GitHub Organization (or user account) with admin permissions
-- Access to [Google Cloud Shell](https://shell.cloud.google.com)
+- Access to [Google Cloud Shell](https://console.cloud.google.com)
 
 ### Deploy
 
 Click the button below or run the command in Cloud Shell:
 
-[![Open in Cloud Shell](https://gstatic.com/cloudssh/images/open-btn.svg)](https://shell.cloud.google.com/cloudshell/editor?cloudshell_git_repo=https://github.com/bimagics/wizbi-cp&cloudshell_git_branch=main&cloudshell_tutorial=tools/tutorial.md&cloudshell_workspace=.)
+[![Open in Cloud Shell](https://gstatic.com/cloudssh/images/open-btn.svg)](https://console.cloud.google.com/cloudshell/editor?cloudshell_git_repo=https://github.com/bimagics/wizbi-cp&cloudshell_git_branch=main&cloudshell_tutorial=tools/tutorial.md&cloudshell_workspace=.)
 
 ```bash
 git clone https://github.com/bimagics/wizbi-cp.git && \
