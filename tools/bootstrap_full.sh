@@ -169,7 +169,16 @@ gcloud services enable \
   --quiet
 ok "All APIs enabled"
 
-# Cloud Build SA permissions no longer needed — we build locally with Docker
+step "Granting Cloud Build SA permissions"
+PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
+COMPUTE_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+for ROLE in roles/storage.admin roles/artifactregistry.writer roles/logging.logWriter; do
+  gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+    --member="serviceAccount:$COMPUTE_SA" \
+    --role="$ROLE" --quiet --no-user-output-enabled 2>/dev/null &
+done
+wait
+ok "Cloud Build SA permissions granted"
 
 step "Creating Artifact Registry"
 gcloud artifacts repositories create "$AR_REPO" \
@@ -294,16 +303,18 @@ ok "All secrets created"
 # =========================================
 phase "Phase 4/5 — Build & Deploy"
 
-step "Building container image (local Docker build)"
+step "Building & pushing container image (Cloud Build, ~2 min)"
 gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet 2>/dev/null || true
 
-# Build locally — faster and avoids Cloud Build SA permission issues
-docker build -t "$IMAGE_TAG" . --quiet
-ok "Image built"
+# Small delay to let IAM bindings propagate before Cloud Build pushes
+echo "  Waiting for IAM propagation..."
+sleep 15
 
-step "Pushing image to Artifact Registry"
-docker push "$IMAGE_TAG" --quiet 2>/dev/null || docker push "$IMAGE_TAG"
-ok "Image pushed: $IMAGE_TAG"
+gcloud builds submit . \
+  --tag="$IMAGE_TAG" \
+  --project="$PROJECT_ID" \
+  --quiet
+ok "Image built & pushed: $IMAGE_TAG"
 
 # Build env vars for Cloud Run
 CLOUD_RUN_ENV="NODE_ENV=production"
