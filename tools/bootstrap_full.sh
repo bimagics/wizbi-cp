@@ -193,42 +193,66 @@ else
 fi
 gcloud config set project "$PROJECT_ID"
 
-step "Enabling APIs (this takes ~60 seconds)"
-gcloud services enable \
-  run.googleapis.com \
-  cloudbuild.googleapis.com \
-  artifactregistry.googleapis.com \
-  secretmanager.googleapis.com \
-  iamcredentials.googleapis.com \
-  iam.googleapis.com \
-  serviceusage.googleapis.com \
-  firebase.googleapis.com \
-  firestore.googleapis.com \
-  appengine.googleapis.com \
-  storage.googleapis.com \
-  identitytoolkit.googleapis.com \
-  cloudresourcemanager.googleapis.com \
-  cloudbilling.googleapis.com \
-  firebasehosting.googleapis.com \
-  --quiet
-ok "All APIs enabled"
+step "Enabling APIs"
+if [ -n "$BILLING_ACCOUNT" ]; then
+  echo "  Enabling all APIs (billing linked, ~60 seconds)..."
+  gcloud services enable \
+    run.googleapis.com \
+    cloudbuild.googleapis.com \
+    artifactregistry.googleapis.com \
+    secretmanager.googleapis.com \
+    iamcredentials.googleapis.com \
+    iam.googleapis.com \
+    serviceusage.googleapis.com \
+    firebase.googleapis.com \
+    firestore.googleapis.com \
+    appengine.googleapis.com \
+    storage.googleapis.com \
+    identitytoolkit.googleapis.com \
+    cloudresourcemanager.googleapis.com \
+    cloudbilling.googleapis.com \
+    firebasehosting.googleapis.com \
+    --quiet
+  ok "All APIs enabled"
+else
+  echo "  Enabling free APIs only (no billing)..."
+  gcloud services enable \
+    iam.googleapis.com \
+    iamcredentials.googleapis.com \
+    serviceusage.googleapis.com \
+    firebase.googleapis.com \
+    firestore.googleapis.com \
+    cloudresourcemanager.googleapis.com \
+    cloudbilling.googleapis.com \
+    identitytoolkit.googleapis.com \
+    firebasehosting.googleapis.com \
+    --quiet 2>/dev/null || true
+  ok "Free APIs enabled"
+  warn "Paid APIs (Cloud Run, Cloud Build, Artifact Registry, Secret Manager) skipped — requires billing"
+fi
 
 step "Granting Cloud Build SA permissions"
 PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
 COMPUTE_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
-for ROLE in roles/storage.admin roles/artifactregistry.writer roles/logging.logWriter; do
-  gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-    --member="serviceAccount:$COMPUTE_SA" \
-    --role="$ROLE" --quiet --no-user-output-enabled 2>/dev/null &
-done
-wait
-ok "Cloud Build SA permissions granted"
+if [ -n "$BILLING_ACCOUNT" ]; then
+  for ROLE in roles/storage.admin roles/artifactregistry.writer roles/logging.logWriter; do
+    gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+      --member="serviceAccount:$COMPUTE_SA" \
+      --role="$ROLE" --quiet --no-user-output-enabled 2>/dev/null &
+  done
+  wait
+  ok "Cloud Build SA permissions granted"
+else
+  warn "Cloud Build SA permissions skipped (no billing)"
+fi
 
-step "Creating Artifact Registry"
-gcloud artifacts repositories create "$AR_REPO" \
-  --repository-format=docker --location="$REGION" \
-  --description="WIZBI containers" 2>/dev/null || true
-ok "Artifact Registry ready"
+if [ -n "$BILLING_ACCOUNT" ]; then
+  step "Creating Artifact Registry"
+  gcloud artifacts repositories create "$AR_REPO" \
+    --repository-format=docker --location="$REGION" \
+    --description="WIZBI containers" 2>/dev/null || true
+  ok "Artifact Registry ready"
+fi
 
 step "Creating Firestore (Native Mode)"
 # Create App Engine app (required for Firestore in some regions)
@@ -313,8 +337,9 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" \
 ok "Hosting sites: ${HOSTING_SITE}, ${HOSTING_SITE}-qa"
 
 # =========================================
-# PHASE 3 — Secrets
+# PHASE 3 — Secrets (requires billing for Secret Manager)
 # =========================================
+if [ -n "$BILLING_ACCOUNT" ]; then
 phase "Phase 3/5 — Secrets"
 
 # Helper function
@@ -343,10 +368,15 @@ else
 fi
 
 ok "All secrets created"
+else
+  phase "Phase 3/5 — Secrets (SKIPPED)"
+  warn "Secret Manager requires billing — skipping secrets creation"
+fi
 
 # =========================================
-# PHASE 4 — Build & Deploy
+# PHASE 4 — Build & Deploy (requires billing)
 # =========================================
+if [ -n "$BILLING_ACCOUNT" ]; then
 phase "Phase 4/5 — Build & Deploy"
 
 # Ensure firebase-tools is available
@@ -476,6 +506,12 @@ firebase deploy \
 
 ok "Hosting deployed"
 
+else
+  phase "Phase 4/5 — Build & Deploy (SKIPPED)"
+  warn "Cloud Build, Cloud Run, and Firebase Hosting deploy require billing."
+  warn "Link billing, then re-run this script to complete deployment."
+fi
+
 # =========================================
 # PHASE 5 — GitHub Secrets (if PAT provided)
 # =========================================
@@ -560,15 +596,27 @@ echo "╔═══════════════════════�
 echo "║         ✅  WIZBI Control Plane — Setup Complete!          ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
-echo -e "${BOLD}Your Admin Panel:${NC}  ${PROD_URL}/admin/"
-echo -e "${BOLD}QA Admin Panel:${NC}   ${QA_URL}/admin/"
-echo -e "${BOLD}Cloud Run API:${NC}    ${CLOUD_RUN_URL}"
-echo ""
-echo -e "${BOLD}Next Steps:${NC}"
-echo "  1. Open ${PROD_URL}/admin/"
-echo "  2. Log in with ${ADMIN_EMAIL}"
-echo "  3. Go to Settings → configure your GitHub App keys"
-echo "  4. Start provisioning projects!"
+
+if [ -n "$BILLING_ACCOUNT" ]; then
+  echo -e "${BOLD}Your Admin Panel:${NC}  ${PROD_URL}/admin/"
+  echo -e "${BOLD}QA Admin Panel:${NC}   ${QA_URL}/admin/"
+  echo -e "${BOLD}Cloud Run API:${NC}    ${CLOUD_RUN_URL}"
+  echo ""
+  echo -e "${BOLD}Next Steps:${NC}"
+  echo "  1. Open ${PROD_URL}/admin/"
+  echo "  2. Log in with ${ADMIN_EMAIL}"
+  echo "  3. Go to Settings → configure your GitHub App keys"
+  echo "  4. Start provisioning projects!"
+else
+  echo -e "${BOLD}Project Created:${NC}  $PROJECT_ID"
+  echo -e "${BOLD}Status:${NC}           Foundation ready (billing required to deploy)"
+  echo ""
+  echo -e "${BOLD}Next Steps:${NC}"
+  echo "  1. Link a billing account:"
+  echo "     gcloud beta billing projects link $PROJECT_ID --billing-account=YOUR_ACCOUNT_ID"
+  echo "  2. Re-run this script to complete deployment:"
+  echo "     BILLING_ACCOUNT=YOUR_ACCOUNT_ID PROJECT_ID=$PROJECT_ID ./tools/bootstrap_full.sh"
+fi
 echo ""
 echo -e "${BOLD}CI/CD:${NC}"
 echo "  Push to 'dev' branch  → deploys to QA"
