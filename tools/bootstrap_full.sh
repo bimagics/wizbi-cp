@@ -310,11 +310,25 @@ gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet 2>/dev/null || t
 echo "  Waiting for IAM propagation..."
 sleep 15
 
-gcloud builds submit . \
-  --tag="$IMAGE_TAG" \
-  --project="$PROJECT_ID" \
-  --quiet
-ok "Image built & pushed: $IMAGE_TAG"
+# Retry loop for Cloud Build to handle IAM propagation delays
+MAX_RETRIES=5
+for i in $(seq 1 $MAX_RETRIES); do
+  echo "  Attempt $i/$MAX_RETRIES: Submitting build..."
+  if gcloud builds submit . \
+      --tag="$IMAGE_TAG" \
+      --project="$PROJECT_ID" \
+      --quiet; then
+    ok "Image built & pushed: $IMAGE_TAG"
+    break
+  else
+    if [ "$i" -eq "$MAX_RETRIES" ]; then
+      err "Build failed after $MAX_RETRIES attempts. Check permissions."
+      exit 1
+    fi
+    warn "Build failed (likely IAM propagation). Retrying in 15s..."
+    sleep 15
+  fi
+done
 
 # Build env vars for Cloud Run
 CLOUD_RUN_ENV="NODE_ENV=production"
