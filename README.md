@@ -85,10 +85,10 @@ All within minutes, with live progress in the Admin Panel.
 
 Click the button below or run the command in Cloud Shell:
 
-[![Open in Cloud Shell](https://gstatic.com/cloudssh/images/open-btn.svg)](https://shell.cloud.google.com/cloudshell/editor?cloudshell_git_repo=https://github.com/YOUR_ORG/wizbi-cp&cloudshell_tutorial=tools/bootstrap_full.sh)
+[![Open in Cloud Shell](https://gstatic.com/cloudssh/images/open-btn.svg)](https://shell.cloud.google.com/cloudshell/editor?cloudshell_git_repo=https://github.com/bimagics/wizbi-cp&cloudshell_git_branch=main&cloudshell_tutorial=tools/tutorial.md&cloudshell_workspace=.)
 
 ```bash
-git clone https://github.com/YOUR_ORG/wizbi-cp.git && \
+git clone https://github.com/bimagics/wizbi-cp.git && \
 cd wizbi-cp && \
 chmod +x tools/bootstrap_full.sh && \
 ./tools/bootstrap_full.sh
@@ -105,10 +105,11 @@ Everything else is automatic. The script:
 1. Creates the GCP project and enables all APIs
 2. Sets up Firebase, Firestore, and Hosting sites
 3. Creates service accounts with least-privilege IAM
-4. Builds and deploys the Control Plane to Cloud Run
-5. Deploys the Admin Panel to Firebase Hosting
-6. Configures Workload Identity Federation for CI/CD
-7. Optionally injects GitHub Actions secrets (if PAT provided)
+4. Installs Firebase CLI and configures hosting targets
+5. Builds and deploys the Control Plane to Cloud Run
+6. Deploys the Admin Panel to Firebase Hosting
+7. Configures Workload Identity Federation for CI/CD
+8. Optionally injects GitHub Actions secrets (if PAT provided)
 
 ### After Installation
 
@@ -185,7 +186,8 @@ The Admin Panel auto-discovers all `template-*` repos in your org.
 │   ├── index.html            # Landing page
 │   └── admin/                # Admin Panel (HTML/CSS/JS)
 ├── tools/
-│   └── bootstrap_full.sh     # One-click setup wizard
+│   ├── bootstrap_full.sh     # One-click setup wizard
+│   └── tutorial.md           # Cloud Shell tutorial
 ├── .github/workflows/
 │   └── deploy.yml            # CI/CD pipeline
 ├── Dockerfile                # Multi-stage production build

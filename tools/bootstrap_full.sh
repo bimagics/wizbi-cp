@@ -37,7 +37,7 @@ echo -e "You'll need a GCP Billing Account. Everything else is automatic.\n"
 if [ -z "${DEVSHELL_PROJECT_ID:-}" ]; then
   warn "It looks like you are NOT running in Google Cloud Shell."
   warn "This script is optimized for Cloud Shell execution."
-  warn "Pass --force to continue or run in Cloud Shell: https://shell.cloud.google.com"
+  warn "Run in Cloud Shell: https://shell.cloud.google.com"
   read -rp "Continue anyway? [y/N] " FORCE_RUN
   if [[ ! "$FORCE_RUN" =~ ^[Yy]$ ]]; then exit 1; fi
 fi
@@ -116,12 +116,28 @@ fi
 : "${GITHUB_PAT:=}"
 
 # --- Defaults ---
-: "${FIRESTORE_LOCATION:=eur3}"
 : "${AR_REPO:=wizbi}"
 : "${WIF_POOL:=github-pool}"
 : "${WIF_PROVIDER:=github-provider}"
 : "${HOSTING_SITE:=$PROJECT_ID}"
 : "${GCP_ORG_ID:=}"
+
+# Firestore region — mapped from Cloud Run region
+# App Engine requires specific region names, not multi-region codes
+case "$REGION" in
+  europe-west1|europe-west2|europe-west3|europe-west6)
+    FIRESTORE_LOCATION="${FIRESTORE_LOCATION:-europe-west1}"
+    ;;
+  us-central1|us-east1|us-east4|us-west1)
+    FIRESTORE_LOCATION="${FIRESTORE_LOCATION:-us-central1}"
+    ;;
+  asia-east1|asia-northeast1|asia-southeast1)
+    FIRESTORE_LOCATION="${FIRESTORE_LOCATION:-asia-east1}"
+    ;;
+  *)
+    FIRESTORE_LOCATION="${FIRESTORE_LOCATION:-europe-west1}"
+    ;;
+esac
 
 # Derived
 DEPLOYER_SA="wizbi-deployer@${PROJECT_ID}.iam.gserviceaccount.com"
@@ -131,11 +147,12 @@ IMAGE_TAG="${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/cp-unified:latest"
 
 echo ""
 echo -e "${BOLD}Configuration Summary:${NC}"
-echo "  Project ID:      $PROJECT_ID"
-echo "  Region:          $REGION"
-echo "  Billing Account: $BILLING_ACCOUNT"
-echo "  Admin Email:     $ADMIN_EMAIL"
-echo "  GitHub:          $GITHUB_OWNER/$GITHUB_REPO"
+echo "  Project ID:         $PROJECT_ID"
+echo "  Region:             $REGION"
+echo "  Firestore Location: $FIRESTORE_LOCATION"
+echo "  Billing Account:    $BILLING_ACCOUNT"
+echo "  Admin Email:        $ADMIN_EMAIL"
+echo "  GitHub:             $GITHUB_OWNER/$GITHUB_REPO"
 echo ""
 read -rp "$(echo -e ${BOLD})Proceed? [Y/n]: $(echo -e ${NC})" CONFIRM
 if [[ "${CONFIRM:-Y}" =~ ^[Nn] ]]; then
@@ -180,6 +197,7 @@ gcloud services enable \
   identitytoolkit.googleapis.com \
   cloudresourcemanager.googleapis.com \
   cloudbilling.googleapis.com \
+  firebasehosting.googleapis.com \
   --quiet
 ok "All APIs enabled"
 
@@ -201,8 +219,10 @@ gcloud artifacts repositories create "$AR_REPO" \
 ok "Artifact Registry ready"
 
 step "Creating Firestore (Native Mode)"
+# Create App Engine app (required for Firestore in some regions)
 gcloud app create --region="$FIRESTORE_LOCATION" 2>/dev/null || true
-gcloud firestore databases create --region="$FIRESTORE_LOCATION" --type=firestore-native 2>/dev/null || true
+# Create Firestore database
+gcloud firestore databases create --location="$FIRESTORE_LOCATION" --type=firestore-native 2>/dev/null || true
 ok "Firestore ready"
 
 step "Creating Service Accounts"
@@ -254,15 +274,15 @@ step "Adding Firebase to project"
 TOKEN=$(gcloud auth print-access-token 2>/dev/null)
 ADD_FB_RESULT=$(curl -s -X POST -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  "https://firebase.googleapis.com/v1beta1/projects/${PROJECT_ID}:addFirebase" 2>/dev/null)
+  "https://firebase.googleapis.com/v1beta1/projects/${PROJECT_ID}:addFirebase" 2>/dev/null || echo '{}')
 
 # Extract operation name and poll until done
 OP_NAME=$(echo "$ADD_FB_RESULT" | grep -o '"name": *"[^"]*"' | head -1 | sed 's/"name": *"//;s/"//')
-if [ -n "$OP_NAME" ]; then
+if [ -n "$OP_NAME" ] && [ "$OP_NAME" != "null" ]; then
   echo -n "  Waiting for Firebase"
-  for i in $(seq 1 24); do
+  for i in $(seq 1 30); do
     OP_RESULT=$(curl -s -H "Authorization: Bearer $TOKEN" \
-      "https://firebase.googleapis.com/v1beta1/${OP_NAME}" 2>/dev/null)
+      "https://firebase.googleapis.com/v1beta1/${OP_NAME}" 2>/dev/null || echo '{}')
     echo "$OP_RESULT" | grep -q '"done": *true' && break
     echo -n "."
     sleep 5
@@ -316,6 +336,13 @@ ok "All secrets created"
 # PHASE 4 — Build & Deploy
 # =========================================
 phase "Phase 4/5 — Build & Deploy"
+
+# Ensure firebase-tools is available
+step "Installing Firebase CLI"
+if ! command -v firebase >/dev/null 2>&1; then
+  npm install -g firebase-tools --quiet 2>/dev/null || true
+fi
+ok "Firebase CLI ready"
 
 step "Building & pushing container image (Cloud Build, ~2 min)"
 gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet 2>/dev/null || true
@@ -374,6 +401,52 @@ gcloud run deploy "cp-unified-qa" \
   --quiet
 ok "QA service deployed"
 
+step "Updating firebase.json to match region"
+# Dynamically patch firebase.json to use the correct region and service names
+cat > firebase.json <<FIREBASE_EOF
+{
+  "hosting": [
+    {
+      "target": "production",
+      "public": "public",
+      "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+      "headers": [
+        {
+          "source": "/admin/**",
+          "headers": [
+            { "key": "Cache-Control", "value": "no-store" },
+            { "key": "Cross-Origin-Opener-Policy", "value": "same-origin-allow-popups" }
+          ]
+        }
+      ],
+      "rewrites": [
+        { "source": "/admin/**", "destination": "/admin/index.html" },
+        { "source": "/api/**", "run": { "serviceId": "cp-unified", "region": "${REGION}" } }
+      ]
+    },
+    {
+      "target": "qa",
+      "public": "public",
+      "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+      "headers": [
+        {
+          "source": "/admin/**",
+          "headers": [
+            { "key": "Cache-Control", "value": "no-store" },
+            { "key": "Cross-Origin-Opener-Policy", "value": "same-origin-allow-popups" }
+          ]
+        }
+      ],
+      "rewrites": [
+        { "source": "/admin/**", "destination": "/admin/index.html" },
+        { "source": "/api/**", "run": { "serviceId": "cp-unified-qa", "region": "${REGION}" } }
+      ]
+    }
+  ]
+}
+FIREBASE_EOF
+ok "firebase.json updated with region: $REGION"
+
 step "Deploying Firebase Hosting"
 # Map Firebase targets to actual hosting sites
 firebase target:apply hosting production "${HOSTING_SITE}" --project "$PROJECT_ID" 2>/dev/null || true
@@ -413,13 +486,19 @@ if [ -n "$GITHUB_PAT" ]; then
 
     set_github_secret() {
       local S_NAME="$1"; local S_VALUE="$2"
+      # Use a temp file to safely pass values with special characters
+      local TMPVAL=$(mktemp)
+      echo -n "$S_VALUE" > "$TMPVAL"
       ENCRYPTED=$(python3 -c "
-import base64
+import base64, sys
 from nacl import encoding, public
-pk = public.PublicKey('$REPO_PUBLIC_KEY'.encode('utf-8'), encoding.Base64Encoder())
-sealed = public.SealedBox(pk).encrypt('$S_VALUE'.encode('utf-8'))
+pk = public.PublicKey('${REPO_PUBLIC_KEY}'.encode('utf-8'), encoding.Base64Encoder())
+with open('${TMPVAL}', 'r') as f:
+    val = f.read()
+sealed = public.SealedBox(pk).encrypt(val.encode('utf-8'))
 print(base64.b64encode(sealed).decode('utf-8'))
 " 2>/dev/null || echo "")
+      rm -f "$TMPVAL"
       if [ -n "$ENCRYPTED" ]; then
         HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
           -H "Authorization: token $GITHUB_PAT" \

@@ -279,9 +279,7 @@
             margin: 0 auto;
         }
 
-        /* ═══════════════════════════════════════════════════ */
-        /* PRODUCT PREVIEW (CSS-only admin panel mockup)       */
-        /* ═══════════════════════════════════════════════════ */
+        /* PRODUCT PREVIEW */
         .preview-section {
             padding: 6rem 0;
         }
@@ -352,7 +350,6 @@
             min-height: 400px;
         }
 
-        /* Sidebar mock */
         .mock-sidebar {
             width: 220px;
             background: #0f1318;
@@ -391,7 +388,6 @@
             height: 18px;
         }
 
-        /* Content mock */
         .mock-content {
             flex: 1;
             padding: 1.5rem 2rem;
@@ -421,7 +417,6 @@
             cursor: default;
         }
 
-        /* Mock table */
         .mock-table {
             width: 100%;
             border-collapse: collapse;
@@ -473,9 +468,7 @@
             font-size: 0.75rem;
         }
 
-        /* ═══════════════════════════════════════════════════ */
-        /* VALUE PROPOSITION                                   */
-        /* ═══════════════════════════════════════════════════ */
+        /* VALUE PROPOSITION */
         .value-section {
             padding: 6rem 0;
             background: var(--bg-secondary);
@@ -570,9 +563,7 @@
             font-weight: 700;
         }
 
-        /* ═══════════════════════════════════════════════════ */
-        /* CAPABILITIES (What the platform does)               */
-        /* ═══════════════════════════════════════════════════ */
+        /* CAPABILITIES */
         .cap-section {
             padding: 6rem 0;
         }
@@ -638,9 +629,7 @@
             color: #ec4899;
         }
 
-        /* ═══════════════════════════════════════════════════ */
-        /* TERMINAL DEMO                                       */
-        /* ═══════════════════════════════════════════════════ */
+        /* TERMINAL DEMO */
         .terminal-section {
             padding: 4rem 0 6rem;
         }
@@ -800,9 +789,7 @@
             }
         }
 
-        /* ═══════════════════════════════════════════════════ */
-        /* HOW IT WORKS                                        */
-        /* ═══════════════════════════════════════════════════ */
+        /* STEPS */
         .steps-section {
             padding: 6rem 0;
             background: var(--bg-secondary);
@@ -1001,7 +988,7 @@
     </header>
 
     <main>
-        <!-- ═══ HERO ═══ -->
+        <!-- HERO -->
         <section class="hero">
             <div class="container">
                 <div class="hero-badge">
@@ -1025,7 +1012,7 @@
             </div>
         </section>
 
-        <!-- ═══ PRODUCT PREVIEW ═══ -->
+        <!-- PRODUCT PREVIEW -->
         <section class="preview-section" id="preview">
             <div class="container">
                 <div class="section-header">
@@ -1139,7 +1126,7 @@
             </div>
         </section>
 
-        <!-- ═══ VALUE PROPOSITION ═══ -->
+        <!-- VALUE PROPOSITION -->
         <section class="value-section">
             <div class="container">
                 <div class="section-header">
@@ -1196,7 +1183,7 @@
             </div>
         </section>
 
-        <!-- ═══ CAPABILITIES ═══ -->
+        <!-- CAPABILITIES -->
         <section class="cap-section">
             <div class="container">
                 <div class="section-header">
@@ -1231,7 +1218,7 @@
                     <div class="cap-card">
                         <div class="cap-icon">🔐</div>
                         <h3>Secret Manager</h3>
-                        <p>13 secrets managed — API keys never touch your codebase.</p>
+                        <p>Secrets managed — API keys never touch your codebase.</p>
                         <span class="cap-badge badge-managed">Managed</span>
                     </div>
                     <div class="cap-card">
@@ -1263,7 +1250,7 @@
             </div>
         </section>
 
-        <!-- ═══ TERMINAL DEMO ═══ -->
+        <!-- TERMINAL DEMO -->
         <section class="terminal-section" id="demo">
             <div class="container">
                 <div class="section-header">
@@ -1286,7 +1273,7 @@
             </div>
         </section>
 
-        <!-- ═══ STEPS ═══ -->
+        <!-- STEPS -->
         <section class="steps-section">
             <div class="container">
                 <div class="section-header">
@@ -1307,7 +1294,7 @@
                     <div class="step-card">
                         <div class="step-number">3</div>
                         <h3>Wait ~5 Minutes</h3>
-                        <p>14 APIs, databases, service accounts, containers, hosting — all automatic.</p>
+                        <p>15 APIs, databases, service accounts, containers, hosting — all automatic.</p>
                     </div>
                     <div class="step-card">
                         <div class="step-number">4</div>
@@ -1318,7 +1305,7 @@
             </div>
         </section>
 
-        <!-- ═══ CTA ═══ -->
+        <!-- CTA -->
         <section class="cta-section">
             <div class="container">
                 <h2>Ready to Deploy?</h2>
@@ -1363,7 +1350,7 @@
                 { t: 'step', x: '>>> Creating GCP project: my-company-cp' },
                 { t: 'ok', x: '✓  Project created' },
                 { t: 'ok', x: '✓  Billing linked' },
-                { t: 'step', x: '>>> Enabling 14 APIs...' },
+                { t: 'step', x: '>>> Enabling 15 APIs...' },
                 { t: 'ok', x: '✓  All APIs enabled' },
                 { t: 'ok', x: '✓  Artifact Registry created' },
                 { t: 'ok', x: '✓  Firestore (Native Mode) initialized' },
@@ -1374,18 +1361,19 @@
                 { t: 'phase', x: '━━━  Phase 2/5 — Firebase  ━━━' },
                 { t: 'ok', x: '✓  Firebase initialized' },
                 { t: 'ok', x: '✓  Hosting: my-company-cp.web.app + my-company-cp-qa.web.app' },
-                { t: 'ok', x: '✓  Auth: Google Sign-In enabled' },
                 { t: 'normal', x: '' },
                 { t: 'phase', x: '━━━  Phase 3/5 — Secrets  ━━━' },
-                { t: 'ok', x: '✓  13 secrets created in Secret Manager' },
+                { t: 'ok', x: '✓  All secrets created in Secret Manager' },
                 { t: 'warn', x: '⚠  GitHub & AI keys = placeholders → configure in Admin Panel' },
                 { t: 'normal', x: '' },
                 { t: 'phase', x: '━━━  Phase 4/5 — Build & Deploy  ━━━' },
+                { t: 'ok', x: '✓  Firebase CLI ready' },
                 { t: 'step', x: '>>> Building Docker image...' },
                 { t: 'ok', x: '✓  Image pushed to Artifact Registry' },
                 { t: 'step', x: '>>> Deploying Cloud Run services...' },
                 { t: 'ok', x: '✓  Production: cp-unified (europe-west1)' },
                 { t: 'ok', x: '✓  QA: cp-unified-qa (europe-west1)' },
+                { t: 'ok', x: '✓  firebase.json updated with region' },
                 { t: 'ok', x: '✓  Firebase Hosting deployed' },
                 { t: 'normal', x: '' },
                 { t: 'phase', x: '━━━  Phase 5/5 — CI/CD  ━━━' },

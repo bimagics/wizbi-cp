@@ -1,6 +1,3 @@
-# --- REPLACE THE ENTIRE FILE CONTENT ---
-# File: Dockerfile
-
 # ---- Base ----
 FROM node:20-slim AS base
 WORKDIR /app
@@ -8,13 +5,12 @@ WORKDIR /app
 # ---- Dependencies (Production) ----
 FROM base AS deps
 COPY package*.json ./
-# Use npm install because no package-lock.json is present
-RUN npm install --omit=dev
+RUN npm ci --omit=dev
 
 # ---- Build (with Dev Dependencies) ----
 FROM base AS build
 COPY package*.json ./
-RUN npm install
+RUN npm ci
 COPY tsconfig.json ./
 COPY src ./src
 COPY public ./public
@@ -36,7 +32,6 @@ USER node
 EXPOSE 8080
 
 # --- RELIABILITY: Add a health check ---
-# This hits the lightweight /healthz endpoint created in index.ts
 HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
   CMD node -e "require('http').get('http://127.0.0.1:8080/healthz',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
 
