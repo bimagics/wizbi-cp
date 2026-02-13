@@ -1,17 +1,13 @@
-// --- REPLACE THE ENTIRE FILE CONTENT ---
-// File: src/index.ts
-
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import path from "path";
 import sodium from 'libsodium-wrappers';
 
-// --- Import all routers using the unified pattern ---
+// --- Import all routers ---
 import healthRouter from './routes/health';
 import userRouter from './routes/user';
 import projectsRouter from './routes/projects';
 import orgsRouter from './routes/orgs';
-
 import githubRouter from './routes/github';
 import settingsRouter from './routes/settings';
 
@@ -22,20 +18,18 @@ async function main() {
     console.log('[wizbi-cp] Libsodium crypto library initialized successfully.');
   } catch (error) {
     console.error('[wizbi-cp] FATAL: Libsodium crypto library failed to initialize.', error);
-    process.exit(1); // Exit if crypto is not available
+    process.exit(1);
   }
 
   // --- App Initialization ---
   const app = express();
   const port = process.env.PORT || 8080;
+  const PROJECT_ID = process.env.GCP_PROJECT_ID || process.env.FIREBASE_PROJECT_ID || '';
 
   // --- Security Enhancements ---
-  // Trust proxy headers from Cloud Run
   app.set("trust proxy", true);
-  // Remove framework identifier
   app.disable("x-powered-by");
 
-  // Basic security headers
   app.use((req: Request, res: Response, next: NextFunction) => {
     res.setHeader("X-Frame-Options", "DENY");
     res.setHeader("X-Content-Type-Options", "nosniff");
@@ -45,26 +39,41 @@ async function main() {
     next();
   });
 
-  // --- Focused CORS Configuration ---
-  const DEFAULT_ALLOWED_ORIGINS = new Set<string>([
-    "https://wizbi-cp.web.app",
-    "https://wizbi-cp.firebaseapp.com",
-    "https://wizbi-cp-qa.web.app",
-    "https://wizbi-cp-qa.firebaseapp.com",
+  // --- Dynamic CORS Configuration ---
+  // Automatically derives allowed origins from the PROJECT_ID,
+  // so any fresh installation works without hardcoded domains.
+  const allowedOrigins = new Set<string>([
+    // Local development
     "http://localhost:3000",
     "http://127.0.0.1:3000",
-    "http://localhost:5173", // Common Vite port
+    "http://localhost:5173",
     "http://127.0.0.1:5173",
   ]);
 
+  // Add Firebase Hosting origins based on PROJECT_ID
+  if (PROJECT_ID) {
+    allowedOrigins.add(`https://${PROJECT_ID}.web.app`);
+    allowedOrigins.add(`https://${PROJECT_ID}.firebaseapp.com`);
+    allowedOrigins.add(`https://${PROJECT_ID}-qa.web.app`);
+    allowedOrigins.add(`https://${PROJECT_ID}-qa.firebaseapp.com`);
+  }
+
+  // Allow extra origins from env var (comma-separated)
   const extraOrigins = (process.env.CORS_ORIGIN ?? "").split(",").map(s => s.trim()).filter(Boolean);
-  extraOrigins.forEach(o => DEFAULT_ALLOWED_ORIGINS.add(o));
+  extraOrigins.forEach(o => {
+    if (o === '*') {
+      // Wildcard: allow all origins (useful for initial setup)
+      allowedOrigins.clear();
+    } else {
+      allowedOrigins.add(o);
+    }
+  });
 
   app.use(
     cors({
       origin: (origin, cb) => {
-        // Allow requests with no origin (like curl, Postman)
-        if (!origin || DEFAULT_ALLOWED_ORIGINS.has(origin)) {
+        // If allowedOrigins is empty (wildcard mode), allow everything
+        if (allowedOrigins.size === 0 || !origin || allowedOrigins.has(origin)) {
           return cb(null, true);
         }
         return cb(new Error('Not allowed by CORS'));
@@ -76,8 +85,6 @@ async function main() {
   );
 
   // --- Body Parsers ---
-
-  // JSON parser for all other API routes
   app.use(express.json({ limit: '2mb' }));
   app.use(express.urlencoded({ extended: true }));
 
@@ -90,24 +97,21 @@ async function main() {
   app.use('/api', githubRouter);
   app.use('/api', settingsRouter);
 
-  // --- Static assets and final handlers ---
-  // Serve static files from 'public' folder
+  // --- Static assets ---
   app.use(express.static(path.join(process.cwd(), "public")));
 
-  // Inline health check for Docker/Cloud Run
+  // Health check for Docker/Cloud Run
   app.get("/healthz", (_req, res) => res.status(200).json({ ok: true }));
 
-  // Generic 404 handler
+  // 404 handler
   app.use((req, res) => {
-    // If the request is for an API route, return JSON. Otherwise, you might want to serve an HTML 404 page.
     if (req.path.startsWith('/api/')) {
       return res.status(404).json({ error: "Not Found" });
     }
-    // Fallback for non-api routes (optional, can serve a 404 page)
     res.status(404).send("Not Found");
   });
 
-  // Generic error handler
+  // Error handler
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     console.error("Unhandled error:", err?.message ?? err);
     res.status(500).json({ error: "Internal Server Error" });
@@ -115,7 +119,7 @@ async function main() {
 
   // --- Start Server ---
   app.listen(port, () => {
-    console.log(`[wizbi-cp] Server is fully initialized and listening on :${port}`);
+    console.log(`[wizbi-cp] Server listening on :${port} (project: ${PROJECT_ID || 'unknown'})`);
   });
 }
 

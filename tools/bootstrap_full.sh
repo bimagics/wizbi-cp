@@ -95,13 +95,19 @@ ADMIN_EMAIL=$(echo "$ADMIN_EMAIL" | tr '[:upper:]' '[:lower:]')
 
 # --- GitHub Owner (for CI/CD) ---
 if [ -z "${GITHUB_OWNER:-}" ]; then
-  read -rp "$(echo -e ${BOLD})GitHub Org or User that owns this repo [bimagics]: $(echo -e ${NC})" GITHUB_OWNER
-  GITHUB_OWNER="${GITHUB_OWNER:-bimagics}"
+  read -rp "$(echo -e ${BOLD})GitHub Org or User that owns this repo: $(echo -e ${NC})" GITHUB_OWNER
+  if [ -z "$GITHUB_OWNER" ]; then
+    err "GitHub owner is required for CI/CD setup."
+    exit 1
+  fi
 fi
 GITHUB_OWNER=$(echo "$GITHUB_OWNER" | tr '[:upper:]' '[:lower:]')
 
 # --- GitHub Repo ---
-: "${GITHUB_REPO:=wizbi-cp}"
+if [ -z "${GITHUB_REPO:-}" ]; then
+  read -rp "$(echo -e ${BOLD})GitHub repo name [wizbi-cp]: $(echo -e ${NC})" GITHUB_REPO
+  GITHUB_REPO="${GITHUB_REPO:-wizbi-cp}"
+fi
 
 # --- Optional: GitHub App keys (can be set later via Admin Panel) ---
 : "${GITHUB_APP_ID:=}"
@@ -369,13 +375,17 @@ gcloud run deploy "cp-unified-qa" \
 ok "QA service deployed"
 
 step "Deploying Firebase Hosting"
+# Map Firebase targets to actual hosting sites
+firebase target:apply hosting production "${HOSTING_SITE}" --project "$PROJECT_ID" 2>/dev/null || true
+firebase target:apply hosting qa "${HOSTING_SITE}-qa" --project "$PROJECT_ID" 2>/dev/null || true
+
 firebase deploy \
-  --only "hosting:${HOSTING_SITE}" \
+  --only hosting:production \
   --project "$PROJECT_ID" \
   --non-interactive 2>/dev/null || warn "Production hosting deploy failed — will deploy on first git push"
 
 firebase deploy \
-  --only "hosting:${HOSTING_SITE}-qa" \
+  --only hosting:qa \
   --project "$PROJECT_ID" \
   --non-interactive 2>/dev/null || warn "QA hosting deploy failed — will deploy on first git push"
 
@@ -428,6 +438,7 @@ print(base64.b64encode(sealed).decode('utf-8'))
     set_github_secret "DEPLOYER_SA" "$DEPLOYER_SA"
     set_github_secret "GCP_CONTROL_PLANE_PROJECT_NUMBER" "$PROJECT_NUMBER"
     set_github_secret "BILLING_ACCOUNT_ID" "$BILLING_ACCOUNT"
+    set_github_secret "ADMINS" "$ADMIN_EMAIL"
     ok "GitHub secrets injected"
   else
     warn "Could not fetch GitHub repo public key — set secrets manually"
@@ -442,6 +453,7 @@ else
   echo "  DEPLOYER_SA                      = $DEPLOYER_SA"
   echo "  GCP_CONTROL_PLANE_PROJECT_NUMBER = $PROJECT_NUMBER"
   echo "  BILLING_ACCOUNT_ID               = $BILLING_ACCOUNT"
+  echo "  ADMINS                           = $ADMIN_EMAIL"
 fi
 
 # =========================================

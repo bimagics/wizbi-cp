@@ -1,5 +1,5 @@
-// --- REPLACE THE ENTIRE FILE CONTENT ---
-// File path: src/routes/github.ts
+// src/routes/github.ts
+// Template management routes.
 
 import { Router, Request, Response } from 'express';
 import { requireAdminAuth, log } from './projects';

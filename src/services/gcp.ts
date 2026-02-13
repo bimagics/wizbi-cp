@@ -1,5 +1,5 @@
-// --- FINAL, FULLY AUTOMATED VERSION ---
-// File path: src/services/gcp.ts
+// src/services/gcp.ts
+// GCP provisioning: project creation, Firebase, Cloud Run, IAM, WIF.
 
 import { google } from 'googleapis';
 import type { cloudresourcemanager_v3, iam_v1, serviceusage_v1, firebase_v1beta1, firebasehosting_v1beta1, run_v1 } from 'googleapis';
@@ -8,7 +8,7 @@ import * as GcpLegacyService from './gcp_legacy';
 
 // Environment variables
 const BILLING_ACCOUNT_ID = process.env.BILLING_ACCOUNT_ID || '';
-const GITHUB_OWNER = process.env.GITHUB_OWNER || 'bimagics';
+const GITHUB_OWNER = process.env.GITHUB_OWNER || '';
 const CP_PROJECT_NUMBER = process.env.GCP_CONTROL_PLANE_PROJECT_NUMBER || '';
 const CP_PROJECT_ID = process.env.GCP_PROJECT_ID || '';
 const GCP_DEFAULT_REGION = process.env.GCP_DEFAULT_REGION || 'europe-west1';
@@ -37,22 +37,22 @@ export async function provisionProjectInfrastructure(projectId: string, displayN
 
     await createProjectAndLinkBilling(crm, projectId, displayName, folderId);
     await grantSelfPermissionsToNewProject(crm, projectId);
-    
+
     const projectNumber = await getProjectNumber(crm, projectId);
     await enableProjectApis(serviceUsage, projectId);
     await createArtifactRegistryRepo(projectId, 'wizbi');
-    
+
     await addFirebase(firebase, projectId);
     const invokerSaEmail = await createFirebaseInvokerSA(iam, projectId);
-    
+
     const deployerSaEmail = `github-deployer@${projectId}.iam.gserviceaccount.com`;
     await createServiceAccount(iam, projectId, deployerSaEmail);
-    
+
     // Pass the newly created deployer SA to the Cloud Run deployment function
     await deployPlaceholderCloudRunServices(cloudrun, projectId, invokerSaEmail, deployerSaEmail);
-    
+
     await createHostingSites(firebasehosting, projectId);
-    
+
     await grantRolesToServiceAccount(crm, projectId, deployerSaEmail);
     const wifProviderName = await setupWif(iam, projectId, deployerSaEmail);
 
@@ -91,7 +91,7 @@ async function createProjectAndLinkBilling(crm: cloudresourcemanager_v3.Cloudres
 
 async function grantSelfPermissionsToNewProject(crm: cloudresourcemanager_v3.Cloudresourcemanager, projectId: string) {
     if (!CP_PROJECT_ID) throw new Error("GCP_PROJECT_ID env var is not set.");
-    
+
     const provisionerSaEmail = `wizbi-provisioner@${CP_PROJECT_ID}.iam.gserviceaccount.com`;
     const rolesToGrant = [
         "roles/artifactregistry.admin", "roles/iam.serviceAccountAdmin",
@@ -128,7 +128,7 @@ async function getProjectNumber(crm: cloudresourcemanager_v3.Cloudresourcemanage
 }
 
 async function enableProjectApis(serviceUsage: serviceusage_v1.Serviceusage, projectId: string) {
-    const apis = [ 'run.googleapis.com', 'iam.googleapis.com', 'artifactregistry.googleapis.com', 'cloudbuild.googleapis.com', 'firebase.googleapis.com', 'firestore.googleapis.com', 'cloudresourcemanager.googleapis.com', 'iamcredentials.googleapis.com', 'serviceusage.googleapis.com', 'firebasehosting.googleapis.com', 'aiplatform.googleapis.com' ];
+    const apis = ['run.googleapis.com', 'iam.googleapis.com', 'artifactregistry.googleapis.com', 'cloudbuild.googleapis.com', 'firebase.googleapis.com', 'firestore.googleapis.com', 'cloudresourcemanager.googleapis.com', 'iamcredentials.googleapis.com', 'serviceusage.googleapis.com', 'firebasehosting.googleapis.com', 'aiplatform.googleapis.com'];
     const parent = `projects/${projectId}`;
     const enableOp = await serviceUsage.services.batchEnable({ parent, requestBody: { serviceIds: apis } });
     await pollOperation(serviceUsage.operations, enableOp.data.name!);
@@ -174,7 +174,6 @@ async function createFirebaseInvokerSA(iam: iam_v1.Iam, projectId: string): Prom
     return saEmail;
 }
 
-// --- THIS FUNCTION CONTAINS ALL THE FIXES ---
 async function deployPlaceholderCloudRunServices(cloudrun: run_v1.Run, projectId: string, invokerSaEmail: string, runtimeSaEmail: string) {
     const servicesToDeploy = [
         { name: `${projectId}-service` },
@@ -225,8 +224,8 @@ async function deployPlaceholderCloudRunServices(cloudrun: run_v1.Run, projectId
 
         } catch (error: any) {
             if (error.code !== 409) {
-                 log('gcp.cloudrun.deploy.placeholder.error', { serviceName: service.name, error: error.message });
-                 throw error;
+                log('gcp.cloudrun.deploy.placeholder.error', { serviceName: service.name, error: error.message });
+                throw error;
             }
             log('gcp.cloudrun.deploy.placeholder.already_exists', { serviceName: service.name });
         }
@@ -235,7 +234,7 @@ async function deployPlaceholderCloudRunServices(cloudrun: run_v1.Run, projectId
 
 
 async function createHostingSites(hosting: firebasehosting_v1beta1.Firebasehosting, projectId: string) {
-    const sitesToCreate = [ { id: projectId }, { id: `${projectId}-qa` } ];
+    const sitesToCreate = [{ id: projectId }, { id: `${projectId}-qa` }];
     for (const site of sitesToCreate) {
         try {
             await hosting.projects.sites.create({ parent: `projects/${projectId}`, siteId: site.id });
@@ -260,7 +259,7 @@ async function createServiceAccount(iam: iam_v1.Iam, projectId: string, saEmail:
 }
 
 async function grantRolesToServiceAccount(crm: cloudresourcemanager_v3.Cloudresourcemanager, projectId: string, saEmail: string) {
-    const roles = [ 'roles/run.admin', 'roles/artifactregistry.writer', 'roles/firebase.admin', 'roles/iam.serviceAccountUser', 'roles/serviceusage.serviceUsageAdmin', 'roles/aiplatform.user' ];
+    const roles = ['roles/run.admin', 'roles/artifactregistry.writer', 'roles/firebase.admin', 'roles/iam.serviceAccountUser', 'roles/serviceusage.serviceUsageAdmin', 'roles/aiplatform.user'];
     const resource = `projects/${projectId}`;
     const { data: policy } = await crm.projects.getIamPolicy({ resource });
     if (!policy.bindings) policy.bindings = [];
@@ -270,8 +269,8 @@ async function grantRolesToServiceAccount(crm: cloudresourcemanager_v3.Cloudreso
         let binding = policy.bindings!.find(b => b.role === role);
         if (binding) {
             if (!binding.members?.includes(member)) {
-                 binding.members?.push(member);
-                 needsUpdate = true;
+                binding.members?.push(member);
+                needsUpdate = true;
             }
         } else {
             policy.bindings!.push({ role, members: [member] });
@@ -285,7 +284,7 @@ async function grantRolesToServiceAccount(crm: cloudresourcemanager_v3.Cloudreso
 
 async function setupWif(iam: iam_v1.Iam, newProjectId: string, saEmail: string): Promise<string> {
     if (!CP_PROJECT_NUMBER) throw new Error("GCP_CONTROL_PLANE_PROJECT_NUMBER env var is not set.");
-    
+
     const controlPlaneProject = `projects/${CP_PROJECT_NUMBER}`;
     const poolId = 'github-pool';
     const providerId = newProjectId;
@@ -306,7 +305,7 @@ async function setupWif(iam: iam_v1.Iam, newProjectId: string, saEmail: string):
     } catch (error: any) {
         if (error.code !== 409) throw error;
     }
-    
+
     const saResource = `projects/${newProjectId}/serviceAccounts/${saEmail}`;
     const wifMember = `principalSet://iam.googleapis.com/${poolPath}/attribute.repository/${GITHUB_OWNER}/${newProjectId}`;
     const { data: saPolicy } = await iam.projects.serviceAccounts.getIamPolicy({ resource: saResource });
@@ -329,7 +328,7 @@ async function pollOperation(operationsClient: any, operationName: string, maxRe
         const op = await operationsClient.get({ name: operationName });
         if (op.data.done) {
             if (op.data.error) {
-                 throw new Error(`Operation ${operationName} failed: ${op.data.error.message}`);
+                throw new Error(`Operation ${operationName} failed: ${op.data.error.message}`);
             }
             return;
         }

@@ -1,6 +1,5 @@
-// --- REPLACE THE ENTIRE FILE CONTENT ---
-// File path: src/routes/projects.ts
-// FINAL, ADVANCED VERSION: Flexible link management with icons, colors, and global links.
+// src/routes/projects.ts
+// Core route: project CRUD, provisioning orchestration, and link management.
 
 import { Router, Request, Response, NextFunction } from 'express';
 import admin from 'firebase-admin';
@@ -10,13 +9,13 @@ import * as GithubService from '../services/github';
 
 // --- Interfaces & Types ---
 interface UserProfile {
-  uid: string;
-  email: string;
-  roles: { superAdmin?: boolean; orgAdmin?: string[]; }
+    uid: string;
+    email: string;
+    roles: { superAdmin?: boolean; orgAdmin?: string[]; }
 }
 interface AuthenticatedRequest extends Request {
-  user?: admin.auth.DecodedIdToken;
-  userProfile?: UserProfile;
+    user?: admin.auth.DecodedIdToken;
+    userProfile?: UserProfile;
 }
 
 class BillingError extends Error {
@@ -43,34 +42,34 @@ async function projectLogger(projectId: string, evt: string, meta: Record<string
             ...logEntry,
             serverTimestamp: admin.firestore.FieldValue.serverTimestamp()
         });
-    } catch (error) { 
-        console.error(`SYNC LOG FAILED: Failed to write log to Firestore for project ${projectId}`, error); 
+    } catch (error) {
+        console.error(`SYNC LOG FAILED: Failed to write log to Firestore for project ${projectId}`, error);
     }
 }
 
 async function verifyFirebaseToken(req: AuthenticatedRequest, res: Response, next: NextFunction) {
-  try {
-    const token = req.headers['x-firebase-id-token'] as string || (req.headers.authorization || '').slice(7);
-    if (!token) return res.status(401).json({ error: 'Missing token' });
-    req.user = await admin.auth().verifyIdToken(token);
-    next();
-  } catch (e: any) { res.status(401).json({ error: 'Unauthorized', detail: e.message }); }
+    try {
+        const token = req.headers['x-firebase-id-token'] as string || (req.headers.authorization || '').slice(7);
+        if (!token) return res.status(401).json({ error: 'Missing token' });
+        req.user = await admin.auth().verifyIdToken(token);
+        next();
+    } catch (e: any) { res.status(401).json({ error: 'Unauthorized', detail: e.message }); }
 }
 
 async function fetchUserProfile(req: AuthenticatedRequest, res: Response, next: NextFunction) {
-  if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
-  const { uid, email } = req.user;
-  try {
-    const userDoc = await USERS_COLLECTION.doc(uid).get();
-    if (!userDoc.exists) {
-      const newUserProfile: UserProfile = { uid, email: email || '', roles: {} };
-      await USERS_COLLECTION.doc(uid).set(newUserProfile);
-      req.userProfile = newUserProfile;
-    } else {
-      req.userProfile = userDoc.data() as UserProfile;
-    }
-    next();
-  } catch (e: any) { res.status(500).json({ error: 'Failed to fetch user profile' }); }
+    if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+    const { uid, email } = req.user;
+    try {
+        const userDoc = await USERS_COLLECTION.doc(uid).get();
+        if (!userDoc.exists) {
+            const newUserProfile: UserProfile = { uid, email: email || '', roles: {} };
+            await USERS_COLLECTION.doc(uid).set(newUserProfile);
+            req.userProfile = newUserProfile;
+        } else {
+            req.userProfile = userDoc.data() as UserProfile;
+        }
+        next();
+    } catch (e: any) { res.status(500).json({ error: 'Failed to fetch user profile' }); }
 }
 
 function requireSuperAdmin(req: AuthenticatedRequest, res: Response, next: NextFunction) {
@@ -86,7 +85,7 @@ export const requireAdminAuth = [...requireAuth, requireSuperAdmin];
 // --- Orchestration Logic ---
 async function runFullProvisioning(projectId: string) {
     const log = (evt: string, meta?: Record<string, any>) => projectLogger(projectId, evt, meta);
-    
+
     try {
         await log('stage.gcp.start');
         const projectDoc = await PROJECTS_COLLECTION.doc(projectId).get();
@@ -122,7 +121,7 @@ async function runFullProvisioning(projectId: string) {
         };
         await GithubService.createRepoSecrets(projectId, secretsToCreate);
         await GithubService.triggerInitialDeployment(projectId);
-        await PROJECTS_COLLECTION.doc(projectId).update({ 
+        await PROJECTS_COLLECTION.doc(projectId).update({
             state: 'ready', error: null,
         });
         await log('stage.finalize.success', { finalState: 'ready' });
@@ -130,18 +129,18 @@ async function runFullProvisioning(projectId: string) {
         if (e instanceof BillingError) {
             const billingUrl = `https://console.cloud.google.com/billing/linkedaccount?project=${e.gcpProjectId}`;
             const errorMessage = `Manual action required: Please link billing account. URL: ${billingUrl}`;
-            await PROJECTS_COLLECTION.doc(projectId).update({ 
+            await PROJECTS_COLLECTION.doc(projectId).update({
                 state: 'pending_billing', error: errorMessage, gcpProjectId: e.gcpProjectId
             });
             await log('stage.gcp.billing_failed_manual_intervention', { error: e.message, gcpProjectId: e.gcpProjectId, billingUrl });
-            return; 
+            return;
         }
         const errorMessage = (e as Error).message || 'An unknown error occurred';
         const projectDoc = await PROJECTS_COLLECTION.doc(projectId).get();
         const currentState = projectDoc.data()?.state || 'unknown';
         const failedState = `failed_${currentState.replace(/provisioning_|injecting_|pending_/g, '')}`;
         await PROJECTS_COLLECTION.doc(projectId).update({ state: failedState, error: errorMessage });
-        await log(`stage.${currentState.replace('pending_','provisioning_')}.failed`, { error: errorMessage, stack: (e as Error).stack });
+        await log(`stage.${currentState.replace('pending_', 'provisioning_')}.failed`, { error: errorMessage, stack: (e as Error).stack });
     }
 }
 
@@ -157,7 +156,7 @@ router.get('/projects', requireAuth, async (req: AuthenticatedRequest, res: Resp
         const snap = await query.orderBy('createdAt', 'desc').limit(100).get();
         const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         res.json(list);
-    } catch(e: any) { res.status(500).json({ error: "Failed to list projects" }); }
+    } catch (e: any) { res.status(500).json({ error: "Failed to list projects" }); }
 });
 
 router.get('/projects/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
@@ -221,7 +220,7 @@ router.post('/projects/:id/provision', requireAdminAuth, async (req: Request, re
     const projectDoc = await PROJECTS_COLLECTION.doc(id).get();
     const state = projectDoc.data()?.state;
     if (state && (state.startsWith('provisioning') || state.startsWith('injecting'))) {
-        return res.status(409).json({ ok: false, error: 'Provisioning is already in progress.'});
+        return res.status(409).json({ ok: false, error: 'Provisioning is already in progress.' });
     }
     if (state === 'pending_billing' || state === 'failed_billing' || state.startsWith('failed')) {
         res.status(202).json({ ok: true, message: 'Retrying full provisioning process.' });
@@ -319,7 +318,7 @@ router.delete('/projects/:id', requireAdminAuth, async (req: Request, res: Respo
     try {
         const projectDoc = await PROJECTS_COLLECTION.doc(id).get();
         if (!projectDoc.exists) return res.status(404).json({ error: 'Project not found' });
-        
+
         await log('project.delete.received');
         res.status(202).json({ ok: true, message: 'Project deletion started.' });
 
@@ -351,5 +350,5 @@ router.delete('/projects/:id', requireAdminAuth, async (req: Request, res: Respo
 export default router;
 export { BillingError };
 export const log = (evt: string, meta: Record<string, any> = {}) => {
-  console.log(JSON.stringify({ ts: new Date().toISOString(), severity: 'INFO', evt, ...meta }));
+    console.log(JSON.stringify({ ts: new Date().toISOString(), severity: 'INFO', evt, ...meta }));
 }

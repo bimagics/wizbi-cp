@@ -1,5 +1,5 @@
-// --- REPLACE THE ENTIRE FILE CONTENT ---
-// File path: src/services/github.ts
+// src/services/github.ts
+// GitHub App integration: repos, teams, templates, and secrets.
 
 import { Octokit } from '@octokit/rest';
 import { getSecret } from './secrets';
@@ -7,7 +7,7 @@ import { createAppAuth } from "@octokit/auth-app";
 import { log } from '../routes/projects';
 import sodium from 'libsodium-wrappers';
 
-const GITHUB_OWNER = process.env.GITHUB_OWNER || 'bimagics';
+const GITHUB_OWNER = process.env.GITHUB_OWNER || '';
 const TEMPLATE_PREFIX = 'template-'; // Convention for identifying template repos
 
 let octokit: Octokit;

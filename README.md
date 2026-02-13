@@ -1,160 +1,199 @@
 # WIZBI Control Plane 🚀
- 
-## 1. Vision & Mission
 
-**Our Mission:** To build a Platform-as-a-Service (PaaS) that acts as an "Operating System for Businesses" on the Google Cloud Platform (GCP).
+**A self-service PaaS that provisions complete cloud infrastructure on GCP with one click.**
 
-WIZBI empowers businesses, even those without technical expertise, to instantly provision a complete, modern, and secure cloud infrastructure. We abstract away the complexities of cloud management, providing a simple control plane where customers can launch and manage their digital products.
-
-The long-term vision is to enable the development of these products using natural language, powered by AI. Our platform will automatically handle all the "plumbing" behind the scenes, turning ideas into reality seamlessly.
+WIZBI turns a bare GCP organization into a full project-factory: organizations, isolated GCP projects, GitHub repos from templates, Firebase Hosting, Cloud Run, CI/CD — all automated.
 
 ---
 
-## 2. Guiding Principles & Architecture
+## Architecture
 
-Every technical decision is driven by these core principles:
+```
+┌─────────────────────────────────────────────────────────┐
+│                  WIZBI Control Plane                    │
+│  Node.js / Express / TypeScript on Cloud Run            │
+│  Firestore DB · Firebase Auth · Secret Manager          │
+├─────────────────────────────────────────────────────────┤
+│  Admin Panel (Firebase Hosting)                         │
+│  Organizations · Projects · Templates · Settings        │
+└─────────┬───────────────────────────────────┬───────────┘
+          │ provisions                        │ provisions
+    ┌─────▼─────┐                      ┌──────▼──────┐
+    │ GCP Folder │                      │ GitHub Team │
+    │ (per Org)  │                      │ (per Org)   │
+    └─────┬──────┘                      └──────┬──────┘
+          │                                    │
+    ┌─────▼──────────────────────────────────▼──────┐
+    │              Per-Project Resources             │
+    │  GCP Project · Firebase · Cloud Run · Hosting  │
+    │  Artifact Registry · WIF · GitHub Repo (from   │
+    │  template) · CI/CD secrets injected            │
+    └────────────────────────────────────────────────┘
+```
 
--   **Radical Simplicity:** The user interacts with a clean, intuitive interface. All complexity remains "under the hood."
--   **Lean & Cost-Effective:** A Serverless-first architecture (Cloud Run, Firestore) minimizes fixed costs, scaling with usage.
--   **Secure by Design:** Fully isolated environments for each customer project, adhering to the principle of least privilege.
--   **Template-Driven Management:** Ensures uniformity, prevents configuration drift, and simplifies platform-wide upgrades.
+### Hierarchy
 
-### Architectural Hierarchy
-
-The platform is structured in a clear hierarchy, mapping business concepts to cloud resources:
-
-1.  **The Control Plane:** The central "brain" of the system. It's a GCP project (`wizbi-cp`) running a Node.js/Express application on **Cloud Run**, with **Firestore** as its database.
-2.  **Organization:** Represents a customer. This maps to a **GCP Folder** for resource isolation and a **GitHub Team** for access control.
-3.  **Project:** Represents a specific digital product. This maps to a dedicated **GCP Project** and a private **GitHub Repository**, generated from a chosen template.
-
----
-
-## 3. The Automated Provisioning Workflow
-
-The core of WIZBI is its ability to automate the entire lifecycle of a new project from a single interface.
-
-1.  **Initiation (Admin Panel):** An administrator selects an Organization and a **Project Template** from a dynamic list fetched directly from GitHub. They provide a display name and a short name for the new project.
-2.  **Smart ID Generation:** The system automatically generates a unique, standardized Project ID based on the organization and short name (e.g., `wizbi-orgname-projectname`).
-3.  **Automated Provisioning:** Once confirmed, the Control Plane executes a series of steps in the background, with live status updates in the UI:
-    * **GCP Setup:** Creates a new, isolated GCP project, links it to billing, and enables all necessary APIs.
-    * **Firebase Integration:** Adds Firebase services, including Firestore and Hosting, to the new project.
-    * **Secure CI/CD Setup:** Provisions a dedicated Service Account and configures Workload Identity Federation (WIF) for secure, keyless deployments from GitHub.
-    * **GitHub Repo Creation:** Clones the selected template into a new private GitHub repository.
-    * **Dynamic Customization:** Automatically scans files like `README.md`, `firebase.json`, and `.env.example` in the new repo, replacing placeholders (`{{PROJECT_ID}}`, `{{GCP_REGION}}`) with the actual project details.
-    * **Local Development Setup:** Each new project includes a pre-configured `.env.example` file with project-specific values, making it easy for developers to set up their local testing environment.
-    * **Secret Injection:** Securely injects all necessary deployment secrets (like `GCP_PROJECT_ID`, `WIF_PROVIDER`, etc.) into the new repository's GitHub Actions secrets.
-4.  **Ready to Develop:** Within minutes, the new project is fully configured and ready. Developers can push code to the `dev` or `main` branches to trigger automated, secure deployments to their QA and Production environments.
-
-### Managing Project Templates
-
-To make a new repository available as a template in the admin panel, simply:
-1. Create a new repository in your GitHub organization.
-2. Name it following the convention: `template-<your-template-name>` (e.g., `template-nextjs-blog`).
-The Control Plane will automatically discover it and add it to the selection list.
+| Concept        | GCP Resource     | GitHub Resource  |
+|----------------|------------------|------------------|
+| Control Plane  | GCP Project      | This repository  |
+| Organization   | GCP Folder       | GitHub Team      |
+| Project        | GCP Project      | Private Repo     |
 
 ---
 
-## 4. Technology Stack
+## What Gets Provisioned (Per Project)
 
--   **Backend:** Node.js, Express.js, TypeScript
--   **Database:** Google Firestore (Native Mode)
--   **Hosting:** Google Cloud Run (Backend), Firebase Hosting (Frontend)
--   **Authentication:** Firebase Authentication (for the admin panel)
--   **Cloud Infrastructure:** Google Cloud Platform (Resource Manager, Billing, IAM)
--   **Source Control & CI/CD:** GitHub, GitHub Actions, GitHub Apps
--   **Infrastructure as Code:** Google APIs and Shell Scripts.
+When you click **"Create Project"** in the Admin Panel:
+
+1. **GCP Project** — created under the org's folder, billing linked
+2. **APIs enabled** — Cloud Run, Firebase, Artifact Registry, IAM, etc.
+3. **Firebase** — added to the project with Hosting sites (prod + QA)
+4. **Cloud Run** — placeholder services deployed (prod + QA)
+5. **Service Account** — deployer SA with least-privilege roles
+6. **Workload Identity Federation** — keyless GitHub → GCP auth
+7. **GitHub Repo** — cloned from the selected template
+8. **File Customization** — `{{PROJECT_ID}}`, `{{GCP_REGION}}` replaced
+9. **Secrets Injected** — deployment secrets pushed to GitHub Actions
+10. **CI/CD triggered** — initial deployment kicked off automatically
+
+All within minutes, with live progress in the Admin Panel.
 
 ---
 
-## 5. 🚀 Getting Started: Bootstrapping the Control Plane
+## Tech Stack
 
-This process sets up the entire WIZBI Control Plane project from scratch in your GCP organization.
+| Layer          | Technology                                    |
+|----------------|-----------------------------------------------|
+| Backend        | Node.js, Express, TypeScript                  |
+| Database       | Firestore (Native Mode)                       |
+| Auth           | Firebase Authentication                       |
+| Hosting        | Cloud Run (API), Firebase Hosting (Frontend)  |
+| CI/CD          | GitHub Actions + Workload Identity Federation |
+| Infrastructure | GCP APIs, Shell Scripts                       |
+
+---
+
+## 🚀 One-Click Installation
 
 ### Prerequisites
 
--   A Google Cloud Organization with a Billing Account.
--   A GitHub Organization or user account where you have admin permissions.
--   Permissions to create GCP projects, folders, and manage billing.
--   Access to Google Cloud Shell or a local machine with `gcloud` and `firebase-tools` installed.
+- A GCP Organization with a Billing Account
+- A GitHub Organization (or user account) with admin permissions
+- Access to [Google Cloud Shell](https://shell.cloud.google.com)
 
-### Step 1: Run the Bootstrap Script
+### Deploy
 
-Open **Cloud Shell** in your GCP account and run the command below after filling in your details. This script performs all the initial setup for the Control Plane itself.
+Click the button below or run the command in Cloud Shell:
 
-```bash
-# Replace placeholder values before running
-PROJECT_ID="wizbi-cp" \
-REGION="europe-west1" \
-FIRESTORE_LOCATION="eur3" \
-AR_REPO="wizbi" \
-BILLING_ACCOUNT="XXXXXX-XXXXXX-XXXXXX" \
-GITHUB_OWNER="YOUR_GH_ORG_OR_USER" \
-GITHUB_REPO="wizbi-cp" \
-bash -c 'git clone [https://github.com/$](https://github.com/$){GITHUB_OWNER}/${GITHUB_REPO}.git && cd ${GITHUB_REPO} && chmod +x tools/bootstrap_cp.sh && ./tools/bootstrap_cp.sh' 
-````
-
-### Step 2: Configure GitHub Secrets
-
-The bootstrap script will output a list of secrets. Add them to your `wizbi-cp` repository under `Settings` -\> `Secrets and variables` -\> `Actions`:
-
-  - `GCP_PROJECT_ID`: The ID of your control plane project (e.g., `wizbi-cp`).
-  - `GCP_REGION`: The region for Cloud Run deployments (e.g., `europe-west1`).
-  - `WIF_PROVIDER`: The full path of the Workload Identity Provider.
-  - `DEPLOYER_SA`: The email of the `wizbi-deployer` service account.
-  - `GCP_CONTROL_PLANE_PROJECT_NUMBER`: The project *number* of the control plane (output by the script).
-  - `BILLING_ACCOUNT_ID`: The ID of your GCP Billing Account.
-
-### Step 3: Grant Permissions Manually
-
-The service account used by the Control Plane (`wizbi-runner@wizbi-cp.iam.gserviceaccount.com`) needs permission to create projects and folders in your GCP Organization. This must be done manually for security reasons.
-
-Run the following commands in Cloud Shell, replacing `YOUR_FOLDER_ID` with the ID of the GCP Folder where new customer organizations will be created:
+[![Open in Cloud Shell](https://gstatic.com/cloudssh/images/open-btn.svg)](https://shell.cloud.google.com/cloudshell/editor?cloudshell_git_repo=https://github.com/YOUR_ORG/wizbi-cp&cloudshell_tutorial=tools/bootstrap_full.sh)
 
 ```bash
-gcloud resource-manager folders add-iam-policy-binding YOUR_FOLDER_ID \
-  --member="serviceAccount:wizbi-runner@wizbi-cp.iam.gserviceaccount.com" --role="roles/resourcemanager.projectCreator"
-
-gcloud resource-manager folders add-iam-policy-binding YOUR_FOLDER_ID \
-  --member="serviceAccount:wizbi-runner@wizbi-cp.iam.gserviceaccount.com" --role="roles/billing.user"
+git clone https://github.com/YOUR_ORG/wizbi-cp.git && \
+cd wizbi-cp && \
+chmod +x tools/bootstrap_full.sh && \
+./tools/bootstrap_full.sh
 ```
 
-### Step 4: Push to Deploy
+The interactive wizard will ask for:
+- **Billing Account** — auto-detected, select from list
+- **Project ID** — auto-generated unique ID (or provide your own)
+- **Admin Email** — auto-detected from `gcloud` auth
+- **GitHub Owner** — your GitHub org or username
+- **GitHub Repo** — name of this repo (default: `wizbi-cp`)
 
-Commit and push any changes to the `dev` branch to deploy to the QA environment, or to the `main` branch to deploy to production. The GitHub Actions workflow will handle the rest.
+Everything else is automatic. The script:
+1. Creates the GCP project and enables all APIs
+2. Sets up Firebase, Firestore, and Hosting sites
+3. Creates service accounts with least-privilege IAM
+4. Builds and deploys the Control Plane to Cloud Run
+5. Deploys the Admin Panel to Firebase Hosting
+6. Configures Workload Identity Federation for CI/CD
+7. Optionally injects GitHub Actions secrets (if PAT provided)
 
------
+### After Installation
 
-## 6\. Project Roadmap
+1. Open `https://YOUR_PROJECT_ID.web.app/admin/`
+2. Log in with the admin email you provided
+3. Go to **Settings** → configure your GitHub App keys
+4. Start creating organizations and provisioning projects!
 
-  - [x] **Phase 1: Core Provisioning:**
+---
 
-      - [x] Create Organizations (GCP Folder, GitHub Team).
-      - [x] Provision Projects (GCP Project, GitHub Repo).
-      - [x] Link to billing and assign permissions.
-      - [x] Basic Admin UI for creation.
+## CI/CD
 
-  - [x] **Phase 2: UI/UX & Workflow Enhancements:**
+| Branch  | Deploys To  |
+|---------|-------------|
+| `main`  | Production  |
+| `dev`   | QA          |
 
-      - [x] Fully automated, multi-stage provisioning process.
-      - [x] Smart, standardized project ID generation.
-      - [x] Live in-UI status polling and progress bars.
-      - [x] Direct links to newly created GCP and GitHub resources.
-      - [x] In-UI log viewer.
+The GitHub Actions workflow (`.github/workflows/deploy.yml`) handles:
+- Docker image build with layer caching
+- Push to Artifact Registry
+- Cloud Run deployment with health verification
+- Firebase Hosting deployment
 
-  - [x] **Phase 3: Template-Driven Architecture:**
+Authentication is fully keyless via Workload Identity Federation.
 
-      - [x] Defined a starter template (`template-wizbi-mono`) for new projects.
-      - [x] Integrated dynamic template discovery from GitHub.
-      - [x] Implemented automatic customization of template files post-creation.
+### Required GitHub Secrets
 
-  - [ ] **Phase 4: Lifecycle Management:**
+These are automatically injected by the bootstrap script if you provide a GitHub PAT.
+Otherwise, set them manually under **Settings → Secrets → Actions**:
 
-      - [ ] Implement secure, multi-stage deletion for Projects.
-      - [ ] Implement secure, multi-stage deletion for Organizations.
-      - [ ] Add role-based access control (Org Admin vs Super Admin) refinements.
+| Secret | Description |
+|--------|-------------|
+| `GCP_PROJECT_ID` | Control plane project ID |
+| `GCP_REGION` | Deployment region (e.g., `europe-west1`) |
+| `WIF_PROVIDER` | WIF provider path |
+| `DEPLOYER_SA` | Deployer service account email |
+| `GCP_CONTROL_PLANE_PROJECT_NUMBER` | Project number |
+| `BILLING_ACCOUNT_ID` | Billing account ID |
+| `ADMINS` | Comma-separated admin emails |
 
-<!-- end list -->
+---
 
-[ ] Implement secure, multi-stage deletion for Organizations.
+## Template Management
 
-[ ] Add role-based access control (Org Admin vs Super Admin) refinements.
+To add a new project template:
+
+1. Create a GitHub repo named `template-<name>` (e.g., `template-nextjs-blog`)
+2. Mark it as a **template repository** in GitHub settings
+3. Use placeholders in files: `{{PROJECT_ID}}`, `{{PROJECT_DISPLAY_NAME}}`, `{{GCP_REGION}}`
+
+The Admin Panel auto-discovers all `template-*` repos in your org.
+
+---
+
+## Project Structure
+
+```
+├── src/
+│   ├── index.ts              # Express server, CORS, routes
+│   ├── routes/
+│   │   ├── health.ts         # Health check
+│   │   ├── user.ts           # User profile & roles
+│   │   ├── projects.ts       # Project CRUD & provisioning
+│   │   ├── orgs.ts           # Organization management
+│   │   ├── github.ts         # Template management
+│   │   └── settings.ts       # Secrets & config
+│   └── services/
+│       ├── firebaseAdmin.ts  # Firebase Admin SDK init
+│       ├── gcp.ts            # GCP provisioning engine
+│       ├── gcp_legacy.ts     # GCP folder operations
+│       ├── github.ts         # GitHub API integration
+│       └── secrets.ts        # Secret Manager wrapper
+├── public/
+│   ├── index.html            # Landing page
+│   └── admin/                # Admin Panel (HTML/CSS/JS)
+├── tools/
+│   └── bootstrap_full.sh     # One-click setup wizard
+├── .github/workflows/
+│   └── deploy.yml            # CI/CD pipeline
+├── Dockerfile                # Multi-stage production build
+└── firebase.json             # Hosting config (targets)
+```
+
+---
+
+## License
+
+MIT

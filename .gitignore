@@ -16,6 +16,7 @@ dist/
 
 # Firebase
 .firebase/
+.firebaserc
 firebase-debug.log
 
 # IDE
@@ -31,3 +32,4 @@ Thumbs.db
 # Logs
 *.log
 npm-debug.log*
+.firebase

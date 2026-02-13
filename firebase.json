@@ -1,7 +1,7 @@
 {
   "hosting": [
     {
-      "site": "wizbi-cp",
+      "target": "production",
       "public": "public",
       "ignore": [
         "firebase.json",
@@ -30,13 +30,6 @@
         },
         {
           "source": "/api/**",
-          "run": {
-            "serviceId": "cp-unified",
-            "region": "europe-west1"
-          }
-        },
-        {
-          "source": "/whatsapp/webhook",
           "run": {
             "serviceId": "cp-unified",
             "region": "europe-west1"
@@ -45,7 +38,7 @@
       ]
     },
     {
-      "site": "wizbi-cp-qa",
+      "target": "qa",
       "public": "public",
       "ignore": [
         "firebase.json",
@@ -74,13 +67,6 @@
         },
         {
           "source": "/api/**",
-          "run": {
-            "serviceId": "cp-unified-qa",
-            "region": "europe-west1"
-          }
-        },
-        {
-          "source": "/whatsapp/webhook",
           "run": {
             "serviceId": "cp-unified-qa",
             "region": "europe-west1"

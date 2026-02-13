@@ -1,5 +1,4 @@
-// --- REPLACE THE ENTIRE FILE CONTENT ---
-// Final version with flexible, icon-based link management.
+// Admin Panel — main application logic.
 document.addEventListener('DOMContentLoaded', () => {
     const firebaseAuth = firebase.auth();
     const googleProvider = new firebase.auth.GoogleAuthProvider();
