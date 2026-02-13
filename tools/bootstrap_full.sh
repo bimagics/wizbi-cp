@@ -55,7 +55,7 @@ if [ -z "${REGION:-}" ]; then
   REGION="europe-west1"
 fi
 
-# --- Billing Account ---
+# --- Billing Account (optional) ---
 if [ -z "${BILLING_ACCOUNT:-}" ]; then
   echo ""
   echo -e "${BOLD}Available Billing Accounts:${NC}"
@@ -64,8 +64,16 @@ if [ -z "${BILLING_ACCOUNT:-}" ]; then
   mapfile -t ACCOUNT_NAMES < <(gcloud billing accounts list --filter="open=true" --format='value(displayName)' 2>/dev/null)
   
   if [ ${#ACCOUNTS[@]} -eq 0 ]; then
-    err "No open billing accounts found."
-    exit 1
+    warn "No open billing accounts found."
+    warn "You can continue without billing, but Cloud Build and Cloud Run"
+    warn "will not work until you link a billing account to this project."
+    echo ""
+    read -rp "$(echo -e ${BOLD})Continue without billing? [Y/n]: $(echo -e ${NC})" SKIP_BILLING
+    if [[ "${SKIP_BILLING:-Y}" =~ ^[Nn] ]]; then
+      echo "Aborted. Create a billing account at https://console.cloud.google.com/billing"
+      exit 1
+    fi
+    BILLING_ACCOUNT=""
   elif [ ${#ACCOUNTS[@]} -eq 1 ]; then
     BILLING_ACCOUNT="${ACCOUNTS[0]}"
     echo "  Using: ${ACCOUNT_NAMES[0]} (${BILLING_ACCOUNT})"
@@ -150,7 +158,7 @@ echo -e "${BOLD}Configuration Summary:${NC}"
 echo "  Project ID:         $PROJECT_ID"
 echo "  Region:             $REGION"
 echo "  Firestore Location: $FIRESTORE_LOCATION"
-echo "  Billing Account:    $BILLING_ACCOUNT"
+echo "  Billing Account:    ${BILLING_ACCOUNT:-NONE (skipped)}"
 echo "  Admin Email:        $ADMIN_EMAIL"
 echo "  GitHub:             $GITHUB_OWNER/$GITHUB_REPO"
 echo ""
@@ -177,9 +185,13 @@ else
   ok "Project already exists"
 fi
 
-gcloud beta billing projects link "$PROJECT_ID" --billing-account="$BILLING_ACCOUNT"
+if [ -n "$BILLING_ACCOUNT" ]; then
+  gcloud beta billing projects link "$PROJECT_ID" --billing-account="$BILLING_ACCOUNT"
+  ok "Billing linked"
+else
+  warn "Billing skipped — link manually later: gcloud beta billing projects link $PROJECT_ID --billing-account=YOUR_ACCOUNT"
+fi
 gcloud config set project "$PROJECT_ID"
-ok "Billing linked"
 
 step "Enabling APIs (this takes ~60 seconds)"
 gcloud services enable \
