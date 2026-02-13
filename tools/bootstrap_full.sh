@@ -34,6 +34,14 @@ phase "WIZBI Control Plane — Setup Wizard"
 echo -e "${BOLD}Welcome! This script will set up your WIZBI Control Plane on GCP.${NC}"
 echo -e "You'll need a GCP Billing Account. Everything else is automatic.\n"
 
+if [ -z "${DEVSHELL_PROJECT_ID:-}" ]; then
+  warn "It looks like you are NOT running in Google Cloud Shell."
+  warn "This script is optimized for Cloud Shell execution."
+  warn "Pass --force to continue or run in Cloud Shell: https://shell.cloud.google.com"
+  read -rp "Continue anyway? [y/N] " FORCE_RUN
+  if [[ ! "$FORCE_RUN" =~ ^[Yy]$ ]]; then exit 1; fi
+fi
+
 # --- Project ID (auto-generate unique suffix) ---
 RANDOM_SUFFIX=$(head -c 100 /dev/urandom | tr -dc 'a-z0-9' | head -c 4)
 DEFAULT_PROJECT_ID="wizbi-cp-${RANDOM_SUFFIX}"
