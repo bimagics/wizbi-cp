@@ -27,12 +27,12 @@ err()    { echo -e "${RED}✗  $1${NC}"; }
 ok()     { echo -e "${GREEN}✓  $1${NC}"; }
 
 # =========================================
-# PHASE 0 — Interactive Input
+# PHASE 0 — Auto-detect everything
 # =========================================
 phase "WIZBI Control Plane — Setup Wizard"
 
-echo -e "${BOLD}Welcome! This script will set up your WIZBI Control Plane on GCP.${NC}"
-echo -e "You'll need a GCP Billing Account. Everything else is automatic.\n"
+echo -e "${BOLD}Welcome! Setting up your WIZBI Control Plane on GCP.${NC}"
+echo -e "Everything is automatic. Sit back and relax.\n"
 
 if [ "${CLOUD_SHELL:-}" != "true" ]; then
   warn "It looks like you are NOT running in Google Cloud Shell."
@@ -42,79 +42,66 @@ if [ "${CLOUD_SHELL:-}" != "true" ]; then
   if [[ ! "$FORCE_RUN" =~ ^[Yy]$ ]]; then exit 1; fi
 fi
 
-# --- Project ID (auto-generate unique suffix) ---
+# --- Auto-detect everything ---
+
+# Project ID: auto-generate unique
 RANDOM_SUFFIX=$(head -c 100 /dev/urandom | tr -dc 'a-z0-9' | head -c 4)
-DEFAULT_PROJECT_ID="wizbi-cp-${RANDOM_SUFFIX}"
-if [ -z "${PROJECT_ID:-}" ]; then
-  read -rp "$(echo -e ${BOLD})Enter Project ID [${DEFAULT_PROJECT_ID}]: $(echo -e ${NC})" PROJECT_ID
-  PROJECT_ID="${PROJECT_ID:-$DEFAULT_PROJECT_ID}"
+: "${PROJECT_ID:=wizbi-cp-${RANDOM_SUFFIX}}"
+
+# Region: default
+: "${REGION:=europe-west1}"
+
+# Admin Email: auto-detect from gcloud
+if [ -z "${ADMIN_EMAIL:-}" ]; then
+  ADMIN_EMAIL=$(gcloud config get-value account 2>/dev/null | tr '[:upper:]' '[:lower:]' || echo "")
+  if [ -z "$ADMIN_EMAIL" ]; then
+    err "Could not detect your email. Set ADMIN_EMAIL env var and re-run."
+    exit 1
+  fi
 fi
 
-# --- Region ---
-if [ -z "${REGION:-}" ]; then
-  REGION="europe-west1"
+# GitHub Owner & Repo: auto-detect from git remote
+if [ -z "${GITHUB_OWNER:-}" ] || [ -z "${GITHUB_REPO:-}" ]; then
+  GIT_REMOTE_URL=$(git config --get remote.origin.url 2>/dev/null || echo "")
+  if [ -n "$GIT_REMOTE_URL" ]; then
+    # Extract owner/repo from https or ssh URL
+    GITHUB_SLUG=$(echo "$GIT_REMOTE_URL" | sed -E 's#.*github\.com[:/](.+)\.git$#\1#; s#.*github\.com[:/](.+)$#\1#')
+    : "${GITHUB_OWNER:=$(echo "$GITHUB_SLUG" | cut -d'/' -f1 | tr '[:upper:]' '[:lower:]')}"
+    : "${GITHUB_REPO:=$(echo "$GITHUB_SLUG" | cut -d'/' -f2 | tr '[:upper:]' '[:lower:]')}"
+  else
+    : "${GITHUB_OWNER:=bimagics}"
+    : "${GITHUB_REPO:=wizbi-cp}"
+  fi
 fi
 
-# --- Billing Account (optional) ---
+# Billing Account: auto-detect, only ask if multiple
 if [ -z "${BILLING_ACCOUNT:-}" ]; then
-  echo ""
-  echo -e "${BOLD}Available Billing Accounts:${NC}"
-  # Store accounts in array for numbered selection
   mapfile -t ACCOUNTS < <(gcloud billing accounts list --filter="open=true" --format='value(name.basename())' 2>/dev/null)
   mapfile -t ACCOUNT_NAMES < <(gcloud billing accounts list --filter="open=true" --format='value(displayName)' 2>/dev/null)
   
   if [ ${#ACCOUNTS[@]} -eq 0 ]; then
-    warn "No open billing accounts found."
-    warn "You can continue without billing, but Cloud Build and Cloud Run"
-    warn "will not work until you link a billing account to this project."
+    warn "No billing accounts found."
+    warn "Cloud Build and Cloud Run won't work without billing."
     echo ""
     read -rp "$(echo -e ${BOLD})Continue without billing? [Y/n]: $(echo -e ${NC})" SKIP_BILLING
     if [[ "${SKIP_BILLING:-Y}" =~ ^[Nn] ]]; then
-      echo "Aborted. Create a billing account at https://console.cloud.google.com/billing"
+      echo "Create one at https://console.cloud.google.com/billing/create"
       exit 1
     fi
     BILLING_ACCOUNT=""
   elif [ ${#ACCOUNTS[@]} -eq 1 ]; then
     BILLING_ACCOUNT="${ACCOUNTS[0]}"
-    echo "  Using: ${ACCOUNT_NAMES[0]} (${BILLING_ACCOUNT})"
+    ok "Billing: ${ACCOUNT_NAMES[0]}"
   else
+    echo -e "${BOLD}Multiple billing accounts found — pick one:${NC}"
     for i in "${!ACCOUNTS[@]}"; do
       echo "  $((i+1)). ${ACCOUNT_NAMES[$i]} (${ACCOUNTS[$i]})"
     done
     echo ""
-    read -rp "$(echo -e ${BOLD})Select billing account [1]: $(echo -e ${NC})" BILLING_CHOICE
+    read -rp "$(echo -e ${BOLD})Select [1]: $(echo -e ${NC})" BILLING_CHOICE
     BILLING_CHOICE="${BILLING_CHOICE:-1}"
     BILLING_ACCOUNT="${ACCOUNTS[$((BILLING_CHOICE-1))]}"
   fi
-  echo ""
-fi
-
-# --- Admin Email ---
-if [ -z "${ADMIN_EMAIL:-}" ]; then
-  DETECTED_EMAIL=$(gcloud config get-value account 2>/dev/null | tr '[:upper:]' '[:lower:]' || echo "")
-  if [ -n "$DETECTED_EMAIL" ]; then
-    read -rp "$(echo -e ${BOLD})Admin email [$DETECTED_EMAIL]: $(echo -e ${NC})" ADMIN_EMAIL
-    ADMIN_EMAIL="${ADMIN_EMAIL:-$DETECTED_EMAIL}"
-  else
-    read -rp "$(echo -e ${BOLD})Enter Admin email: $(echo -e ${NC})" ADMIN_EMAIL
-  fi
-fi
-ADMIN_EMAIL=$(echo "$ADMIN_EMAIL" | tr '[:upper:]' '[:lower:]')
-
-# --- GitHub Owner (for CI/CD) ---
-if [ -z "${GITHUB_OWNER:-}" ]; then
-  read -rp "$(echo -e ${BOLD})GitHub Org or User that owns this repo: $(echo -e ${NC})" GITHUB_OWNER
-  if [ -z "$GITHUB_OWNER" ]; then
-    err "GitHub owner is required for CI/CD setup."
-    exit 1
-  fi
-fi
-GITHUB_OWNER=$(echo "$GITHUB_OWNER" | tr '[:upper:]' '[:lower:]')
-
-# --- GitHub Repo ---
-if [ -z "${GITHUB_REPO:-}" ]; then
-  read -rp "$(echo -e ${BOLD})GitHub repo name [wizbi-cp]: $(echo -e ${NC})" GITHUB_REPO
-  GITHUB_REPO="${GITHUB_REPO:-wizbi-cp}"
 fi
 
 # --- Optional: GitHub App keys (can be set later via Admin Panel) ---

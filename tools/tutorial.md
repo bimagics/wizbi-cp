@@ -25,12 +25,11 @@ Open the terminal below and run:
 chmod +x tools/bootstrap_full.sh && ./tools/bootstrap_full.sh
 ```
 
-The interactive wizard will ask for:
-- **Billing Account** — auto-detected from your GCP account
-- **Project ID** — auto-generated (or provide your own)
-- **Admin Email** — auto-detected from your `gcloud` login
-- **GitHub Owner** — your GitHub org or username
-- **GitHub Repo** — name of this repo (default: `wizbi-cp`)
+The wizard detects everything automatically:
+- **Billing Account** — auto-selected (or pick one if you have multiple)
+- **Project ID** — auto-generated (`wizbi-cp-XXXX`)
+- **Admin Email** — your `gcloud` login email
+- **GitHub Owner & Repo** — extracted from the git remote
 
 ---
 
