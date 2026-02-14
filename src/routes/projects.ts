@@ -62,7 +62,19 @@ async function fetchUserProfile(req: AuthenticatedRequest, res: Response, next: 
     try {
         const userDoc = await USERS_COLLECTION.doc(uid).get();
         if (!userDoc.exists) {
-            const newUserProfile: UserProfile = { uid, email: email || '', roles: {} };
+            // Auto-promote seed admins (from ADMINS env var) or the very first user
+            const adminEmails = (process.env.ADMINS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+            const isSeeded = adminEmails.includes((email || '').toLowerCase());
+            let isFirstUser = false;
+            if (!isSeeded) {
+                const existingUsers = await USERS_COLLECTION.limit(1).get();
+                isFirstUser = existingUsers.empty;
+            }
+            const roles = (isSeeded || isFirstUser) ? { superAdmin: true } : {};
+            const newUserProfile: UserProfile = { uid, email: email || '', roles };
+            if (roles.superAdmin) {
+                console.log(JSON.stringify({ evt: 'user.auto_promoted_superadmin', email, reason: isSeeded ? 'ADMINS_env' : 'first_user' }));
+            }
             await USERS_COLLECTION.doc(uid).set(newUserProfile);
             req.userProfile = newUserProfile;
         } else {

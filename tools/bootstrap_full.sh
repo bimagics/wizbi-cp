@@ -222,7 +222,7 @@ step "Granting Cloud Build SA permissions"
 PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
 COMPUTE_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
 if [ -n "$BILLING_ACCOUNT" ]; then
-  for ROLE in roles/storage.admin roles/artifactregistry.writer roles/logging.logWriter; do
+  for ROLE in roles/storage.admin roles/artifactregistry.writer roles/artifactregistry.repoAdmin roles/logging.logWriter; do
     gcloud projects add-iam-policy-binding "$PROJECT_ID" \
       --member="serviceAccount:$COMPUTE_SA" \
       --role="$ROLE" --quiet --no-user-output-enabled 2>/dev/null &
@@ -376,12 +376,29 @@ ok "Firebase CLI ready"
 step "Building & pushing container image (Cloud Build, ~2 min)"
 gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet 2>/dev/null || true
 
-# Small delay to let IAM bindings propagate before Cloud Build pushes
-echo "  Waiting for IAM propagation..."
-sleep 15
+# IAM propagation can take 60-120s on GCP — wait before attempting Cloud Build
+echo "  Waiting for IAM propagation (60s)..."
+sleep 60
 
-# Retry loop for Cloud Build to handle IAM propagation delays
-MAX_RETRIES=5
+# Verify Artifact Registry access is actually available before building
+step "Verifying Artifact Registry access"
+for VERIFY_I in $(seq 1 6); do
+  if gcloud artifacts docker images list "${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}" \
+      --project="$PROJECT_ID" 2>/dev/null 1>/dev/null; then
+    ok "Artifact Registry access confirmed"
+    break
+  fi
+  if [ "$VERIFY_I" -eq 6 ]; then
+    warn "Could not verify AR access after 3 minutes. Proceeding anyway..."
+    break
+  fi
+  echo "  IAM not ready yet, waiting 30s... ($VERIFY_I/6)"
+  sleep 30
+done
+
+step "Building & pushing container image (Cloud Build, ~2 min)"
+# Retry loop for Cloud Build — reduced retries with longer delay
+MAX_RETRIES=3
 for i in $(seq 1 $MAX_RETRIES); do
   echo "  Attempt $i/$MAX_RETRIES: Submitting build..."
   if gcloud builds submit . \
@@ -392,11 +409,12 @@ for i in $(seq 1 $MAX_RETRIES); do
     break
   else
     if [ "$i" -eq "$MAX_RETRIES" ]; then
-      err "Build failed after $MAX_RETRIES attempts. Check permissions."
+      err "Build failed after $MAX_RETRIES attempts. Check Cloud Build logs in GCP Console."
+      err "Common fix: wait 2 minutes and re-run this script with PROJECT_ID=$PROJECT_ID"
       exit 1
     fi
-    warn "Build failed (likely IAM propagation). Retrying in 15s..."
-    sleep 15
+    warn "Build failed. Retrying in 45s..."
+    sleep 45
   fi
 done
 
@@ -419,6 +437,21 @@ gcloud run deploy "cp-unified" \
   --update-env-vars "$CLOUD_RUN_ENV" \
   --quiet
 ok "Production service deployed"
+
+# Verify Cloud Run is responding
+PROD_RUN_URL=$(gcloud run services describe cp-unified --region="$REGION" --format='value(status.url)' 2>/dev/null || echo "")
+if [ -n "$PROD_RUN_URL" ]; then
+  echo "  Verifying deployment at $PROD_RUN_URL/api/health ..."
+  for HC_I in $(seq 1 5); do
+    HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$PROD_RUN_URL/api/health" 2>/dev/null || echo "000")
+    if [ "$HTTP_STATUS" = "200" ]; then
+      ok "Cloud Run is healthy (HTTP 200)"
+      break
+    fi
+    [ "$HC_I" -eq 5 ] && warn "Health check didn't return 200 (got $HTTP_STATUS) — service may need time to start"
+    sleep 10
+  done
+fi
 
 step "Deploying Cloud Run: cp-unified-qa (QA)"
 gcloud run deploy "cp-unified-qa" \
