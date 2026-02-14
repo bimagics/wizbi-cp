@@ -222,7 +222,7 @@ step "Granting Cloud Build SA permissions"
 PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
 COMPUTE_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
 if [ -n "$BILLING_ACCOUNT" ]; then
-  for ROLE in roles/storage.admin roles/artifactregistry.writer roles/artifactregistry.repoAdmin roles/logging.logWriter; do
+  for ROLE in roles/storage.admin roles/artifactregistry.writer roles/artifactregistry.repoAdmin roles/logging.logWriter roles/cloudbuild.builds.builder; do
     gcloud projects add-iam-policy-binding "$PROJECT_ID" \
       --member="serviceAccount:$COMPUTE_SA" \
       --role="$ROLE" --quiet --no-user-output-enabled 2>/dev/null &
@@ -376,34 +376,51 @@ ok "Firebase CLI ready"
 step "Building & pushing container image (Cloud Build, ~2 min)"
 gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet 2>/dev/null || true
 
-# IAM propagation can take 60-120s on GCP — wait before attempting Cloud Build
-echo "  Waiting for IAM propagation (60s)..."
-sleep 60
+# --- Cloud Build GCS Staging Bucket ---
+# Cloud Build uploads source to gs://{PROJECT_ID}_cloudbuild before building.
+# Project-level IAM (roles/storage.admin) can take 7+ min to propagate.
+# Fix: explicitly create the bucket + grant bucket-level IAM (instant propagation).
+CB_BUCKET="${PROJECT_ID}_cloudbuild"
+echo "  Creating Cloud Build staging bucket: gs://${CB_BUCKET}"
+gsutil mb -p "$PROJECT_ID" -l "$REGION" "gs://${CB_BUCKET}" 2>/dev/null || true
 
-# Verify Artifact Registry access is actually available before building
-step "Verifying Artifact Registry access"
-for VERIFY_I in $(seq 1 6); do
-  if gcloud artifacts docker images list "${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}" \
-      --project="$PROJECT_ID" 2>/dev/null 1>/dev/null; then
-    ok "Artifact Registry access confirmed"
+# Grant bucket-level storage admin to the Compute SA (propagates instantly)
+echo "  Granting bucket-level storage access to Cloud Build SA..."
+gsutil iam ch "serviceAccount:${COMPUTE_SA}:roles/storage.objectAdmin" "gs://${CB_BUCKET}" 2>/dev/null || true
+gsutil iam ch "serviceAccount:${COMPUTE_SA}:roles/storage.legacyBucketReader" "gs://${CB_BUCKET}" 2>/dev/null || true
+
+# Also create the AR Docker repo bucket (used for pushing images)
+AR_BUCKET="artifacts.${PROJECT_ID}.appspot.com"
+gsutil mb -p "$PROJECT_ID" -l "$REGION" "gs://${AR_BUCKET}" 2>/dev/null || true
+gsutil iam ch "serviceAccount:${COMPUTE_SA}:roles/storage.objectAdmin" "gs://${AR_BUCKET}" 2>/dev/null || true
+
+# Brief wait for bucket-level IAM (much faster than project-level)
+echo "  Waiting for bucket IAM propagation (30s)..."
+sleep 30
+
+# Verify GCS access is working before attempting build
+step "Verifying Cloud Build storage access"
+for VERIFY_I in $(seq 1 4); do
+  if gsutil ls "gs://${CB_BUCKET}" >/dev/null 2>&1; then
+    ok "Cloud Build storage access confirmed"
     break
   fi
-  if [ "$VERIFY_I" -eq 6 ]; then
-    warn "Could not verify AR access after 3 minutes. Proceeding anyway..."
+  if [ "$VERIFY_I" -eq 4 ]; then
+    warn "Could not verify GCS access after 2 minutes. Proceeding anyway..."
     break
   fi
-  echo "  IAM not ready yet, waiting 30s... ($VERIFY_I/6)"
+  echo "  Storage not ready yet, waiting 30s... ($VERIFY_I/4)"
   sleep 30
 done
 
-step "Building & pushing container image (Cloud Build, ~2 min)"
-# Retry loop for Cloud Build — reduced retries with longer delay
+step "Submitting Cloud Build (~2 min)"
 MAX_RETRIES=3
 for i in $(seq 1 $MAX_RETRIES); do
   echo "  Attempt $i/$MAX_RETRIES: Submitting build..."
   if gcloud builds submit . \
       --tag="$IMAGE_TAG" \
       --project="$PROJECT_ID" \
+      --gcs-source-staging-dir="gs://${CB_BUCKET}/source" \
       --quiet; then
     ok "Image built & pushed: $IMAGE_TAG"
     break
@@ -413,8 +430,8 @@ for i in $(seq 1 $MAX_RETRIES); do
       err "Common fix: wait 2 minutes and re-run this script with PROJECT_ID=$PROJECT_ID"
       exit 1
     fi
-    warn "Build failed. Retrying in 45s..."
-    sleep 45
+    warn "Build failed. Retrying in 60s..."
+    sleep 60
   fi
 done
 
