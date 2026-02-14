@@ -258,7 +258,7 @@ step "Granting IAM roles (parallel)"
 for ROLE in roles/run.admin roles/artifactregistry.writer roles/cloudbuild.builds.editor roles/iam.serviceAccountTokenCreator roles/secretmanager.secretAccessor roles/firebasehosting.admin roles/iam.serviceAccountUser; do
   gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$DEPLOYER_SA" --role="$ROLE" --quiet --no-user-output-enabled 2>/dev/null &
 done
-for ROLE in roles/secretmanager.secretAccessor roles/secretmanager.secretVersionAdder roles/datastore.user roles/iam.workloadIdentityPoolAdmin roles/firebase.admin roles/serviceusage.serviceUsageAdmin roles/iam.serviceAccountAdmin roles/resourcemanager.projectCreator; do
+for ROLE in roles/secretmanager.secretAccessor roles/secretmanager.secretVersionAdder roles/datastore.owner roles/iam.workloadIdentityPoolAdmin roles/firebase.admin roles/serviceusage.serviceUsageAdmin roles/iam.serviceAccountAdmin roles/resourcemanager.projectCreator; do
   gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$PROVISIONER_SA" --role="$ROLE" --quiet --no-user-output-enabled 2>/dev/null &
 done
 for ROLE in roles/resourcemanager.projectCreator roles/billing.user roles/serviceusage.serviceUsageAdmin; do
@@ -436,6 +436,20 @@ for i in $(seq 1 $MAX_RETRIES); do
 done
 
 # Build env vars for Cloud Run
+# Fetch Firebase Web API key (auto-created when Firebase is added to the project)
+FIREBASE_API_KEY=$(curl -s -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+  "https://firebase.googleapis.com/v1beta1/projects/${PROJECT_ID}/webApps" 2>/dev/null \
+  | grep -o '"apiKeyId":"[^"]*"' | head -1 | sed 's/"apiKeyId":"//;s/"//' || echo "")
+# If webApps endpoint didn't return a key, try getting it from the API keys list
+if [ -z "$FIREBASE_API_KEY" ]; then
+  FIREBASE_API_KEY=$(gcloud services api-keys list --project="$PROJECT_ID" \
+    --format='value(name)' --filter='displayName:"Browser key"' 2>/dev/null | head -1)
+  if [ -n "$FIREBASE_API_KEY" ]; then
+    FIREBASE_API_KEY=$(gcloud services api-keys get-key-string "$FIREBASE_API_KEY" \
+      --project="$PROJECT_ID" --format='value(keyString)' 2>/dev/null || echo "")
+  fi
+fi
+
 CLOUD_RUN_ENV="NODE_ENV=production"
 CLOUD_RUN_ENV+=",FIREBASE_PROJECT_ID=$PROJECT_ID"
 CLOUD_RUN_ENV+=",GCP_PROJECT_ID=$PROJECT_ID"
@@ -444,6 +458,9 @@ CLOUD_RUN_ENV+=",CORS_ORIGIN=*"
 CLOUD_RUN_ENV+=",ADMINS=$ADMIN_EMAIL"
 CLOUD_RUN_ENV+=",GCP_CONTROL_PLANE_PROJECT_NUMBER=$PROJECT_NUMBER"
 CLOUD_RUN_ENV+=",GITHUB_OWNER=$GITHUB_OWNER"
+if [ -n "$FIREBASE_API_KEY" ]; then
+  CLOUD_RUN_ENV+=",FIREBASE_API_KEY=$FIREBASE_API_KEY"
+fi
 
 step "Deploying Cloud Run: cp-unified (Production)"
 gcloud run deploy "cp-unified" \
@@ -458,9 +475,9 @@ ok "Production service deployed"
 # Verify Cloud Run is responding
 PROD_RUN_URL=$(gcloud run services describe cp-unified --region="$REGION" --format='value(status.url)' 2>/dev/null || echo "")
 if [ -n "$PROD_RUN_URL" ]; then
-  echo "  Verifying deployment at $PROD_RUN_URL/api/health ..."
+  echo "  Verifying deployment at $PROD_RUN_URL/healthz ..."
   for HC_I in $(seq 1 5); do
-    HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$PROD_RUN_URL/api/health" 2>/dev/null || echo "000")
+    HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$PROD_RUN_URL/healthz" 2>/dev/null || echo "000")
     if [ "$HTTP_STATUS" = "200" ]; then
       ok "Cloud Run is healthy (HTTP 200)"
       break
@@ -527,18 +544,23 @@ FIREBASE_EOF
 ok "firebase.json updated with region: $REGION"
 
 step "Deploying Firebase Hosting"
+# Firebase CLI needs a token in Cloud Shell — use the active gcloud auth token
+FB_TOKEN=$(gcloud auth print-access-token 2>/dev/null)
+
 # Map Firebase targets to actual hosting sites
-firebase target:apply hosting production "${HOSTING_SITE}" --project "$PROJECT_ID" 2>/dev/null || true
-firebase target:apply hosting qa "${HOSTING_SITE}-qa" --project "$PROJECT_ID" 2>/dev/null || true
+firebase target:apply hosting production "${HOSTING_SITE}" --project "$PROJECT_ID" --token "$FB_TOKEN" 2>/dev/null || true
+firebase target:apply hosting qa "${HOSTING_SITE}-qa" --project "$PROJECT_ID" --token "$FB_TOKEN" 2>/dev/null || true
 
 firebase deploy \
   --only hosting:production \
   --project "$PROJECT_ID" \
+  --token "$FB_TOKEN" \
   --non-interactive 2>/dev/null || warn "Production hosting deploy failed — will deploy on first git push"
 
 firebase deploy \
   --only hosting:qa \
   --project "$PROJECT_ID" \
+  --token "$FB_TOKEN" \
   --non-interactive 2>/dev/null || warn "QA hosting deploy failed — will deploy on first git push"
 
 ok "Hosting deployed"

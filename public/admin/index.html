@@ -1,18 +1,38 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>WizBI Control</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>">
+  <link rel="icon"
+    href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/admin/admin.css" />
-  <script src="/__/firebase/9.6.1/firebase-app-compat.js"></script>
-  <script src="/__/firebase/9.6.1/firebase-auth-compat.js"></script>
-  <script src="/__/firebase/init.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
+  <script>
+    // Load Firebase config dynamically — works on both Cloud Run and Firebase Hosting
+    (async function () {
+      try {
+        // Try Firebase Hosting reserved URL first
+        let res = await fetch('/__/firebase/init.json');
+        if (!res.ok) throw new Error('Not on Firebase Hosting');
+        const cfg = await res.json();
+        firebase.initializeApp(cfg);
+      } catch {
+        // Fallback: fetch config from API (Cloud Run direct access)
+        const res = await fetch('/api/firebase-config');
+        const cfg = await res.json();
+        firebase.initializeApp(cfg);
+      }
+      document.dispatchEvent(new Event('firebase-config-loaded'));
+    })();
+  </script>
 </head>
+
 <body>
 
   <div id="loginContainer" class="center-container">
@@ -27,11 +47,11 @@
   </div>
 
   <div id="unauthorizedContainer" class="center-container hidden">
-     <div class="auth-box">
-        <h2>Access Denied</h2>
-        <p>You are not authorized to view this page. Please contact support if you believe this is an error.</p>
-        <button id="btnLogoutUnauthorized" class="btn btn-primary">Logout</button>
-      </div>
+    <div class="auth-box">
+      <h2>Access Denied</h2>
+      <p>You are not authorized to view this page. Please contact support if you believe this is an error.</p>
+      <button id="btnLogoutUnauthorized" class="btn btn-primary">Logout</button>
+    </div>
   </div>
 
   <div id="adminPanelContainer" class="layout-container hidden">
@@ -46,7 +66,10 @@
           <button id="btnLogoutAdmin">Logout</button>
         </div>
         <button id="sidebarToggleDesktop" class="sidebar-toggle-desktop" title="Toggle Sidebar">
-            <svg class="toggle-arrow" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7"></path></svg>
+          <svg class="toggle-arrow" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7">
+            </path>
+          </svg>
         </button>
       </div>
     </aside>
@@ -54,45 +77,53 @@
     <div id="mobileOverlay" class="mobile-overlay"></div>
 
     <main class="main-content">
-       <header class="mobile-header">
-          <h1 class="logo">WizBI</h1>
-          <button id="hamburgerButton" class="hamburger-button">
-              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
-          </button>
+      <header class="mobile-header">
+        <h1 class="logo">WizBI</h1>
+        <button id="hamburgerButton" class="hamburger-button">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+          </svg>
+        </button>
       </header>
 
       <div id="tabContentProjects" class="tab-content">
         <div class="global-links-bar">
-            <div id="globalLinksContainer" class="global-links-container"></div>
-            <button id="btnAddGlobalLink" class="btn btn-secondary btn-sm" title="Add Global Link">
-                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" width="20" height="20"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
-                <span>Add Global Link</span>
-            </button>
+          <div id="globalLinksContainer" class="global-links-container"></div>
+          <button id="btnAddGlobalLink" class="btn btn-secondary btn-sm" title="Add Global Link">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" width="20" height="20">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6">
+              </path>
+            </svg>
+            <span>Add Global Link</span>
+          </button>
         </div>
         <div class="page-header">
           <h2>Projects</h2>
           <button id="btnShowProvisionProject" class="btn btn-primary">Provision New Project</button>
         </div>
         <div id="formProvisionProjectCard" class="card hidden">
-            <h3>Provision New Project</h3>
-            <form id="formProvisionProject" class="form-grid">
-              <div class="form-group"><label for="projectOrgId">Organization</label><select id="projectOrgId" required></select></div>
-              <div class="form-group">
-                <label for="projectTemplate">Repository Template</label>
-                <select id="projectTemplate" required>
-                  </select>
-              </div>
-              <div class="form-group"><label for="projectDisplayName">Display Name</label><input type="text" id="projectDisplayName" placeholder="e.g., Acme Website" required></div>
-              <div class="form-group">
-                  <label for="projectShortName">Project Short Name</label>
-                  <input type="text" id="projectShortName" placeholder="e.g., acme-site" required pattern="^[a-z0-9-]{3,}$" title="Must be at least 3 characters of lowercase letters, numbers, and hyphens.">
-              </div>
-              <div class="form-group full-width">
-                  <label>Full Project ID (Auto-generated)</label>
-                  <input type="text" id="fullProjectIdPreview" readonly class="preview-field">
-              </div>
-              <button type="submit" class="btn btn-primary">Create Project</button>
-            </form>
+          <h3>Provision New Project</h3>
+          <form id="formProvisionProject" class="form-grid">
+            <div class="form-group"><label for="projectOrgId">Organization</label><select id="projectOrgId"
+                required></select></div>
+            <div class="form-group">
+              <label for="projectTemplate">Repository Template</label>
+              <select id="projectTemplate" required>
+              </select>
+            </div>
+            <div class="form-group"><label for="projectDisplayName">Display Name</label><input type="text"
+                id="projectDisplayName" placeholder="e.g., Acme Website" required></div>
+            <div class="form-group">
+              <label for="projectShortName">Project Short Name</label>
+              <input type="text" id="projectShortName" placeholder="e.g., acme-site" required pattern="^[a-z0-9-]{3,}$"
+                title="Must be at least 3 characters of lowercase letters, numbers, and hyphens.">
+            </div>
+            <div class="form-group full-width">
+              <label>Full Project ID (Auto-generated)</label>
+              <input type="text" id="fullProjectIdPreview" readonly class="preview-field">
+            </div>
+            <button type="submit" class="btn btn-primary">Create Project</button>
+          </form>
         </div>
         <div class="card">
           <div class="table-wrapper">
@@ -113,24 +144,34 @@
           </div>
         </div>
       </div>
-      
+
       <div id="tabContentOrgs" class="tab-content hidden">
         <div class="page-header">
           <h2>Organizations</h2>
           <button id="btnShowCreateOrg" class="btn btn-primary">Create New Organization</button>
         </div>
         <div id="formCreateOrgCard" class="card hidden">
-            <h3>Create New Organization</h3>
-            <form id="formCreateOrg" class="form-grid">
-                <div class="form-group"><label for="orgName">Organization Name</label><input type="text" id="orgName" placeholder="Organization Name" required></div>
-                <div class="form-group"><label for="orgPhone">Contact Phone</label><input type="tel" id="orgPhone" placeholder="Contact Phone (Optional)"></div>
-                <button type="submit" class="btn btn-primary">Create</button>
-            </form>
+          <h3>Create New Organization</h3>
+          <form id="formCreateOrg" class="form-grid">
+            <div class="form-group"><label for="orgName">Organization Name</label><input type="text" id="orgName"
+                placeholder="Organization Name" required></div>
+            <div class="form-group"><label for="orgPhone">Contact Phone</label><input type="tel" id="orgPhone"
+                placeholder="Contact Phone (Optional)"></div>
+            <button type="submit" class="btn btn-primary">Create</button>
+          </form>
         </div>
         <div class="card">
           <div class="table-wrapper">
             <table id="orgsTable" class="data-table">
-              <thead><tr><th>Name</th><th>ID</th><th>Phone</th><th>Created</th><th>Actions</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>ID</th>
+                  <th>Phone</th>
+                  <th>Created</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
               <tbody></tbody>
             </table>
           </div>
@@ -142,31 +183,40 @@
           <h2>Template Management</h2>
           <button id="btnShowCreateTemplate" class="btn btn-primary">Create New Template</button>
         </div>
-        
+
         <div id="formCreateTemplateCard" class="card hidden">
-            <h3>Create New Template</h3>
-            <form id="formCreateTemplate" class="form-grid">
-                <div class="form-group">
-                    <label for="templateName">Template Name (e.g., "nextjs-blog")</label>
-                    <input type="text" id="templateName" placeholder="Short name, no spaces" required title="Must be at least 3 characters of lowercase letters, numbers, and hyphens.">
-                </div>
-                <div class="form-group">
-                    <label for="templateDescription">Description</label>
-                    <input type="text" id="templateDescription" placeholder="A brief description of the template" required>
-                </div>
-                <div class="form-group full-width">
-                    <label>Full Repository Name (Auto-generated)</label>
-                    <input type="text" id="fullTemplateNamePreview" readonly class="preview-field">
-                </div>
-                <p class="full-width" style="color: var(--text-secondary); font-size: 0.875rem;">This will create a new repository by cloning 'template-base' and mark it as a template on GitHub.</p>
-                <button type="submit" class="btn btn-primary">Create Template</button>
-            </form>
+          <h3>Create New Template</h3>
+          <form id="formCreateTemplate" class="form-grid">
+            <div class="form-group">
+              <label for="templateName">Template Name (e.g., "nextjs-blog")</label>
+              <input type="text" id="templateName" placeholder="Short name, no spaces" required
+                title="Must be at least 3 characters of lowercase letters, numbers, and hyphens.">
+            </div>
+            <div class="form-group">
+              <label for="templateDescription">Description</label>
+              <input type="text" id="templateDescription" placeholder="A brief description of the template" required>
+            </div>
+            <div class="form-group full-width">
+              <label>Full Repository Name (Auto-generated)</label>
+              <input type="text" id="fullTemplateNamePreview" readonly class="preview-field">
+            </div>
+            <p class="full-width" style="color: var(--text-secondary); font-size: 0.875rem;">This will create a new
+              repository by cloning 'template-base' and mark it as a template on GitHub.</p>
+            <button type="submit" class="btn btn-primary">Create Template</button>
+          </form>
         </div>
-        
+
         <div class="card">
           <div class="table-wrapper">
             <table id="templatesTable" class="data-table">
-              <thead><tr><th>Name</th><th>Description</th><th>Link</th><th>Actions</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Description</th>
+                  <th>Link</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
               <tbody></tbody>
             </table>
           </div>
@@ -180,7 +230,14 @@
         <div class="card">
           <div class="table-wrapper">
             <table id="usersTable" class="data-table">
-              <thead><tr><th>Email</th><th>Role</th><th>Organizations</th><th>Actions</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>Email</th>
+                  <th>Role</th>
+                  <th>Organizations</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
               <tbody></tbody>
             </table>
           </div>
@@ -201,7 +258,8 @@
         </div>
 
         <div id="secretsContainer">
-          <div class="settings-loading" style="text-align:center;padding:2rem;color:var(--text-secondary);">Loading secrets status...</div>
+          <div class="settings-loading" style="text-align:center;padding:2rem;color:var(--text-secondary);">Loading
+            secrets status...</div>
         </div>
       </div>
 
@@ -217,8 +275,13 @@
       <div class="modal-body">
         <form id="userEditForm">
           <input type="hidden" id="userEditUid">
-          <div class="form-group"><label>Role</label><div class="checkbox-item"><input type="checkbox" id="userEditSuperAdmin"><label for="userEditSuperAdmin">Super Admin</label></div></div>
-          <div class="form-group"><label>Organization Admin</label><div id="userEditOrgs" class="checkbox-group"></div></div>
+          <div class="form-group"><label>Role</label>
+            <div class="checkbox-item"><input type="checkbox" id="userEditSuperAdmin"><label
+                for="userEditSuperAdmin">Super Admin</label></div>
+          </div>
+          <div class="form-group"><label>Organization Admin</label>
+            <div id="userEditOrgs" class="checkbox-group"></div>
+          </div>
         </form>
       </div>
       <div class="modal-footer">
@@ -227,19 +290,19 @@
       </div>
     </div>
   </div>
-  
+
   <div id="logsModal" class="modal-overlay hidden">
-      <div class="modal-content modal-lg">
-          <div class="modal-header">
-              <h3 id="logsModalTitle">Logs</h3>
-              <div>
-                <button class="close-button" data-close="logsModal">&times;</button>
-              </div>
-          </div>
-          <div class="modal-body">
-              <div id="logsModalContent"></div>
-          </div>
+    <div class="modal-content modal-lg">
+      <div class="modal-header">
+        <h3 id="logsModalTitle">Logs</h3>
+        <div>
+          <button class="close-button" data-close="logsModal">&times;</button>
+        </div>
       </div>
+      <div class="modal-body">
+        <div id="logsModalContent"></div>
+      </div>
+    </div>
   </div>
 
   <div id="addLinkModal" class="modal-overlay hidden">
@@ -250,36 +313,43 @@
       </div>
       <form id="addLinkForm">
         <div class="modal-body">
-            <input type="hidden" id="addLinkContextId"> <div class="form-group">
-                <label for="linkName">Link Name (Tooltip)</label>
-                <input type="text" id="linkName" placeholder="e.g., Project Specification" required>
+          <input type="hidden" id="addLinkContextId">
+          <div class="form-group">
+            <label for="linkName">Link Name (Tooltip)</label>
+            <input type="text" id="linkName" placeholder="e.g., Project Specification" required>
+          </div>
+          <div class="form-group">
+            <label for="linkUrl">URL</label>
+            <input type="url" id="linkUrl" placeholder="https://..." required>
+          </div>
+          <div class="form-group">
+            <label>Icon</label>
+            <div id="iconPicker" class="icon-picker"></div>
+          </div>
+          <div class="form-group">
+            <label>Icon Color</label>
+            <div class="color-picker">
+              <input type="radio" id="color-default" name="linkColor" value="default" checked><label for="color-default"
+                class="color-swatch default" title="Default"></label>
+              <input type="radio" id="color-blue" name="linkColor" value="blue"><label for="color-blue"
+                class="color-swatch blue" title="Blue"></label>
+              <input type="radio" id="color-green" name="linkColor" value="green"><label for="color-green"
+                class="color-swatch green" title="Green"></label>
+              <input type="radio" id="color-yellow" name="linkColor" value="yellow"><label for="color-yellow"
+                class="color-swatch yellow" title="Yellow"></label>
+              <input type="radio" id="color-red" name="linkColor" value="red"><label for="color-red"
+                class="color-swatch red" title="Red"></label>
             </div>
-            <div class="form-group">
-                <label for="linkUrl">URL</label>
-                <input type="url" id="linkUrl" placeholder="https://..." required>
-            </div>
-            <div class="form-group">
-                <label>Icon</label>
-                <div id="iconPicker" class="icon-picker"></div>
-            </div>
-            <div class="form-group">
-                <label>Icon Color</label>
-                <div class="color-picker">
-                    <input type="radio" id="color-default" name="linkColor" value="default" checked><label for="color-default" class="color-swatch default" title="Default"></label>
-                    <input type="radio" id="color-blue" name="linkColor" value="blue"><label for="color-blue" class="color-swatch blue" title="Blue"></label>
-                    <input type="radio" id="color-green" name="linkColor" value="green"><label for="color-green" class="color-swatch green" title="Green"></label>
-                    <input type="radio" id="color-yellow" name="linkColor" value="yellow"><label for="color-yellow" class="color-swatch yellow" title="Yellow"></label>
-                    <input type="radio" id="color-red" name="linkColor" value="red"><label for="color-red" class="color-swatch red" title="Red"></label>
-                </div>
-            </div>
+          </div>
         </div>
         <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-close="addLinkModal">Cancel</button>
-            <button type="submit" class="btn btn-primary">Add Link</button>
+          <button type="button" class="btn btn-secondary" data-close="addLinkModal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Add Link</button>
         </div>
       </form>
     </div>
   </div>
   <script src="/admin/admin.js"></script>
 </body>
+
 </html>

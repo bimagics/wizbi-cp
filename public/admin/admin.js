@@ -1,5 +1,5 @@
 // Admin Panel — main application logic.
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('firebase-config-loaded', () => {
     const firebaseAuth = firebase.auth();
     const googleProvider = new firebase.auth.GoogleAuthProvider();
     let idToken = null;
