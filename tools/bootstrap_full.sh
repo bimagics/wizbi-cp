@@ -235,10 +235,33 @@ fi
 
 if [ -n "$BILLING_ACCOUNT" ]; then
   step "Creating Artifact Registry"
-  gcloud artifacts repositories create "$AR_REPO" \
-    --repository-format=docker --location="$REGION" \
-    --description="WIZBI containers" 2>/dev/null || true
-  ok "Artifact Registry ready"
+  AR_CREATED=false
+  for AR_ATTEMPT in $(seq 1 6); do
+    if gcloud artifacts repositories describe "$AR_REPO" \
+        --location="$REGION" --project="$PROJECT_ID" >/dev/null 2>&1; then
+      AR_CREATED=true
+      break
+    fi
+    echo "  Attempt $AR_ATTEMPT/6: Creating AR repository..."
+    gcloud artifacts repositories create "$AR_REPO" \
+      --repository-format=docker --location="$REGION" \
+      --project="$PROJECT_ID" \
+      --description="WIZBI containers" 2>&1 || true
+    sleep 15
+  done
+  if [ "$AR_CREATED" = true ]; then
+    ok "Artifact Registry ready"
+  else
+    # Final verify
+    if gcloud artifacts repositories describe "$AR_REPO" \
+        --location="$REGION" --project="$PROJECT_ID" >/dev/null 2>&1; then
+      ok "Artifact Registry ready"
+    else
+      err "Artifact Registry creation failed after 6 attempts."
+      err "Run: gcloud artifacts repositories create $AR_REPO --repository-format=docker --location=$REGION --project=$PROJECT_ID"
+      exit 1
+    fi
+  fi
 fi
 
 step "Creating Firestore (Native Mode)"
