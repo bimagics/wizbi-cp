@@ -29,6 +29,7 @@ document.addEventListener('firebase-config-loaded', () => {
         EXTERNAL_LINK: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>`,
         ERROR: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width: 18px; height: 18px; color: var(--error-color);"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>`,
         SETTINGS: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>`,
+        AGENT: `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path></svg>`,
     };
 
     const DOM = {
@@ -117,7 +118,8 @@ document.addEventListener('firebase-config-loaded', () => {
             { id: 'Orgs', icon: ICONS.ORGS },
             { id: 'Templates', icon: ICONS.TEMPLATES, adminOnly: true },
             { id: 'Users', icon: ICONS.USERS, adminOnly: true },
-            { id: 'Settings', icon: ICONS.SETTINGS, adminOnly: true }
+            { id: 'Settings', icon: ICONS.SETTINGS, adminOnly: true },
+            { id: 'Agent', icon: ICONS.AGENT }
         ];
         DOM.sidebarNav.innerHTML = '';
         navItems.forEach(item => {
@@ -976,4 +978,251 @@ document.addEventListener('firebase-config-loaded', () => {
 
     // Check for GitHub setup redirect on page load
     handleGithubSetupRedirect();
+
+    // ─── AI Agent Chat ────────────────────────────────────
+    let agentSessionId = crypto.randomUUID();
+    let agentBusy = false;
+
+    const agentInput = document.getElementById('agentInput');
+    const btnSend = document.getElementById('btnSendAgent');
+    const agentMessages = document.getElementById('agentMessages');
+    const btnNewChat = document.getElementById('btnNewChat');
+
+    // Auto-grow textarea
+    if (agentInput) {
+        agentInput.addEventListener('input', () => {
+            agentInput.style.height = 'auto';
+            agentInput.style.height = Math.min(agentInput.scrollHeight, 120) + 'px';
+            btnSend.disabled = !agentInput.value.trim() || agentBusy;
+        });
+        agentInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                if (!btnSend.disabled) sendAgentMessage();
+            }
+        });
+    }
+    if (btnSend) btnSend.addEventListener('click', sendAgentMessage);
+
+    // Suggestion buttons
+    document.querySelectorAll('.agent-suggestion').forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (agentBusy) return;
+            agentInput.value = btn.dataset.prompt;
+            sendAgentMessage();
+        });
+    });
+
+    // New chat
+    if (btnNewChat) {
+        btnNewChat.addEventListener('click', () => {
+            agentSessionId = crypto.randomUUID();
+            agentMessages.innerHTML = `
+                <div class="agent-welcome">
+                    <div class="agent-welcome-icon">🤖</div>
+                    <h3>WIZBI AI Agent</h3>
+                    <p>Ask me anything about your infrastructure.</p>
+                    <div class="agent-suggestions">
+                        <button class="agent-suggestion" data-prompt="Show me all organizations and their projects">📊 Show all orgs & projects</button>
+                        <button class="agent-suggestion" data-prompt="What's the health status of the system?">💚 System health check</button>
+                        <button class="agent-suggestion" data-prompt="List all available templates">📦 Available templates</button>
+                        <button class="agent-suggestion" data-prompt="Show me all users and their roles">👥 Users & roles</button>
+                    </div>
+                </div>`;
+            document.querySelectorAll('.agent-suggestion').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    if (agentBusy) return;
+                    agentInput.value = btn.dataset.prompt;
+                    sendAgentMessage();
+                });
+            });
+        });
+    }
+
+    async function sendAgentMessage() {
+        const msg = agentInput.value.trim();
+        if (!msg || agentBusy) return;
+
+        agentBusy = true;
+        btnSend.disabled = true;
+        agentInput.value = '';
+        agentInput.style.height = 'auto';
+
+        // Remove welcome screen
+        const welcome = agentMessages.querySelector('.agent-welcome');
+        if (welcome) welcome.remove();
+
+        // Add user message
+        appendMessage('user', msg);
+
+        // Add typing indicator
+        const typingEl = document.createElement('div');
+        typingEl.className = 'agent-typing';
+        typingEl.innerHTML = '<div class="agent-typing-dot"></div><div class="agent-typing-dot"></div><div class="agent-typing-dot"></div>';
+        agentMessages.appendChild(typingEl);
+        scrollToBottom();
+
+        try {
+            const response = await fetch('/api/agent/chat', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Firebase-ID-Token': idToken,
+                },
+                body: JSON.stringify({ message: msg, sessionId: agentSessionId }),
+            });
+
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+            // Read SSE stream
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let assistantTextParts = [];
+            let buffer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) continue;
+                    const jsonStr = line.slice(6).trim();
+                    if (!jsonStr) continue;
+
+                    let chunk;
+                    try { chunk = JSON.parse(jsonStr); } catch { continue; }
+
+                    if (chunk.type === 'text') {
+                        // Remove typing indicator on first text
+                        typingEl.remove();
+                        assistantTextParts.push(chunk.content);
+                        appendMessage('assistant', assistantTextParts.join(''), true);
+                    } else if (chunk.type === 'tool_call') {
+                        appendToolCard(chunk.toolName, chunk.content, 'running');
+                    } else if (chunk.type === 'tool_result') {
+                        updateToolCard(chunk.toolName, chunk.content, 'done');
+                    } else if (chunk.type === 'error') {
+                        typingEl.remove();
+                        appendMessage('assistant', `⚠️ Error: ${chunk.content}`);
+                    }
+                    scrollToBottom();
+                }
+            }
+        } catch (e) {
+            typingEl.remove();
+            appendMessage('assistant', `⚠️ Failed to reach agent: ${e.message}`);
+        }
+
+        agentBusy = false;
+        btnSend.disabled = !agentInput.value.trim();
+    }
+
+    let lastAssistantEl = null;
+
+    function appendMessage(role, content, isUpdate = false) {
+        if (role === 'assistant' && isUpdate && lastAssistantEl) {
+            lastAssistantEl.querySelector('.agent-msg-body').innerHTML = renderMarkdown(content);
+            return;
+        }
+
+        const el = document.createElement('div');
+        el.className = `agent-msg ${role}`;
+        el.innerHTML = `
+            <div class="agent-msg-avatar">${role === 'user' ? '👤' : '🤖'}</div>
+            <div class="agent-msg-body">${role === 'user' ? escapeHtml(content) : renderMarkdown(content)}</div>
+        `;
+        agentMessages.appendChild(el);
+
+        if (role === 'assistant') lastAssistantEl = el;
+        else lastAssistantEl = null;
+    }
+
+    function appendToolCard(toolName, args, status) {
+        lastAssistantEl = null; // Reset so next text creates new message
+        const card = document.createElement('div');
+        card.className = 'agent-tool-card';
+        card.id = `tool-card-${toolName}-${Date.now()}`;
+        card.dataset.toolName = toolName;
+        card.innerHTML = `
+            <div class="agent-tool-header" onclick="this.parentElement.classList.toggle('expanded')">
+                <div class="agent-tool-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg></div>
+                <span class="agent-tool-name">${escapeHtml(toolName)}</span>
+                <span class="agent-tool-status ${status}">${status === 'running' ? 'Running…' : 'Done'}</span>
+                <svg class="agent-tool-chevron" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="16" height="16"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+            </div>
+            <div class="agent-tool-body">
+                <strong>Input:</strong>
+                <pre>${escapeHtml(formatJson(args))}</pre>
+            </div>
+        `;
+        agentMessages.appendChild(card);
+    }
+
+    function updateToolCard(toolName, result, status) {
+        // Find last card with this tool name
+        const cards = agentMessages.querySelectorAll(`[data-tool-name="${toolName}"]`);
+        const card = cards[cards.length - 1];
+        if (!card) return;
+
+        const statusEl = card.querySelector('.agent-tool-status');
+        statusEl.className = `agent-tool-status ${status}`;
+        statusEl.textContent = status === 'done' ? 'Done' : status === 'error' ? 'Error' : 'Running…';
+
+        const body = card.querySelector('.agent-tool-body');
+        body.innerHTML += `<strong style="margin-top:8px;display:block;">Result:</strong><pre>${escapeHtml(formatJson(result))}</pre>`;
+    }
+
+    function scrollToBottom() {
+        agentMessages.scrollTop = agentMessages.scrollHeight;
+    }
+
+    function escapeHtml(str) {
+        if (typeof str !== 'string') return str;
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
+    function formatJson(str) {
+        try {
+            const obj = typeof str === 'string' ? JSON.parse(str) : str;
+            return JSON.stringify(obj, null, 2);
+        } catch {
+            return str;
+        }
+    }
+
+    function renderMarkdown(text) {
+        if (!text) return '';
+        return text
+            // Code blocks
+            .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
+            // Inline code
+            .replace(/`([^`]+)`/g, '<code>$1</code>')
+            // Bold
+            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+            // Italic
+            .replace(/\*(.+?)\*/g, '<em>$1</em>')
+            // Headers
+            .replace(/^### (.+)$/gm, '<h4>$1</h4>')
+            .replace(/^## (.+)$/gm, '<h3>$1</h3>')
+            .replace(/^# (.+)$/gm, '<h2>$1</h2>')
+            // Unordered lists
+            .replace(/^[*-] (.+)$/gm, '<li>$1</li>')
+            // Ordered lists
+            .replace(/^\d+\. (.+)$/gm, '<li>$1</li>')
+            // Wrap consecutive li elements
+            .replace(/(<li>.*<\/li>\n?)+/g, (match) => `<ul>${match}</ul>`)
+            // Line breaks
+            .replace(/\n\n/g, '</p><p>')
+            .replace(/\n/g, '<br>')
+            // Wrap in paragraph
+            .replace(/^(?!<[hupol])(.+)/gm, '<p>$1</p>')
+            // Clean up empty paragraphs
+            .replace(/<p><\/p>/g, '');
+    }
 });

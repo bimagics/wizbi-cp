@@ -354,6 +354,66 @@
         </details>
       </div>
 
+      <div id="tabContentAgent" class="tab-content hidden">
+        <div class="agent-container">
+          <div class="agent-header">
+            <div class="agent-header-left">
+              <h2>AI Agent</h2>
+              <span class="agent-badge" id="agentToolsBadge" title="Connected tools">
+                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" width="14" height="14">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z">
+                  </path>
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                </svg>
+                <span id="agentToolsCount">10 tools</span>
+              </span>
+            </div>
+            <button class="btn btn-secondary btn-sm" id="btnNewChat" title="New Chat">
+              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" width="16" height="16">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6">
+                </path>
+              </svg>
+              New Chat
+            </button>
+          </div>
+
+          <div class="agent-messages" id="agentMessages">
+            <div class="agent-welcome">
+              <div class="agent-welcome-icon">🤖</div>
+              <h3>WIZBI AI Agent</h3>
+              <p>Ask me anything about your infrastructure. I can manage organizations, projects, templates, users, and
+                more.</p>
+              <div class="agent-suggestions">
+                <button class="agent-suggestion" data-prompt="Show me all organizations and their projects">📊 Show all
+                  orgs & projects</button>
+                <button class="agent-suggestion" data-prompt="What's the health status of the system?">💚 System health
+                  check</button>
+                <button class="agent-suggestion" data-prompt="List all available templates">📦 Available
+                  templates</button>
+                <button class="agent-suggestion" data-prompt="Show me all users and their roles">👥 Users &
+                  roles</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="agent-input-bar">
+            <div class="agent-input-wrapper">
+              <textarea id="agentInput" placeholder="Ask the AI agent..." rows="1"></textarea>
+              <button id="btnSendAgent" class="agent-send-btn" title="Send message" disabled>
+                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" width="20" height="20">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19V5m0 0l-7 7m7-7l7 7">
+                  </path>
+                </svg>
+              </button>
+            </div>
+            <p class="agent-disclaimer">AI agent has access to your Control Plane tools. Destructive actions require
+              confirmation.</p>
+          </div>
+        </div>
+      </div>
+
     </main>
   </div>
 

@@ -15,6 +15,7 @@ import githubRouter from './routes/github';
 import githubSetupRouter from './routes/github-setup';
 import settingsRouter from './routes/settings';
 import apiKeysRouter from './routes/api-keys';
+import agentRouter from './routes/agent';
 import { mountMcpServer } from './mcp/index';
 
 async function main() {
@@ -104,6 +105,7 @@ async function main() {
   app.use('/api', githubSetupRouter);
   app.use('/api', settingsRouter);
   app.use('/api', apiKeysRouter);
+  app.use('/api', agentRouter);
 
   // --- OpenAPI / Swagger Docs ---
   try {
