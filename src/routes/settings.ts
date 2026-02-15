@@ -4,7 +4,7 @@
 
 import { Router, Request, Response } from 'express';
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
-import { requireAdminAuth, log } from './projects';
+import { requireAdminAuth, log } from '../middleware/auth';
 
 const router = Router();
 const secretClient = new SecretManagerServiceClient();

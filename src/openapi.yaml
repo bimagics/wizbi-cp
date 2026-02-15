@@ -1,0 +1,490 @@
+openapi: '3.1.0'
+info:
+  title: WIZBI Control Plane API
+  version: '1.0.0'
+  description: |
+    REST API for the WIZBI Control Plane — manages organizations, projects, 
+    templates, users, and GCP/GitHub infrastructure provisioning.
+    
+    **Authentication**: All endpoints require either:
+    - `X-Firebase-ID-Token` header (for web UI)
+    - `X-API-Key` header (for programmatic/agent access)
+    
+    **MCP Server**: Available at `/api/mcp/sse` for AI agent integration.
+  license:
+    name: MIT
+
+servers:
+  - url: /api
+    description: Local / deployed server
+
+components:
+  securitySchemes:
+    firebaseToken:
+      type: apiKey
+      in: header
+      name: X-Firebase-ID-Token
+      description: Firebase ID Token for web UI auth
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API Key for programmatic access
+
+  schemas:
+    Organization:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        phone: { type: string }
+        gcpFolderId: { type: string }
+        githubTeamSlug: { type: string }
+        createdAt: { type: string, format: date-time }
+        state: { type: string }
+
+    Project:
+      type: object
+      properties:
+        id: { type: string }
+        displayName: { type: string }
+        orgId: { type: string }
+        shortName: { type: string }
+        template: { type: string }
+        state: { type: string, enum: [pending_gcp, provisioning_gcp, pending_github, provisioning_github, pending_secrets, injecting_secrets, ready, pending_billing, failed_gcp, failed_github, deleting, delete_failed] }
+        gcpProjectId: { type: string }
+        githubRepoUrl: { type: string }
+        externalLinks: { type: array, items: { $ref: '#/components/schemas/Link' } }
+        createdAt: { type: string, format: date-time }
+
+    Link:
+      type: object
+      properties:
+        id: { type: string }
+        url: { type: string }
+        name: { type: string }
+        color: { type: string }
+        icon: { type: string }
+
+    Template:
+      type: object
+      properties:
+        name: { type: string }
+        description: { type: string }
+        url: { type: string }
+
+    ApiKeyInfo:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        prefix: { type: string }
+        active: { type: boolean }
+        createdAt: { type: string }
+        lastUsed: { type: string, nullable: true }
+
+security:
+  - firebaseToken: []
+  - apiKey: []
+
+paths:
+  # ─── Health ─────────────────────────────────────────
+  /health:
+    get:
+      tags: [System]
+      summary: Health check
+      security: []
+      responses:
+        '200':
+          description: System is healthy
+
+  /firebase-config:
+    get:
+      tags: [System]
+      summary: Get Firebase client configuration
+      security: []
+      responses:
+        '200':
+          description: Firebase config object
+
+  # ─── Organizations ──────────────────────────────────
+  /orgs:
+    get:
+      tags: [Organizations]
+      summary: List organizations
+      responses:
+        '200':
+          description: List of organizations
+    post:
+      tags: [Organizations]
+      summary: Create organization
+      description: Creates a GCP folder, GitHub team, and Firestore doc
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                phone: { type: string }
+      responses:
+        '201':
+          description: Organization created
+
+  /orgs/{id}:
+    delete:
+      tags: [Organizations]
+      summary: Delete organization
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '202':
+          description: Deletion started
+
+  # ─── Projects ───────────────────────────────────────
+  /projects:
+    get:
+      tags: [Projects]
+      summary: List projects
+      responses:
+        '200':
+          description: List of projects
+    post:
+      tags: [Projects]
+      summary: Create project and trigger provisioning
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orgId, displayName, shortName, template]
+              properties:
+                orgId: { type: string }
+                displayName: { type: string }
+                shortName: { type: string }
+                template: { type: string }
+      responses:
+        '201':
+          description: Project created, provisioning started
+
+  /projects/{id}:
+    get:
+      tags: [Projects]
+      summary: Get project details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Project details
+    delete:
+      tags: [Projects]
+      summary: Delete project
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '202':
+          description: Deletion started
+
+  /projects/{id}/logs:
+    get:
+      tags: [Projects]
+      summary: Get provisioning logs
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: List of log entries
+
+  /projects/{id}/provision:
+    post:
+      tags: [Projects]
+      summary: Retry provisioning
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '202':
+          description: Provisioning restarted
+
+  /projects/{id}/links:
+    post:
+      tags: [Projects]
+      summary: Add external link to project
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url, name, color, icon]
+              properties:
+                url: { type: string }
+                name: { type: string }
+                color: { type: string }
+                icon: { type: string }
+      responses:
+        '201':
+          description: Link added
+
+  /projects/{projectId}/links/{linkId}:
+    delete:
+      tags: [Projects]
+      summary: Remove link from project
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: linkId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Link removed
+
+  # ─── Global Links ──────────────────────────────────
+  /global-links:
+    get:
+      tags: [Links]
+      summary: Get global links
+      responses:
+        '200':
+          description: List of global links
+    post:
+      tags: [Links]
+      summary: Add global link
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url, name, color, icon]
+              properties:
+                url: { type: string }
+                name: { type: string }
+                color: { type: string }
+                icon: { type: string }
+      responses:
+        '201':
+          description: Global link added
+
+  /global-links/{linkId}:
+    delete:
+      tags: [Links]
+      summary: Remove global link
+      parameters:
+        - name: linkId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Global link removed
+
+  # ─── Templates ─────────────────────────────────────
+  /github/templates:
+    get:
+      tags: [Templates]
+      summary: List available templates
+      responses:
+        '200':
+          description: List of template repositories
+    post:
+      tags: [Templates]
+      summary: Create new template
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, description]
+              properties:
+                name: { type: string }
+                description: { type: string }
+      responses:
+        '201':
+          description: Template created
+
+  /github/templates/{repoName}:
+    put:
+      tags: [Templates]
+      summary: Update template description
+      parameters:
+        - name: repoName
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                description: { type: string }
+      responses:
+        '200':
+          description: Template updated
+    delete:
+      tags: [Templates]
+      summary: Delete template
+      parameters:
+        - name: repoName
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Template deleted
+
+  # ─── Users ─────────────────────────────────────────
+  /me:
+    get:
+      tags: [Users]
+      summary: Get current user profile
+      responses:
+        '200':
+          description: User profile
+
+  /users:
+    get:
+      tags: [Users]
+      summary: List all users (SuperAdmin only)
+      responses:
+        '200':
+          description: List of users
+
+  /users/{uid}:
+    put:
+      tags: [Users]
+      summary: Update user roles
+      parameters:
+        - name: uid
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                roles:
+                  type: object
+                  properties:
+                    superAdmin: { type: boolean }
+                    orgAdmin: { type: array, items: { type: string } }
+      responses:
+        '200':
+          description: User updated
+
+  # ─── Settings ──────────────────────────────────────
+  /settings/secrets:
+    get:
+      tags: [Settings]
+      summary: Get secrets configuration status
+      responses:
+        '200':
+          description: Secrets status (not values)
+
+  /settings/secrets/{name}:
+    put:
+      tags: [Settings]
+      summary: Update a secret value
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value]
+              properties:
+                value: { type: string }
+      responses:
+        '200':
+          description: Secret updated
+
+  # ─── API Keys ──────────────────────────────────────
+  /api-keys:
+    get:
+      tags: [API Keys]
+      summary: List API keys (masked)
+      responses:
+        '200':
+          description: List of API keys
+    post:
+      tags: [API Keys]
+      summary: Create new API key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                scopes: { type: array, items: { type: string } }
+      responses:
+        '201':
+          description: API key created (raw key returned only here)
+
+  /api-keys/{id}:
+    delete:
+      tags: [API Keys]
+      summary: Revoke API key
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: API key revoked
+
+  # ─── GitHub Setup ──────────────────────────────────
+  /github/setup/status:
+    get:
+      tags: [GitHub Setup]
+      summary: Check GitHub App configuration status
+      responses:
+        '200':
+          description: Setup status
+
+  /github/setup/start:
+    get:
+      tags: [GitHub Setup]
+      summary: Start GitHub App manifest flow
+      responses:
+        '200':
+          description: Manifest and redirect URL

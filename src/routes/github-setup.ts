@@ -6,7 +6,7 @@
 import { Router, Request, Response } from 'express';
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
 import crypto from 'crypto';
-import { requireAdminAuth, log } from './projects';
+import { requireAdminAuth, log } from '../middleware/auth';
 import { clearSecretCache } from '../services/secrets';
 import { resetGitHubClient, ensureTemplateBase } from '../services/github';
 

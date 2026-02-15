@@ -1,7 +1,7 @@
 // src/routes/orgs.ts
 import { Router, Request, Response } from 'express';
 import { getDb } from '../services/firebaseAdmin';
-import { requireAuth, requireAdminAuth, log } from './projects'; // Use requireAuth for listing
+import { requireAuth, requireAdminAuth, log } from '../middleware/auth';
 import * as GcpService from '../services/gcp';
 import * as GithubService from '../services/github';
 

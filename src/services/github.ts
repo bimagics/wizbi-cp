@@ -4,7 +4,7 @@
 import { Octokit } from '@octokit/rest';
 import { getSecret } from './secrets';
 import { createAppAuth } from "@octokit/auth-app";
-import { log } from '../routes/projects';
+import { log } from '../middleware/auth';
 import sodium from 'libsodium-wrappers';
 
 const GITHUB_OWNER = process.env.GITHUB_OWNER || '';

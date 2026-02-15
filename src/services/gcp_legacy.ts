@@ -1,7 +1,7 @@
 // File path: src/services/gcp_legacy.ts
 
 import { google } from 'googleapis';
-import { log } from '../routes/projects';
+import { log } from '../middleware/auth';
 
 const GCP_FOLDER_ID = process.env.GCP_FOLDER_ID || '';
 const BILLING_ACCOUNT_ID = process.env.BILLING_ACCOUNT_ID || '';
@@ -12,7 +12,7 @@ async function getAuth() {
 
 export async function createGcpFolderForOrg(orgName: string): Promise<string> {
     if (!GCP_FOLDER_ID) throw new Error('GCP_FOLDER_ID environment variable is not set.');
-    
+
     const auth = await getAuth();
     const crm = google.cloudresourcemanager({ version: 'v3', auth });
 
@@ -47,7 +47,7 @@ export async function createGcpFolderForOrg(orgName: string): Promise<string> {
 
 export async function createGcpProjectInFolder(projectId: string, displayName: string, folderId: string): Promise<string> {
     if (!BILLING_ACCOUNT_ID) throw new Error('BILLING_ACCOUNT_ID environment variable is not set.');
-    
+
     const auth = await getAuth();
     const crm = google.cloudresourcemanager({ version: 'v3', auth });
 
@@ -60,7 +60,7 @@ export async function createGcpProjectInFolder(projectId: string, displayName: s
         },
     });
     log('gcp.project.create.operation_pending', { operationName: initialOperation.data.name });
-    
+
     let isDone = false;
     while (!isDone) {
         await new Promise(resolve => setTimeout(resolve, 5000));

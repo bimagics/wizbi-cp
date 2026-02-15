@@ -1,22 +1,12 @@
 // src/routes/projects.ts
 // Core route: project CRUD, provisioning orchestration, and link management.
 
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router, Request, Response } from 'express';
 import admin from 'firebase-admin';
 import { getDb } from '../services/firebaseAdmin';
 import * as GcpService from '../services/gcp';
 import * as GithubService from '../services/github';
-
-// --- Interfaces & Types ---
-interface UserProfile {
-    uid: string;
-    email: string;
-    roles: { superAdmin?: boolean; orgAdmin?: string[]; }
-}
-interface AuthenticatedRequest extends Request {
-    user?: admin.auth.DecodedIdToken;
-    userProfile?: UserProfile;
-}
+import { requireAuth, requireAdminAuth, log, AuthenticatedRequest } from '../middleware/auth';
 
 class BillingError extends Error {
     public gcpProjectId: string;
@@ -30,7 +20,6 @@ class BillingError extends Error {
 const router = Router();
 const db = getDb();
 const PROJECTS_COLLECTION = db.collection('projects');
-const USERS_COLLECTION = db.collection('users');
 const ORGS_COLLECTION = db.collection('orgs');
 const SETTINGS_COLLECTION = db.collection('settings');
 
@@ -47,62 +36,12 @@ async function projectLogger(projectId: string, evt: string, meta: Record<string
     }
 }
 
-async function verifyFirebaseToken(req: AuthenticatedRequest, res: Response, next: NextFunction) {
-    try {
-        const token = req.headers['x-firebase-id-token'] as string || (req.headers.authorization || '').slice(7);
-        if (!token) return res.status(401).json({ error: 'Missing token' });
-        req.user = await admin.auth().verifyIdToken(token);
-        next();
-    } catch (e: any) { res.status(401).json({ error: 'Unauthorized', detail: e.message }); }
-}
-
-async function fetchUserProfile(req: AuthenticatedRequest, res: Response, next: NextFunction) {
-    if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
-    const { uid, email } = req.user;
-    try {
-        const userDoc = await USERS_COLLECTION.doc(uid).get();
-        if (!userDoc.exists) {
-            // Auto-promote seed admins (from ADMINS env var) or the very first user
-            const adminEmails = (process.env.ADMINS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
-            const isSeeded = adminEmails.includes((email || '').toLowerCase());
-            let isFirstUser = false;
-            if (!isSeeded) {
-                const existingUsers = await USERS_COLLECTION.limit(1).get();
-                isFirstUser = existingUsers.empty;
-            }
-            const roles = (isSeeded || isFirstUser) ? { superAdmin: true } : {};
-            const newUserProfile: UserProfile = { uid, email: email || '', roles };
-            if (roles.superAdmin) {
-                console.log(JSON.stringify({ evt: 'user.auto_promoted_superadmin', email, reason: isSeeded ? 'ADMINS_env' : 'first_user' }));
-            }
-            await USERS_COLLECTION.doc(uid).set(newUserProfile);
-            req.userProfile = newUserProfile;
-        } else {
-            req.userProfile = userDoc.data() as UserProfile;
-        }
-        next();
-    } catch (e: any) {
-        console.error(JSON.stringify({ evt: 'user.fetchProfile.error', uid: req.user?.uid, email: req.user?.email, error: e.message, code: e.code }));
-        res.status(500).json({ error: 'Failed to fetch user profile', detail: e.message });
-    }
-}
-
-function requireSuperAdmin(req: AuthenticatedRequest, res: Response, next: NextFunction) {
-    if (req.userProfile?.roles?.superAdmin !== true) {
-        return res.status(403).json({ error: 'Permission denied' });
-    }
-    next();
-}
-
-export const requireAuth = [verifyFirebaseToken, fetchUserProfile];
-export const requireAdminAuth = [...requireAuth, requireSuperAdmin];
-
 // --- Orchestration Logic ---
 async function runFullProvisioning(projectId: string) {
-    const log = (evt: string, meta?: Record<string, any>) => projectLogger(projectId, evt, meta);
+    const plog = (evt: string, meta?: Record<string, any>) => projectLogger(projectId, evt, meta);
 
     try {
-        await log('stage.gcp.start');
+        await plog('stage.gcp.start');
         const projectDoc = await PROJECTS_COLLECTION.doc(projectId).get();
         if (!projectDoc.exists) throw new Error('Project document not found in Firestore.');
         const { displayName, orgId, template } = projectDoc.data()!;
@@ -115,8 +54,8 @@ async function runFullProvisioning(projectId: string) {
             gcpProjectId: gcpInfra.projectId, gcpProjectNumber: gcpInfra.projectNumber,
             gcpServiceAccount: gcpInfra.serviceAccountEmail, gcpWifProvider: gcpInfra.wifProviderName
         });
-        await log('stage.gcp.success', { nextState: 'pending_github' });
-        await log('stage.github.start');
+        await plog('stage.gcp.success', { nextState: 'pending_github' });
+        await plog('stage.github.start');
         if (!orgDoc.data()!.githubTeamSlug) throw new Error('Parent organization data or GitHub Team Slug is invalid.');
         await PROJECTS_COLLECTION.doc(projectId).update({ state: 'provisioning_github' });
         const projectInfo = {
@@ -127,8 +66,8 @@ async function runFullProvisioning(projectId: string) {
         await PROJECTS_COLLECTION.doc(projectId).update({
             state: 'pending_secrets', githubRepoUrl: githubRepo.url
         });
-        await log('stage.github.success', { nextState: 'pending_secrets' });
-        await log('stage.finalize.start');
+        await plog('stage.github.success', { nextState: 'pending_secrets' });
+        await plog('stage.finalize.start');
         await PROJECTS_COLLECTION.doc(projectId).update({ state: 'injecting_secrets' });
         const secretsToCreate = {
             GCP_PROJECT_ID: gcpInfra.projectId, GCP_REGION: process.env.GCP_DEFAULT_REGION || 'europe-west1',
@@ -139,7 +78,7 @@ async function runFullProvisioning(projectId: string) {
         await PROJECTS_COLLECTION.doc(projectId).update({
             state: 'ready', error: null,
         });
-        await log('stage.finalize.success', { finalState: 'ready' });
+        await plog('stage.finalize.success', { finalState: 'ready' });
     } catch (e: any) {
         if (e instanceof BillingError) {
             const billingUrl = `https://console.cloud.google.com/billing/linkedaccount?project=${e.gcpProjectId}`;
@@ -147,7 +86,7 @@ async function runFullProvisioning(projectId: string) {
             await PROJECTS_COLLECTION.doc(projectId).update({
                 state: 'pending_billing', error: errorMessage, gcpProjectId: e.gcpProjectId
             });
-            await log('stage.gcp.billing_failed_manual_intervention', { error: e.message, gcpProjectId: e.gcpProjectId, billingUrl });
+            await plog('stage.gcp.billing_failed_manual_intervention', { error: e.message, gcpProjectId: e.gcpProjectId, billingUrl });
             return;
         }
         const errorMessage = (e as Error).message || 'An unknown error occurred';
@@ -155,7 +94,7 @@ async function runFullProvisioning(projectId: string) {
         const currentState = projectDoc.data()?.state || 'unknown';
         const failedState = `failed_${currentState.replace(/provisioning_|injecting_|pending_/g, '')}`;
         await PROJECTS_COLLECTION.doc(projectId).update({ state: failedState, error: errorMessage });
-        await log(`stage.${currentState.replace('pending_', 'provisioning_')}.failed`, { error: errorMessage, stack: (e as Error).stack });
+        await plog(`stage.${currentState.replace('pending_', 'provisioning_')}.failed`, { error: errorMessage, stack: (e as Error).stack });
     }
 }
 
@@ -329,12 +268,12 @@ router.delete('/global-links/:linkId', requireAdminAuth, async (req: Request, re
 
 router.delete('/projects/:id', requireAdminAuth, async (req: Request, res: Response) => {
     const { id } = req.params;
-    const log = (evt: string, meta?: Record<string, any>) => projectLogger(id, evt, meta);
+    const plog = (evt: string, meta?: Record<string, any>) => projectLogger(id, evt, meta);
     try {
         const projectDoc = await PROJECTS_COLLECTION.doc(id).get();
         if (!projectDoc.exists) return res.status(404).json({ error: 'Project not found' });
 
-        await log('project.delete.received');
+        await plog('project.delete.received');
         res.status(202).json({ ok: true, message: 'Project deletion started.' });
 
         (async () => {
@@ -342,7 +281,7 @@ router.delete('/projects/:id', requireAdminAuth, async (req: Request, res: Respo
                 await PROJECTS_COLLECTION.doc(id).update({ state: 'deleting' });
                 await GcpService.deleteGcpProject(id);
                 await GithubService.deleteGithubRepo(id);
-                await log('project.delete.cleanup.start');
+                await plog('project.delete.cleanup.start');
                 const logsCollection = PROJECTS_COLLECTION.doc(id).collection('logs');
                 const logsSnapshot = await logsCollection.get();
                 const batch = db.batch();
@@ -353,17 +292,14 @@ router.delete('/projects/:id', requireAdminAuth, async (req: Request, res: Respo
             } catch (error: any) {
                 const errorMessage = (error as Error).message || 'Unknown error during deletion';
                 await PROJECTS_COLLECTION.doc(id).update({ state: 'delete_failed', error: errorMessage });
-                await log('project.delete.failed', { error: errorMessage });
+                await plog('project.delete.failed', { error: errorMessage });
             }
         })();
     } catch (e: any) {
-        await log('project.delete.initial_error', { error: (e as Error).message });
+        await plog('project.delete.initial_error', { error: (e as Error).message });
         res.status(500).json({ ok: false, error: 'Failed to start project deletion.' });
     }
 });
 
 export default router;
 export { BillingError };
-export const log = (evt: string, meta: Record<string, any> = {}) => {
-    console.log(JSON.stringify({ ts: new Date().toISOString(), severity: 'INFO', evt, ...meta }));
-}

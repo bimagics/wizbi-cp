@@ -3,7 +3,8 @@
 
 import { google } from 'googleapis';
 import type { cloudresourcemanager_v3, iam_v1, serviceusage_v1, firebase_v1beta1, firebasehosting_v1beta1, run_v1 } from 'googleapis';
-import { log, BillingError } from '../routes/projects';
+import { log } from '../middleware/auth';
+import { BillingError } from '../routes/projects';
 import * as GcpLegacyService from './gcp_legacy';
 
 // Environment variables

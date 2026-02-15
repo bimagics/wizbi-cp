@@ -1,7 +1,10 @@
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import path from "path";
+import fs from "fs";
 import sodium from 'libsodium-wrappers';
+import swaggerUi from 'swagger-ui-express';
+import YAML from 'yamljs';
 
 // --- Import all routers ---
 import healthRouter from './routes/health';
@@ -11,6 +14,8 @@ import orgsRouter from './routes/orgs';
 import githubRouter from './routes/github';
 import githubSetupRouter from './routes/github-setup';
 import settingsRouter from './routes/settings';
+import apiKeysRouter from './routes/api-keys';
+import { mountMcpServer } from './mcp/index';
 
 async function main() {
   // --- Initialize libsodium ---
@@ -80,7 +85,7 @@ async function main() {
         return cb(new Error('Not allowed by CORS'));
       },
       methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-      allowedHeaders: ["Authorization", "Content-Type", "X-Firebase-ID-Token"],
+      allowedHeaders: ["Authorization", "Content-Type", "X-Firebase-ID-Token", "X-API-Key"],
       maxAge: 3600,
     })
   );
@@ -98,6 +103,27 @@ async function main() {
   app.use('/api', githubRouter);
   app.use('/api', githubSetupRouter);
   app.use('/api', settingsRouter);
+  app.use('/api', apiKeysRouter);
+
+  // --- OpenAPI / Swagger Docs ---
+  try {
+    const specPath = path.join(__dirname, 'openapi.yaml');
+    if (fs.existsSync(specPath)) {
+      const swaggerDoc = YAML.load(specPath);
+      app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerDoc, {
+        customSiteTitle: 'WIZBI CP API Docs',
+        customCss: '.swagger-ui .topbar { display: none }',
+      }));
+      app.get('/api/openapi.json', (_req, res) => res.json(swaggerDoc));
+      console.log('[wizbi-cp] Swagger UI available at /api/docs');
+    }
+  } catch (e) {
+    console.warn('[wizbi-cp] Swagger UI not loaded:', (e as Error).message);
+  }
+
+  // --- MCP Server (Agent Interface) ---
+  mountMcpServer(app);
+  console.log('[wizbi-cp] MCP Server available at /api/mcp/sse');
 
   // --- Static assets ---
   app.use(express.static(path.join(process.cwd(), "public")));

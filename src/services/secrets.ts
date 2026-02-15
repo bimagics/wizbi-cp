@@ -1,5 +1,5 @@
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
-import { log } from '../routes/projects'; // Reuse the main logger
+import { log } from '../middleware/auth';
 
 const client = new SecretManagerServiceClient();
 const project = process.env.GCP_PROJECT_ID || process.env.PROJECT_ID;

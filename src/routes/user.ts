@@ -1,7 +1,7 @@
 // src/routes/user.ts
 import { Router, Request, Response } from 'express';
 import { getDb } from '../services/firebaseAdmin';
-import { requireAuth, requireAdminAuth, log } from './projects'; // Re-using auth middleware
+import { requireAuth, requireAdminAuth, log } from '../middleware/auth';
 
 const router = Router();
 const USERS_COLLECTION = 'users';
@@ -9,10 +9,10 @@ const USERS_COLLECTION = 'users';
 // --- THIS IS THE MISSING ROUTE ---
 // Fetches the profile of the currently logged-in user.
 router.get('/me', requireAuth, async (req: any, res: Response) => {
-  if (!req.userProfile) {
-    return res.status(404).json({ error: 'User profile not found.' });
-  }
-  res.json(req.userProfile);
+    if (!req.userProfile) {
+        return res.status(404).json({ error: 'User profile not found.' });
+    }
+    res.json(req.userProfile);
 });
 // ---------------------------------
 

@@ -2,7 +2,7 @@
 // Template management routes.
 
 import { Router, Request, Response } from 'express';
-import { requireAdminAuth, log } from './projects';
+import { requireAdminAuth, log } from '../middleware/auth';
 import * as GithubService from '../services/github';
 
 const router = Router();
