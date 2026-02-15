@@ -12,14 +12,14 @@ const PROJECTS_COLLECTION = 'projects';
 router.get('/orgs', requireAuth, async (req: Request, res: Response) => {
     try {
         const userProfile = (req as any).userProfile;
-        
+
         // Super Admins see all organizations
         if (userProfile?.roles?.superAdmin) {
             const snap = await getDb().collection(ORGS_COLLECTION).orderBy('name').get();
             const items = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             return res.json({ ok: true, items });
         }
-        
+
         // Org Admins see only their assigned organizations
         const orgIds = userProfile?.roles?.orgAdmin || [];
         if (orgIds.length === 0) {
@@ -43,30 +43,46 @@ router.get('/orgs', requireAuth, async (req: Request, res: Response) => {
 
 // Creating an org still requires a super admin
 router.post('/orgs', requireAdminAuth, async (req: Request, res: Response) => {
-  log('orgs.create.received', { body: req.body });
-  try {
-    const { name, phone } = req.body || {};
-    if (!name) return res.status(400).json({ ok: false, error: 'missing-name' });
+    log('orgs.create.received', { body: req.body });
+    try {
+        const { name, phone } = req.body || {};
+        if (!name) return res.status(400).json({ ok: false, error: 'missing-name' });
 
-    const gcpFolderId = await GcpService.createGcpFolderForOrg(name);
-    const { id: githubTeamId, slug: githubTeamSlug } = await GithubService.createGithubTeam(name);
+        // GCP folder and GitHub team are optional — skip if not configured
+        let gcpFolderId: string | undefined;
+        let githubTeamId: number | undefined;
+        let githubTeamSlug: string | undefined;
 
-    log('orgs.create.firestore.start', { name });
-    const docRef = await getDb().collection(ORGS_COLLECTION).add({
-      name,
-      phone,
-      gcpFolderId,
-      githubTeamId,
-      githubTeamSlug,
-      createdAt: new Date().toISOString(),
-    });
-    log('orgs.create.firestore.success', { orgId: docRef.id });
+        try {
+            gcpFolderId = await GcpService.createGcpFolderForOrg(name);
+        } catch (e: any) {
+            log('orgs.create.gcp_folder.skipped', { reason: e.message });
+        }
 
-    res.status(201).json({ ok: true, id: docRef.id });
-  } catch (e: any) {
-    log('orgs.create.error', { error: e.message, stack: e.stack });
-    res.status(500).json({ ok: false, error: 'create-failed', detail: e.message });
-  }
+        try {
+            const team = await GithubService.createGithubTeam(name);
+            githubTeamId = team.id;
+            githubTeamSlug = team.slug;
+        } catch (e: any) {
+            log('orgs.create.github_team.skipped', { reason: e.message });
+        }
+
+        log('orgs.create.firestore.start', { name });
+        const docRef = await getDb().collection(ORGS_COLLECTION).add({
+            name,
+            phone,
+            ...(gcpFolderId && { gcpFolderId }),
+            ...(githubTeamId && { githubTeamId }),
+            ...(githubTeamSlug && { githubTeamSlug }),
+            createdAt: new Date().toISOString(),
+        });
+        log('orgs.create.firestore.success', { orgId: docRef.id });
+
+        res.status(201).json({ ok: true, id: docRef.id });
+    } catch (e: any) {
+        log('orgs.create.error', { error: e.message, stack: e.stack });
+        res.status(500).json({ ok: false, error: 'create-failed', detail: e.message });
+    }
 });
 
 // Deleting an org still requires a super admin

@@ -14,6 +14,11 @@ router.get('/github/templates', requireAdminAuth, async (req: Request, res: Resp
         const templates = await GithubService.listTemplateRepos();
         res.json({ ok: true, templates });
     } catch (error: any) {
+        // If GitHub isn't configured (secrets not accessible or placeholder values), return empty
+        if (error.message?.includes('PERMISSION_DENIED') || error.message?.includes('secret') || error.message?.includes('Could not access') || error.message?.includes('placeholder')) {
+            log('github.templates.list.not_configured', { reason: error.message });
+            return res.json({ ok: true, templates: [], notConfigured: true });
+        }
         log('github.templates.list.error', { error: error.message });
         res.status(500).json({ ok: false, error: 'Failed to fetch templates', detail: error.message });
     }
