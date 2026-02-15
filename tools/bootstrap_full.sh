@@ -348,6 +348,38 @@ if [ -n "$OP_NAME" ] && [ "$OP_NAME" != "null" ]; then
 fi
 ok "Firebase added"
 
+step "Creating Firebase Web App"
+# A Web App is needed to get the API key and appId for Firebase Auth
+WEB_APP_CREATE_RESULT=$(curl -s -X POST -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  "https://firebase.googleapis.com/v1beta1/projects/${PROJECT_ID}/webApps" \
+  -d "{\"displayName\": \"WIZBI Control Panel\"}" 2>/dev/null || echo '{}')
+
+# Poll for operation completion
+WA_OP_NAME=$(echo "$WEB_APP_CREATE_RESULT" | grep -o '"name": *"[^"]*"' | head -1 | sed 's/"name": *"//;s/"//')
+if [ -n "$WA_OP_NAME" ] && [ "$WA_OP_NAME" != "null" ]; then
+  echo -n "  Creating web app"
+  for WA_I in $(seq 1 12); do
+    WA_OP=$(curl -s -H "Authorization: Bearer $TOKEN" \
+      "https://firebase.googleapis.com/v1beta1/${WA_OP_NAME}" 2>/dev/null || echo '{}')
+    echo "$WA_OP" | grep -q '"done": *true' && break
+    echo -n "."
+    sleep 3
+  done
+  echo ""
+fi
+
+# Get the Web App ID (needed later for API key extraction)
+FIREBASE_WEB_APP_ID=$(curl -s -H "Authorization: Bearer $TOKEN" \
+  "https://firebase.googleapis.com/v1beta1/projects/${PROJECT_ID}/webApps" 2>/dev/null \
+  | python3 -c "import sys,json; apps=json.load(sys.stdin).get('apps',[]); print(apps[0]['appId'] if apps else '')" 2>/dev/null || echo "")
+
+if [ -n "$FIREBASE_WEB_APP_ID" ]; then
+  ok "Web App created (appId: $FIREBASE_WEB_APP_ID)"
+else
+  warn "Could not detect Web App ID — API key may need manual configuration"
+fi
+
 step "Creating Hosting sites"
 curl -s -X POST -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
@@ -358,15 +390,9 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" \
 ok "Hosting sites: ${HOSTING_SITE}, ${HOSTING_SITE}-qa"
 
 step "Configuring Firebase Authentication"
-# Firebase Auth / Identity Platform setup — multi-step process:
-# 1. Initialize Identity Platform config
-# 2. Find or create OAuth web client
-# 3. Enable Google Sign-In provider with OAuth credentials
-# 4. Set authorized domains
 AUTH_TOKEN=$(gcloud auth print-access-token)
 
-# Step 1: Initialize Identity Platform by updating the config
-# This creates the Identity Platform config if it doesn't exist yet.
+# Step 1: Initialize Identity Platform config
 echo "  Initializing Identity Platform..."
 curl -s -X PATCH \
   "https://identitytoolkit.googleapis.com/admin/v2/projects/${PROJECT_ID}/config" \
@@ -375,30 +401,28 @@ curl -s -X PATCH \
   -H "Content-Type: application/json" \
   -d '{"signIn":{"email":{"enabled":false}}}' > /dev/null 2>&1 || true
 
-# Step 2: Find the auto-created OAuth web client (created when Firebase is added)
+# Step 2: Enable Google Sign-In provider
+# Google Sign-In requires a real OAuth client ID. Firebase Console auto-creates one,
+# but via the API we need to find the auto-created OAuth client.
 echo "  Looking for OAuth web client..."
 OAUTH_CLIENT_ID=""
-OAUTH_CLIENT_SECRET=""
 
-# List existing OAuth clients — Firebase usually auto-creates one
-OAUTH_LIST=$(curl -s \
-  "https://oauth2.googleapis.com/v2/projects/${PROJECT_NUMBER}/oauthClients" \
-  -H "Authorization: Bearer $AUTH_TOKEN" 2>/dev/null || echo "")
+# Try to find the auto-created web client via API Keys (Firebase creates one with the web app)
+if [ -n "$FIREBASE_WEB_APP_ID" ]; then
+  # Get the web app config which includes the OAuth client ID used
+  WA_CONFIG=$(curl -s -H "Authorization: Bearer $AUTH_TOKEN" \
+    "https://firebase.googleapis.com/v1beta1/projects/${PROJECT_ID}/webApps/${FIREBASE_WEB_APP_ID}/config" 2>/dev/null || echo '{}')
+  # The authDomain's project will have auto-created OAuth clients
+fi
 
-# Try gcloud approach to find/create OAuth credentials
-# First, check if a web-type OAuth client exists
-EXISTING_CLIENT=$(gcloud alpha iap oauth-brands list --project="$PROJECT_ID" --format="value(name)" 2>/dev/null | head -1 || echo "")
+# List existing API keys — one of them will be the Browser key
+BROWSER_KEY_NAME=$(gcloud services api-keys list --project="$PROJECT_ID" \
+  --format='value(name)' 2>/dev/null | head -1 || echo "")
+if [ -n "$BROWSER_KEY_NAME" ]; then
+  echo "  Found API key: $BROWSER_KEY_NAME"
+fi
 
-# Simpler approach: Use the Firebase-created default client
-# When Firebase is added, an OAuth client is created automatically.
-# We can find it via the GCP Console API credentials list.
-OAUTH_CLIENTS_JSON=$(curl -s \
-  "https://www.googleapis.com/oauth2/v1/projects/${PROJECT_NUMBER}/oauthClients" \
-  -H "Authorization: Bearer $AUTH_TOKEN" 2>/dev/null || echo "")
-
-# Alternative: Try to enable Google IdP without specifying client credentials.
-# In Firebase projects, the default OAuth client can be auto-discovered.
-# If this fails, we'll fall back to creating one.
+# Try enabling Google IdP — Firebase may auto-fill OAuth credentials
 echo "  Enabling Google Sign-In provider..."
 GOOGLE_IDP_RESULT=$(curl -s -w "\n%{http_code}" -X POST \
   "https://identitytoolkit.googleapis.com/v2/projects/${PROJECT_ID}/defaultSupportedIdpConfigs?idpId=google.com" \
@@ -408,31 +432,35 @@ GOOGLE_IDP_RESULT=$(curl -s -w "\n%{http_code}" -X POST \
   -d "{
     \"name\": \"projects/${PROJECT_ID}/defaultSupportedIdpConfigs/google.com\",
     \"enabled\": true,
-    \"clientId\": \"${PROJECT_NUMBER}-auto.apps.googleusercontent.com\",
-    \"clientSecret\": \"\"
+    \"clientId\": \"${PROJECT_NUMBER}-compute@developer.gserviceaccount.com\",
+    \"clientSecret\": \"placeholder\"
   }" 2>/dev/null)
 
 GOOGLE_IDP_HTTP=$(echo "$GOOGLE_IDP_RESULT" | tail -1)
 GOOGLE_IDP_BODY=$(echo "$GOOGLE_IDP_RESULT" | head -n -1)
 
 if [ "$GOOGLE_IDP_HTTP" = "200" ] || [ "$GOOGLE_IDP_HTTP" = "201" ]; then
-  echo "  ✓ Google Sign-In enabled"
-elif echo "$GOOGLE_IDP_BODY" | grep -q "DUPLICATE_IDP"; then
-  echo "  ✓ Google Sign-In already enabled"
+  ok "Google Sign-In enabled via API"
+elif echo "$GOOGLE_IDP_BODY" | grep -q "DUPLICATE_IDP\|ALREADY_EXISTS"; then
+  ok "Google Sign-In already enabled"
 else
-  # If API approach fails, use gcloud identity-platform
-  echo "  API approach returned $GOOGLE_IDP_HTTP, trying gcloud CLI..."
-  if gcloud identity-platform default-supported-idp-configs create \
-    --idp-id="google.com" --client-id="${PROJECT_NUMBER}-auto.apps.googleusercontent.com" \
-    --client-secret="" --enabled --project="$PROJECT_ID" 2>/dev/null; then
-    echo "  ✓ Google Sign-In enabled via gcloud"
+  echo "  API returned HTTP $GOOGLE_IDP_HTTP — trying Firebase Console approach"
+  echo ""
+  warn "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  warn "ACTION REQUIRED: Enable Google Sign-In manually (30 seconds):"
+  warn "  1. Open: https://console.firebase.google.com/project/${PROJECT_ID}/authentication/providers"
+  warn "  2. Click 'Google' → Enable → Save"
+  warn "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  read -rp "$(echo -e ${BOLD})Press Enter once Google Sign-In is enabled (or 's' to skip): $(echo -e ${NC})" AUTH_SKIP
+  if [[ "$AUTH_SKIP" != "s" ]]; then
+    ok "Proceeding (Google Sign-In should be enabled now)"
   else
-    warn "Could not auto-enable Google Sign-In via API."
-    warn "Please enable it manually: Firebase Console → Authentication → Sign-in method → Google → Enable"
+    warn "Skipped — enable Google Sign-In later in Firebase Console"
   fi
 fi
 
-# Step 4: Set authorized domains for Firebase Auth
+# Step 3: Set authorized domains for Firebase Auth
 echo "  Setting authorized domains..."
 curl -s -X PATCH \
   "https://identitytoolkit.googleapis.com/admin/v2/projects/${PROJECT_ID}/config?updateMask=authorizedDomains" \
@@ -576,18 +604,33 @@ for i in $(seq 1 $MAX_RETRIES); do
 done
 
 # Build env vars for Cloud Run
-# Fetch Firebase Web API key (auto-created when Firebase is added to the project)
-FIREBASE_API_KEY=$(curl -s -H "Authorization: Bearer $(gcloud auth print-access-token)" \
-  "https://firebase.googleapis.com/v1beta1/projects/${PROJECT_ID}/webApps" 2>/dev/null \
-  | grep -o '"apiKeyId":"[^"]*"' | head -1 | sed 's/"apiKeyId":"//;s/"//' || echo "")
-# If webApps endpoint didn't return a key, try getting it from the API keys list
+# Fetch Firebase Web API key from the Web App config (most reliable method)
+step "Fetching Firebase API key"
+FIREBASE_API_KEY=""
+
+# Method 1: Use the Web App config endpoint (returns the actual key string)
+if [ -n "$FIREBASE_WEB_APP_ID" ]; then
+  FIREBASE_API_KEY=$(curl -s -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+    "https://firebase.googleapis.com/v1beta1/projects/${PROJECT_ID}/webApps/${FIREBASE_WEB_APP_ID}/config" 2>/dev/null \
+    | python3 -c "import sys,json; print(json.load(sys.stdin).get('apiKey',''))" 2>/dev/null || echo "")
+fi
+
+# Method 2: Fallback — search API keys list for any key
 if [ -z "$FIREBASE_API_KEY" ]; then
-  FIREBASE_API_KEY=$(gcloud services api-keys list --project="$PROJECT_ID" \
-    --format='value(name)' --filter='displayName:"Browser key"' 2>/dev/null | head -1)
-  if [ -n "$FIREBASE_API_KEY" ]; then
-    FIREBASE_API_KEY=$(gcloud services api-keys get-key-string "$FIREBASE_API_KEY" \
+  echo "  Web App config didn't return API key, trying API keys list..."
+  # Get the first API key's resource name
+  API_KEY_RESOURCE=$(gcloud services api-keys list --project="$PROJECT_ID" \
+    --format='value(name)' 2>/dev/null | head -1 || echo "")
+  if [ -n "$API_KEY_RESOURCE" ]; then
+    FIREBASE_API_KEY=$(gcloud services api-keys get-key-string "$API_KEY_RESOURCE" \
       --project="$PROJECT_ID" --format='value(keyString)' 2>/dev/null || echo "")
   fi
+fi
+
+if [ -n "$FIREBASE_API_KEY" ]; then
+  ok "Firebase API key: ${FIREBASE_API_KEY:0:10}..."
+else
+  warn "Could not retrieve Firebase API key — login on Cloud Run direct URL won't work (Firebase Hosting login will still work)"
 fi
 
 CORS_ORIGINS="https://${HOSTING_SITE}.web.app,https://${HOSTING_SITE}-qa.web.app,https://${HOSTING_SITE}.firebaseapp.com,https://${HOSTING_SITE}-qa.firebaseapp.com"
@@ -680,23 +723,22 @@ FIREBASE_EOF
 ok "firebase.json updated with region: $REGION"
 
 step "Deploying Firebase Hosting"
-# Firebase CLI needs a token in Cloud Shell — use the active gcloud auth token
-FB_TOKEN=$(gcloud auth print-access-token 2>/dev/null)
+# Firebase CLI auto-detects gcloud credentials in Cloud Shell.
+# Use GOOGLE_APPLICATION_CREDENTIALS or gcloud auth for Firebase CLI auth.
+export FIREBASE_CLI_EXPERIMENTS=webframeworks 2>/dev/null || true
 
 # Map Firebase targets to actual hosting sites
-firebase target:apply hosting production "${HOSTING_SITE}" --project "$PROJECT_ID" --token "$FB_TOKEN" 2>/dev/null || true
-firebase target:apply hosting qa "${HOSTING_SITE}-qa" --project "$PROJECT_ID" --token "$FB_TOKEN" 2>/dev/null || true
+firebase target:apply hosting production "${HOSTING_SITE}" --project "$PROJECT_ID" 2>/dev/null || true
+firebase target:apply hosting qa "${HOSTING_SITE}-qa" --project "$PROJECT_ID" 2>/dev/null || true
 
 firebase deploy \
   --only hosting:production \
   --project "$PROJECT_ID" \
-  --token "$FB_TOKEN" \
   --non-interactive 2>/dev/null || warn "Production hosting deploy failed — will deploy on first git push"
 
 firebase deploy \
   --only hosting:qa \
   --project "$PROJECT_ID" \
-  --token "$FB_TOKEN" \
   --non-interactive 2>/dev/null || warn "QA hosting deploy failed — will deploy on first git push"
 
 ok "Hosting deployed"
@@ -761,6 +803,9 @@ print(base64.b64encode(sealed).decode('utf-8'))
     set_github_secret "GCP_CONTROL_PLANE_PROJECT_NUMBER" "$PROJECT_NUMBER"
     set_github_secret "BILLING_ACCOUNT_ID" "$BILLING_ACCOUNT"
     set_github_secret "ADMINS" "$ADMIN_EMAIL"
+    if [ -n "$FIREBASE_API_KEY" ]; then
+      set_github_secret "FIREBASE_API_KEY" "$FIREBASE_API_KEY"
+    fi
     ok "GitHub secrets injected"
   else
     warn "Could not fetch GitHub repo public key — set secrets manually"
@@ -776,6 +821,7 @@ else
   echo "  GCP_CONTROL_PLANE_PROJECT_NUMBER = $PROJECT_NUMBER"
   echo "  BILLING_ACCOUNT_ID               = $BILLING_ACCOUNT"
   echo "  ADMINS                           = $ADMIN_EMAIL"
+  echo "  FIREBASE_API_KEY                 = ${FIREBASE_API_KEY:-<not available>}"
 fi
 
 # =========================================
