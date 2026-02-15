@@ -34,6 +34,17 @@ phase "WIZBI Control Plane — Setup Wizard"
 echo -e "${BOLD}Welcome! Setting up your WIZBI Control Plane on GCP.${NC}"
 echo -e "Everything is automatic. Sit back and relax.\n"
 
+# --- Required tools check ---
+REQUIRED_TOOLS=(gcloud gsutil curl npm git)
+for cmd in "${REQUIRED_TOOLS[@]}"; do
+  if ! command -v "$cmd" &>/dev/null; then
+    err "Required tool '$cmd' is not installed or not in PATH."
+    err "Please install it and try again."
+    exit 1
+  fi
+done
+ok "All required tools found: ${REQUIRED_TOOLS[*]}"
+
 if [ "${CLOUD_SHELL:-}" != "true" ]; then
   warn "It looks like you are NOT running in Google Cloud Shell."
   warn "This script is optimized for Cloud Shell execution."
@@ -473,17 +484,7 @@ if [ -z "$FIREBASE_API_KEY" ]; then
   fi
 fi
 
-CLOUD_RUN_ENV="NODE_ENV=production"
-CLOUD_RUN_ENV+=",FIREBASE_PROJECT_ID=$PROJECT_ID"
-CLOUD_RUN_ENV+=",GCP_PROJECT_ID=$PROJECT_ID"
-CLOUD_RUN_ENV+=",BILLING_ACCOUNT_ID=$BILLING_ACCOUNT"
-CLOUD_RUN_ENV+=",CORS_ORIGIN=*"
-CLOUD_RUN_ENV+=",ADMINS=$ADMIN_EMAIL"
-CLOUD_RUN_ENV+=",GCP_CONTROL_PLANE_PROJECT_NUMBER=$PROJECT_NUMBER"
-CLOUD_RUN_ENV+=",GITHUB_OWNER=$GITHUB_OWNER"
-if [ -n "$FIREBASE_API_KEY" ]; then
-  CLOUD_RUN_ENV+=",FIREBASE_API_KEY=$FIREBASE_API_KEY"
-fi
+CORS_ORIGINS="https://${HOSTING_SITE}.web.app,https://${HOSTING_SITE}-qa.web.app,https://${HOSTING_SITE}.firebaseapp.com,https://${HOSTING_SITE}-qa.firebaseapp.com"
 
 step "Deploying Cloud Run: cp-unified (Production)"
 gcloud run deploy "cp-unified" \
@@ -491,7 +492,7 @@ gcloud run deploy "cp-unified" \
   --region "$REGION" \
   --service-account "$PROVISIONER_SA" \
   --allow-unauthenticated \
-  --update-env-vars "$CLOUD_RUN_ENV" \
+  --update-env-vars "^@^NODE_ENV=production@FIREBASE_PROJECT_ID=$PROJECT_ID@GCP_PROJECT_ID=$PROJECT_ID@BILLING_ACCOUNT_ID=$BILLING_ACCOUNT@CORS_ORIGIN=$CORS_ORIGINS@ADMINS=$ADMIN_EMAIL@GCP_CONTROL_PLANE_PROJECT_NUMBER=$PROJECT_NUMBER@GITHUB_OWNER=$GITHUB_OWNER${FIREBASE_API_KEY:+@FIREBASE_API_KEY=$FIREBASE_API_KEY}" \
   --quiet
 ok "Production service deployed"
 
@@ -516,7 +517,7 @@ gcloud run deploy "cp-unified-qa" \
   --region "$REGION" \
   --service-account "$PROVISIONER_SA" \
   --allow-unauthenticated \
-  --update-env-vars "$CLOUD_RUN_ENV" \
+  --update-env-vars "^@^NODE_ENV=production@FIREBASE_PROJECT_ID=$PROJECT_ID@GCP_PROJECT_ID=$PROJECT_ID@BILLING_ACCOUNT_ID=$BILLING_ACCOUNT@CORS_ORIGIN=$CORS_ORIGINS@ADMINS=$ADMIN_EMAIL@GCP_CONTROL_PLANE_PROJECT_NUMBER=$PROJECT_NUMBER@GITHUB_OWNER=$GITHUB_OWNER${FIREBASE_API_KEY:+@FIREBASE_API_KEY=$FIREBASE_API_KEY}" \
   --quiet
 ok "QA service deployed"
 

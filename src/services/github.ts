@@ -10,7 +10,9 @@ import sodium from 'libsodium-wrappers';
 const GITHUB_OWNER = process.env.GITHUB_OWNER || '';
 const TEMPLATE_PREFIX = 'template-'; // Convention for identifying template repos
 
-let octokit: Octokit;
+let octokit: Octokit | null = null;
+let octokitCreatedAt = 0;
+const TOKEN_TTL_MS = 50 * 60 * 1000; // Refresh after 50 min (tokens expire at 60 min)
 
 // --- Interfaces ---
 interface GitHubTeam { id: number; slug: string; }
@@ -26,7 +28,8 @@ export interface TemplateInfo { name: string; description: string | null; url: s
 // --- Helper Functions ---
 
 async function getAuthenticatedClient(): Promise<Octokit> {
-    if (octokit) return octokit;
+    if (octokit && (Date.now() - octokitCreatedAt) < TOKEN_TTL_MS) return octokit;
+    octokit = null; // Force re-creation
     log('github.auth.init.start');
     const appId = await getSecret('GITHUB_APP_ID');
     const privateKey = await getSecret('GITHUB_PRIVATE_KEY');
@@ -34,6 +37,7 @@ async function getAuthenticatedClient(): Promise<Octokit> {
     const auth = await createAppAuth({ appId: Number(appId), privateKey, installationId: Number(installationId) });
     const { token } = await auth({ type: "installation" });
     octokit = new Octokit({ auth: token });
+    octokitCreatedAt = Date.now();
     log('github.auth.init.success');
     return octokit;
 }
