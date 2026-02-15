@@ -9,6 +9,7 @@ import userRouter from './routes/user';
 import projectsRouter from './routes/projects';
 import orgsRouter from './routes/orgs';
 import githubRouter from './routes/github';
+import githubSetupRouter from './routes/github-setup';
 import settingsRouter from './routes/settings';
 
 async function main() {
@@ -95,6 +96,7 @@ async function main() {
   app.use('/api', projectsRouter);
   app.use('/api', orgsRouter);
   app.use('/api', githubRouter);
+  app.use('/api', githubSetupRouter);
   app.use('/api', settingsRouter);
 
   // --- Static assets ---

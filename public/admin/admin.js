@@ -799,16 +799,151 @@ document.addEventListener('firebase-config-loaded', () => {
         }
     };
 
+    // --- GitHub App Setup Wizard ---
+    let ghSetupInstallUrl = null;
+
+    async function loadGithubSetupStatus() {
+        const loading = document.getElementById('ghSetupLoading');
+        const notConnected = document.getElementById('ghSetupNotConnected');
+        const created = document.getElementById('ghSetupCreated');
+        const connected = document.getElementById('ghSetupConnected');
+
+        // Show loading
+        loading.classList.remove('hidden');
+        notConnected.classList.add('hidden');
+        created.classList.add('hidden');
+        connected.classList.add('hidden');
+
+        try {
+            const data = await callApi('/github/setup/status');
+            loading.classList.add('hidden');
+
+            if (data.status.configured) {
+                // Fully connected
+                connected.classList.remove('hidden');
+                document.getElementById('ghSetupConnectedInfo').textContent =
+                    `App ID: ${data.status.appId || 'unknown'} · Org: ${data.status.githubOwner || 'N/A'}`;
+            } else if (data.status.appCreated) {
+                // App created but not installed
+                created.classList.remove('hidden');
+                document.getElementById('ghSetupAppId').textContent = `(ID: ${data.status.appId || '...'})`;
+            } else {
+                // Not connected at all
+                notConnected.classList.remove('hidden');
+            }
+        } catch (e) {
+            loading.classList.add('hidden');
+            notConnected.classList.remove('hidden');
+            console.error('Failed to check GitHub setup status', e);
+        }
+    }
+
+    // "Connect GitHub App" button — initiates manifest flow
+    document.getElementById('btnConnectGithub').addEventListener('click', async () => {
+        const btn = document.getElementById('btnConnectGithub');
+        btn.disabled = true;
+        btn.textContent = 'Preparing...';
+
+        try {
+            const data = await callApi('/github/setup/start');
+            if (!data.ok) throw new Error(data.error);
+
+            // Create a hidden form and POST the manifest to GitHub
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = data.githubUrl;
+            form.style.display = 'none';
+
+            const manifestInput = document.createElement('input');
+            manifestInput.type = 'hidden';
+            manifestInput.name = 'manifest';
+            manifestInput.value = data.manifest;
+            form.appendChild(manifestInput);
+
+            document.body.appendChild(form);
+            form.submit();
+        } catch (e) {
+            alert(`Failed to start GitHub setup: ${e.message}`);
+            btn.disabled = false;
+            btn.textContent = 'Connect GitHub App';
+        }
+    });
+
+    // "Install on Organization" button
+    document.getElementById('btnInstallApp').addEventListener('click', () => {
+        if (ghSetupInstallUrl) {
+            window.open(ghSetupInstallUrl, '_blank');
+        } else {
+            // Fallback: open the app settings on GitHub
+            const owner = prompt('Enter your GitHub app slug (from the app URL):');
+            if (owner) window.open(`https://github.com/apps/${owner}/installations/new`, '_blank');
+        }
+    });
+
+    // "Save Installation ID" button (manual fallback)
+    document.getElementById('btnSaveInstallationId').addEventListener('click', async () => {
+        const input = document.getElementById('ghInstallationIdInput');
+        const installationId = input.value.trim();
+        if (!installationId) { alert('Please enter an installation ID.'); return; }
+
+        try {
+            const result = await callApi('/github/setup/save-installation', {
+                method: 'POST',
+                body: JSON.stringify({ installationId }),
+            });
+            if (result.ok) {
+                input.value = '';
+                alert('Installation ID saved!');
+                loadGithubSetupStatus();
+            }
+        } catch (e) {
+            alert(`Failed to save: ${e.message}`);
+        }
+    });
+
+    // Handle redirect from GitHub callback (URL query params)
+    function handleGithubSetupRedirect() {
+        const params = new URLSearchParams(window.location.search);
+        const setupResult = params.get('github_setup');
+        if (!setupResult) return;
+
+        if (setupResult === 'success') {
+            const appName = params.get('app_name') || 'GitHub App';
+            ghSetupInstallUrl = params.get('install_url');
+            // Clean URL
+            window.history.replaceState({}, '', window.location.pathname);
+            // Switch to Settings tab and show success
+            switchTab('Settings');
+            setTimeout(() => {
+                loadGithubSetupStatus();
+            }, 500);
+        } else if (setupResult === 'error') {
+            const message = params.get('message') || 'Unknown error';
+            window.history.replaceState({}, '', window.location.pathname);
+            switchTab('Settings');
+            alert(`GitHub App setup failed: ${message}`);
+        }
+    }
+
     // Hook up refresh button (only if it exists)
     const btnRefreshSecrets = document.getElementById('btnRefreshSecrets');
     if (btnRefreshSecrets) {
-        btnRefreshSecrets.addEventListener('click', loadSecrets);
+        btnRefreshSecrets.addEventListener('click', () => {
+            loadSecrets();
+            loadGithubSetupStatus();
+        });
     }
 
-    // Override switchTab to also trigger secrets loading
+    // Override switchTab to also trigger secrets + setup loading
     const origSwitchTab = switchTab;
     switchTab = function (tabId) {
         origSwitchTab(tabId);
-        if (tabId === 'Settings') loadSecrets();
+        if (tabId === 'Settings') {
+            loadSecrets();
+            loadGithubSetupStatus();
+        }
     };
+
+    // Check for GitHub setup redirect on page load
+    handleGithubSetupRedirect();
 });

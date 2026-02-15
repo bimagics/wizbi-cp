@@ -5,6 +5,15 @@ const client = new SecretManagerServiceClient();
 const project = process.env.GCP_PROJECT_ID || process.env.PROJECT_ID;
 const secretCache = new Map<string, string>();
 
+/** Clear cached secrets so fresh values are fetched on next access */
+export function clearSecretCache(secretName?: string): void {
+  if (secretName) {
+    secretCache.delete(secretName);
+  } else {
+    secretCache.clear();
+  }
+}
+
 export async function getSecret(secretName: string): Promise<string> {
   if (secretCache.has(secretName)) {
     log('secret.cache.hit', { secretName });
@@ -21,7 +30,7 @@ export async function getSecret(secretName: string): Promise<string> {
     if (!payload) {
       throw new Error(`Secret ${secretName} has an empty payload.`);
     }
-    
+
     log('secret.fetch.success', { secretName });
     secretCache.set(secretName, payload);
     return payload;

@@ -250,6 +250,93 @@
           <button id="btnRefreshSecrets" class="btn btn-secondary">Refresh Status</button>
         </div>
 
+        <!-- GitHub App Setup Wizard -->
+        <div id="githubSetupCard" class="card"
+          style="margin-bottom: 1.5rem; border: 2px solid var(--border-color); position: relative; overflow: hidden;">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:1rem;">
+            <svg viewBox="0 0 16 16" style="width:32px;height:32px;">
+              <path fill="currentColor"
+                d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z">
+              </path>
+            </svg>
+            <div>
+              <h3 style="margin:0;font-size:1.2rem;">GitHub App Integration</h3>
+              <p style="margin:0;font-size:0.85rem;color:var(--text-secondary);">Connect a GitHub App to enable project
+                provisioning, repo creation, and CI/CD.</p>
+            </div>
+          </div>
+
+          <!-- Status: Loading -->
+          <div id="ghSetupLoading" style="text-align:center;padding:1rem;color:var(--text-secondary);">
+            <div class="spinner" style="display:inline-block;margin-bottom:0.5rem;"></div>
+            <div>Checking GitHub connection...</div>
+          </div>
+
+          <!-- Status: Not Connected -->
+          <div id="ghSetupNotConnected" class="hidden">
+            <div style="background:var(--bg-secondary);border-radius:8px;padding:1.25rem;margin-bottom:1rem;">
+              <p style="margin:0 0 1rem 0;font-size:0.9rem;line-height:1.5;">
+                No GitHub App connected yet. Click below to automatically create and configure a GitHub App with the
+                correct permissions.
+                This takes about 30 seconds.
+              </p>
+              <button id="btnConnectGithub" class="btn btn-primary"
+                style="display:flex;align-items:center;gap:8px;font-size:1rem;padding:10px 24px;">
+                <svg viewBox="0 0 16 16" style="width:20px;height:20px;">
+                  <path fill="currentColor"
+                    d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z">
+                  </path>
+                </svg>
+                Connect GitHub App
+              </button>
+            </div>
+          </div>
+
+          <!-- Status: App Created, Not Yet Installed -->
+          <div id="ghSetupCreated" class="hidden">
+            <div style="display:flex;flex-direction:column;gap:1rem;">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span style="color:var(--success-color);font-size:1.2rem;">✅</span>
+                <span style="font-weight:600;">GitHub App created</span>
+                <span id="ghSetupAppId" style="font-size:0.8rem;color:var(--text-secondary);"></span>
+              </div>
+              <div style="background:var(--bg-secondary);border-radius:8px;padding:1.25rem;">
+                <p style="margin:0 0 1rem 0;font-size:0.9rem;line-height:1.5;">
+                  <strong>Step 2:</strong> Install the app on your GitHub organization to grant it access to your
+                  repositories.
+                </p>
+                <button id="btnInstallApp" class="btn btn-primary"
+                  style="display:flex;align-items:center;gap:8px;font-size:1rem;padding:10px 24px;">
+                  <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width:20px;height:20px;">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                  </svg>
+                  Install on Organization
+                </button>
+                <p style="margin:1rem 0 0 0;font-size:0.8rem;color:var(--text-secondary);">
+                  After installing, the installation ID is captured automatically via webhook.
+                  If it doesn't auto-detect, paste it manually below.
+                </p>
+                <div id="ghManualInstallation" style="display:flex;gap:8px;margin-top:0.5rem;">
+                  <input type="text" id="ghInstallationIdInput" placeholder="Installation ID (optional fallback)"
+                    style="flex:1;padding:6px 10px;border:1px solid var(--border-color);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:0.85rem;">
+                  <button id="btnSaveInstallationId" class="btn btn-secondary btn-sm">Save</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Status: Fully Connected -->
+          <div id="ghSetupConnected" class="hidden">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:0.5rem;">
+              <span style="color:var(--success-color);font-size:1.2rem;">✅</span>
+              <span style="font-weight:600;color:var(--success-color);">GitHub App fully connected</span>
+            </div>
+            <p id="ghSetupConnectedInfo" style="margin:0;font-size:0.85rem;color:var(--text-secondary);"></p>
+          </div>
+        </div>
+
+        <!-- Secrets Status Banner -->
         <div id="secretsStatusBanner" class="card" style="display:none;">
           <div style="display:flex;align-items:center;gap:8px;">
             <span id="secretsStatusIcon" style="font-size:1.5rem;"></span>
@@ -257,10 +344,17 @@
           </div>
         </div>
 
-        <div id="secretsContainer">
-          <div class="settings-loading" style="text-align:center;padding:2rem;color:var(--text-secondary);">Loading
-            secrets status...</div>
-        </div>
+        <!-- Manual Secrets (collapsed by default, expanded via "Advanced" toggle) -->
+        <details style="margin-top:1rem;">
+          <summary
+            style="cursor:pointer;font-weight:600;font-size:0.95rem;color:var(--text-secondary);padding:0.5rem 0;">
+            Advanced: Manual Secret Configuration
+          </summary>
+          <div id="secretsContainer" style="margin-top:0.5rem;">
+            <div class="settings-loading" style="text-align:center;padding:2rem;color:var(--text-secondary);">Loading
+              secrets status...</div>
+          </div>
+        </details>
       </div>
 
     </main>
