@@ -30,8 +30,8 @@ router.get('/settings/secrets', requireAdminAuth, async (_req: Request, res: Res
                     const [version] = await secretClient.accessSecretVersion({
                         name: `projects/${GCP_PROJECT_ID}/secrets/${def.name}/versions/latest`,
                     });
-                    const value = version.payload?.data?.toString() || '';
-                    const isConfigured = value !== '' && value !== 'placeholder';
+                    const value = (version.payload?.data?.toString() || '').trim();
+                    const isConfigured = value !== '' && value.toLowerCase() !== 'placeholder';
 
                     return {
                         name: def.name,

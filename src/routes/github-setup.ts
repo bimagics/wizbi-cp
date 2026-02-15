@@ -53,8 +53,8 @@ async function readSecret(name: string): Promise<string | null> {
         const [version] = await secretClient.accessSecretVersion({
             name: `projects/${GCP_PROJECT_ID}/secrets/${name}/versions/latest`,
         });
-        const value = version.payload?.data?.toString() || '';
-        if (!value || value === 'placeholder') return null;
+        const value = (version.payload?.data?.toString() || '').trim();
+        if (!value || value.toLowerCase() === 'placeholder') return null;
         return value;
     } catch {
         return null;

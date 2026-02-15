@@ -26,9 +26,9 @@ export async function getSecret(secretName: string): Promise<string> {
       name: `projects/${project}/secrets/${secretName}/versions/latest`,
     });
 
-    const payload = version.payload?.data?.toString();
-    if (!payload) {
-      throw new Error(`Secret ${secretName} has an empty payload.`);
+    const payload = (version.payload?.data?.toString() || '').trim();
+    if (!payload || payload.toLowerCase() === 'placeholder') {
+      throw new Error(`Secret ${secretName} is not configured (placeholder value).`);
     }
 
     log('secret.fetch.success', { secretName });

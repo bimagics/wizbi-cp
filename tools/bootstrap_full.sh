@@ -883,8 +883,8 @@ if [ -n "$BILLING_ACCOUNT" ]; then
   echo -e "${BOLD}Next Steps:${NC}"
   echo "  1. Open ${PROD_URL}/admin/"
   echo "  2. Log in with ${ADMIN_EMAIL}"
-  echo "  3. Go to Settings → configure your GitHub App keys"
-  echo "  4. Start provisioning projects!"
+  echo "  3. Go to Settings → click 'Connect GitHub App' (2 clicks!)"
+  echo "  4. Create templates and start provisioning projects!"
 else
   echo -e "${BOLD}Project Created:${NC}  $PROJECT_ID"
   echo -e "${BOLD}Status:${NC}           Foundation ready (billing required to deploy)"
