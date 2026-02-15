@@ -69,6 +69,49 @@ async function pollUntilRepoIsReady(client: Octokit, repoName: string, maxRetrie
     throw new Error(`Repository ${repoName} was not ready after ${maxRetries} attempts.`);
 }
 
+/** Auto-create template-base in the user's org from the public bimagics/template-base */
+export async function ensureTemplateBase(): Promise<{ created: boolean; error?: string }> {
+    try {
+        const client = await getAuthenticatedClient();
+
+        // Check if template-base already exists
+        try {
+            await client.repos.get({ owner: GITHUB_OWNER, repo: 'template-base' });
+            log('github.template-base.already_exists');
+            return { created: false };
+        } catch (err: any) {
+            if (err.status !== 404) return { created: false, error: err.message };
+        }
+
+        log('github.template-base.creating');
+
+        // Create from the public bimagics template
+        await client.repos.createUsingTemplate({
+            template_owner: 'bimagics',
+            template_repo: 'template-base',
+            owner: GITHUB_OWNER,
+            name: 'template-base',
+            private: true,
+            description: 'Base template for WIZBI projects (auto-created)',
+        });
+
+        await pollUntilRepoIsReady(client, 'template-base');
+
+        // Mark as template so it can be used to create more templates
+        await client.repos.update({
+            owner: GITHUB_OWNER,
+            repo: 'template-base',
+            is_template: true,
+        });
+
+        log('github.template-base.created');
+        return { created: true };
+    } catch (error: any) {
+        log('github.template-base.error', { error: error.message });
+        return { created: false, error: error.message };
+    }
+}
+
 
 // --- Core Functions ---
 

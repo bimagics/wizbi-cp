@@ -8,7 +8,7 @@ import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
 import crypto from 'crypto';
 import { requireAdminAuth, log } from './projects';
 import { clearSecretCache } from '../services/secrets';
-import { resetGitHubClient } from '../services/github';
+import { resetGitHubClient, ensureTemplateBase } from '../services/github';
 
 const router = Router();
 const secretClient = new SecretManagerServiceClient();
@@ -244,7 +244,14 @@ router.post('/github/setup/webhook', async (req: Request, res: Response) => {
             log('github-setup.webhook.installation_created', { installationId });
             try {
                 await storeSecret(SECRETS.INSTALLATION_ID, String(installationId));
+                clearSecretCache();
+                resetGitHubClient();
                 log('github-setup.webhook.installation_stored', { installationId });
+
+                // Auto-create template-base in the user's org (fire-and-forget)
+                ensureTemplateBase()
+                    .then(r => log('github-setup.template-base.auto', r))
+                    .catch(e => log('github-setup.template-base.error', { error: e.message }));
             } catch (error: any) {
                 log('github-setup.webhook.store_error', { error: error.message });
             }
@@ -267,7 +274,15 @@ router.post('/github/setup/save-installation', requireAdminAuth, async (req: Req
 
     try {
         await storeSecret(SECRETS.INSTALLATION_ID, installationId.trim());
+        clearSecretCache();
+        resetGitHubClient();
         log('github-setup.manual_installation.saved', { installationId });
+
+        // Auto-create template-base in the user's org (fire-and-forget)
+        ensureTemplateBase()
+            .then(r => log('github-setup.template-base.auto', r))
+            .catch(e => log('github-setup.template-base.error', { error: e.message }));
+
         res.json({ ok: true, message: 'Installation ID saved successfully.' });
     } catch (error: any) {
         log('github-setup.manual_installation.error', { error: error.message });
