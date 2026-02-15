@@ -208,6 +208,23 @@ html, body {
 .error-text { font-size: 0.75rem; color: var(--error-color); }
 .error-tooltip { cursor: help; display: flex; align-items: center; }
 
+/* --- Cost Badge --- */
+.cost-badge {
+    display: inline-block;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: var(--background-dark);
+    color: var(--text-secondary);
+    margin-top: 6px;
+    cursor: default;
+    letter-spacing: 0.3px;
+}
+.cost-badge.cost-low { color: var(--success-color); background: rgba(34, 197, 94, 0.12); }
+.cost-badge.cost-medium { color: var(--warning-color); background: rgba(245, 158, 11, 0.12); }
+.cost-badge.cost-high { color: var(--error-color); background: rgba(244, 63, 94, 0.12); }
+
 /* --- Modal Styles --- */
 .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; justify-content: center; align-items: center; z-index: 1000; backdrop-filter: blur(4px); }
 .modal-content { background: var(--background-light); padding: 2rem; border-radius: 0.75rem; width: 90%; max-width: 500px; border: 1px solid var(--border-color); }

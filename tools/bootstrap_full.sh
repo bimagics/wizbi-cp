@@ -212,6 +212,7 @@ if [ -n "$BILLING_ACCOUNT" ]; then
     firebasehosting.googleapis.com \
     apikeys.googleapis.com \
     iap.googleapis.com \
+    bigquery.googleapis.com \
     --quiet
   ok "All APIs enabled"
 else
@@ -354,6 +355,50 @@ gcloud iam service-accounts add-iam-policy-binding "$DEPLOYER_SA" \
 
 WIF_PROVIDER_PATH="projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${WIF_POOL}/providers/${WIF_PROVIDER}"
 ok "WIF configured"
+
+# =========================================
+# BigQuery Billing Export Setup
+# =========================================
+step "Setting up BigQuery billing export"
+BILLING_ACCOUNT_CLEAN=$(echo "$BILLING_ACCOUNT" | tr -d '-' | tr '[:upper:]' '[:lower:]')
+BQ_DATASET="billing_export"
+BQ_TABLE="gcp_billing_export_v1_${BILLING_ACCOUNT_CLEAN}"
+BILLING_BQ_PROJECT="$PROJECT_ID"
+
+# Create BQ dataset
+if command -v bq &>/dev/null; then
+  if ! bq --project_id="$PROJECT_ID" show "$BQ_DATASET" >/dev/null 2>&1; then
+    # Map region to BQ location
+    case "$REGION" in
+      europe-*) BQ_LOCATION="EU" ;;
+      us-*)     BQ_LOCATION="US" ;;
+      asia-*)   BQ_LOCATION="asia-southeast1" ;;
+      *)        BQ_LOCATION="EU" ;;
+    esac
+    bq --project_id="$PROJECT_ID" mk --dataset --location="$BQ_LOCATION" \
+      --description="GCP Billing Export (auto-created by WIZBI)" "$BQ_DATASET" 2>/dev/null || true
+  fi
+  ok "BigQuery dataset $BQ_DATASET ready"
+
+  # Grant billing export SA write access
+  bq --project_id="$PROJECT_ID" update --dataset \
+    --source <(bq --project_id="$PROJECT_ID" show --format=prettyjson "$BQ_DATASET" 2>/dev/null | python3 -c "
+import sys, json
+ds = json.load(sys.stdin)
+access = ds.get('access', [])
+sa = 'billing-export-bigquery@system.gserviceaccount.com'
+if not any(a.get('userByEmail')==sa and a.get('role')=='WRITER' for a in access):
+    access.append({'role':'WRITER','userByEmail':sa})
+ds['access'] = access
+json.dump(ds, sys.stdout)
+") "$BQ_DATASET" 2>/dev/null || warn "Could not update BQ dataset permissions"
+
+  warn "Enable billing export in Console: https://console.cloud.google.com/billing/${BILLING_ACCOUNT}/export"
+  warn "Select project: $PROJECT_ID, dataset: $BQ_DATASET"
+else
+  warn "bq CLI not found — skipping BigQuery billing export setup"
+  warn "Run tools/setup_billing_export.sh later to enable cost tracking"
+fi
 
 # =========================================
 # PHASE 2 — Firebase
@@ -722,7 +767,7 @@ gcloud run deploy "cp-unified" \
   --region "$REGION" \
   --service-account "$PROVISIONER_SA" \
   --allow-unauthenticated \
-  --update-env-vars "^~^NODE_ENV=production~FIREBASE_PROJECT_ID=$PROJECT_ID~GCP_PROJECT_ID=$PROJECT_ID~BILLING_ACCOUNT_ID=$BILLING_ACCOUNT~CORS_ORIGIN=$CORS_ORIGINS~ADMINS=$ADMIN_EMAIL~GCP_CONTROL_PLANE_PROJECT_NUMBER=$PROJECT_NUMBER~GITHUB_OWNER=$GITHUB_OWNER${FIREBASE_API_KEY:+~FIREBASE_API_KEY=$FIREBASE_API_KEY}" \
+  --update-env-vars "^~^NODE_ENV=production~FIREBASE_PROJECT_ID=$PROJECT_ID~GCP_PROJECT_ID=$PROJECT_ID~BILLING_ACCOUNT_ID=$BILLING_ACCOUNT~CORS_ORIGIN=$CORS_ORIGINS~ADMINS=$ADMIN_EMAIL~GCP_CONTROL_PLANE_PROJECT_NUMBER=$PROJECT_NUMBER~GITHUB_OWNER=$GITHUB_OWNER${FIREBASE_API_KEY:+~FIREBASE_API_KEY=$FIREBASE_API_KEY}~BILLING_BQ_PROJECT=${BILLING_BQ_PROJECT:-$PROJECT_ID}~BILLING_BQ_DATASET=${BQ_DATASET:-billing_export}~BILLING_BQ_TABLE=${BQ_TABLE:-}" \
   --quiet
 ok "Production service deployed"
 
@@ -747,7 +792,7 @@ gcloud run deploy "cp-unified-qa" \
   --region "$REGION" \
   --service-account "$PROVISIONER_SA" \
   --allow-unauthenticated \
-  --update-env-vars "^~^NODE_ENV=production~FIREBASE_PROJECT_ID=$PROJECT_ID~GCP_PROJECT_ID=$PROJECT_ID~BILLING_ACCOUNT_ID=$BILLING_ACCOUNT~CORS_ORIGIN=$CORS_ORIGINS~ADMINS=$ADMIN_EMAIL~GCP_CONTROL_PLANE_PROJECT_NUMBER=$PROJECT_NUMBER~GITHUB_OWNER=$GITHUB_OWNER${FIREBASE_API_KEY:+~FIREBASE_API_KEY=$FIREBASE_API_KEY}" \
+  --update-env-vars "^~^NODE_ENV=production~FIREBASE_PROJECT_ID=$PROJECT_ID~GCP_PROJECT_ID=$PROJECT_ID~BILLING_ACCOUNT_ID=$BILLING_ACCOUNT~CORS_ORIGIN=$CORS_ORIGINS~ADMINS=$ADMIN_EMAIL~GCP_CONTROL_PLANE_PROJECT_NUMBER=$PROJECT_NUMBER~GITHUB_OWNER=$GITHUB_OWNER${FIREBASE_API_KEY:+~FIREBASE_API_KEY=$FIREBASE_API_KEY}~BILLING_BQ_PROJECT=${BILLING_BQ_PROJECT:-$PROJECT_ID}~BILLING_BQ_DATASET=${BQ_DATASET:-billing_export}~BILLING_BQ_TABLE=${BQ_TABLE:-}" \
   --quiet
 ok "QA service deployed"
 
@@ -888,6 +933,9 @@ print(base64.b64encode(sealed).decode('utf-8'))
     set_github_secret "DEPLOYER_SA" "$DEPLOYER_SA"
     set_github_secret "GCP_CONTROL_PLANE_PROJECT_NUMBER" "$PROJECT_NUMBER"
     set_github_secret "BILLING_ACCOUNT_ID" "$BILLING_ACCOUNT"
+    set_github_secret "BILLING_BQ_PROJECT" "${BILLING_BQ_PROJECT:-$PROJECT_ID}"
+    set_github_secret "BILLING_BQ_DATASET" "${BQ_DATASET:-billing_export}"
+    set_github_secret "BILLING_BQ_TABLE" "${BQ_TABLE:-}"
     set_github_secret "ADMINS" "$ADMIN_EMAIL"
     if [ -n "$FIREBASE_API_KEY" ]; then
       set_github_secret "FIREBASE_API_KEY" "$FIREBASE_API_KEY"
@@ -906,6 +954,9 @@ else
   echo "  DEPLOYER_SA                      = $DEPLOYER_SA"
   echo "  GCP_CONTROL_PLANE_PROJECT_NUMBER = $PROJECT_NUMBER"
   echo "  BILLING_ACCOUNT_ID               = $BILLING_ACCOUNT"
+  echo "  BILLING_BQ_PROJECT               = ${BILLING_BQ_PROJECT:-$PROJECT_ID}"
+  echo "  BILLING_BQ_DATASET               = ${BQ_DATASET:-billing_export}"
+  echo "  BILLING_BQ_TABLE                 = ${BQ_TABLE:-<run setup_billing_export.sh>}"
   echo "  ADMINS                           = $ADMIN_EMAIL"
   echo "  FIREBASE_API_KEY                 = ${FIREBASE_API_KEY:-<not available>}"
 fi

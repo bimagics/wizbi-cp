@@ -223,6 +223,40 @@ paths:
         '202':
           description: Provisioning restarted
 
+  /projects/{id}/billing:
+    get:
+      tags: [Projects]
+      summary: Get billing info and cost for a project
+      description: Returns billing account info from Cloud Billing API and monthly cost from BigQuery billing export (if configured)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Billing data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  billingAccountId: { type: string, nullable: true }
+                  billingEnabled: { type: boolean }
+                  billingConsoleUrl: { type: string }
+                  costThisMonth: { type: number, nullable: true }
+                  costLastMonth: { type: number, nullable: true }
+                  currency: { type: string }
+                  billingExportAvailable: { type: boolean }
+                  topServices:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        service: { type: string }
+                        cost: { type: number }
+
   /projects/{id}/links:
     post:
       tags: [Projects]

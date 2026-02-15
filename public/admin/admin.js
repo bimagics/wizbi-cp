@@ -272,7 +272,34 @@ document.addEventListener('firebase-config-loaded', () => {
             }
             return generateProjectRowHTML(projectWithOrg);
         }).join('');
+        // Lazy-load cost data for ready projects
+        loadProjectCosts(projects.filter(p => p.state === 'ready'));
     }
+
+    async function loadProjectCosts(projects) {
+        for (const p of projects) {
+            try {
+                const data = await callApi(`/projects/${p.id}/billing`);
+                const badge = document.getElementById(`cost-${p.id}`);
+                if (!badge) continue;
+                if (data.costThisMonth !== null && data.costThisMonth !== undefined) {
+                    const cost = data.costThisMonth;
+                    const symbol = data.currency === 'ILS' ? '₪' : '$';
+                    badge.textContent = `${symbol}${cost.toFixed(2)}`;
+                    badge.classList.add(cost > 50 ? 'cost-high' : cost > 10 ? 'cost-medium' : 'cost-low');
+                    badge.title = `This month: ${symbol}${cost.toFixed(2)}` +
+                        (data.costLastMonth != null ? ` | Last month: ${symbol}${data.costLastMonth.toFixed(2)}` : '');
+                } else {
+                    badge.textContent = '—';
+                    badge.title = data.billingExportAvailable === false
+                        ? 'Billing export not configured' : 'No cost data';
+                }
+            } catch (e) {
+                // Silently skip—cost badge stays as "—"
+            }
+        }
+    }
+
 
     function generateProjectRowHTML(p) {
         const state = p.state || 'N/A';
@@ -314,10 +341,13 @@ document.addEventListener('firebase-config-loaded', () => {
                     ${p.gcpProjectId ? `<a href="https://console.firebase.google.com/project/${p.gcpProjectId}" target="_blank" class="icon-button" title="Firebase Console">${ICONS.FIREBASE}</a>` : ''}
                     ${p.githubRepoUrl ? `<a href="${p.githubRepoUrl}" target="_blank" class="icon-button" title="GitHub Repo">${ICONS.GITHUB}</a>` : ''}
                     ${p.gcpProjectId ? `<a href="https://console.cloud.google.com/run?project=${p.gcpProjectId}" target="_blank" class="icon-button" title="Cloud Run Services">${ICONS.CLOUDRUN}</a>` : ''}
+                    ${p.gcpProjectId ? `<a href="https://console.cloud.google.com/billing/linkedaccount?project=${p.gcpProjectId}" target="_blank" class="icon-button" title="GCP Billing">${ICONS.BILLING}</a>` : ''}
                     ${isReady ? `<a href="https://${p.id}.web.app" target="_blank" class="icon-button" title="Production Site">${ICONS.EXTERNAL_LINK}</a>` : ''}
                     ${isReady ? `<a href="https://${p.id}-qa.web.app" target="_blank" class="icon-button" title="QA Site" style="color: var(--warning-color);">${ICONS.EXTERNAL_LINK}</a>` : ''}
                     ${externalLinksHtml}
-                </div></td>
+                </div>
+                <span class="cost-badge" id="cost-${p.id}" title="Monthly GCP cost">—</span>
+                </td>
                 <td data-label="Created">${createdDateTime}</td>
                 <td data-label="Actions" class="actions-cell"><div class="actions-cell-content">
                     <button class="icon-button" data-action="add-link" data-id="${p.id}" title="Add External Link">${ICONS.PLUS}</button>

@@ -86,7 +86,7 @@ jobs:
             --region "${{ env.REGION }}" \
             --service-account "wizbi-provisioner@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
             --allow-unauthenticated \
-            --update-env-vars "^~^NODE_ENV=production~FIREBASE_PROJECT_ID=${{ env.PROJECT_ID }}~GCP_PROJECT_ID=${{ env.PROJECT_ID }}~BILLING_ACCOUNT_ID=${{ secrets.BILLING_ACCOUNT_ID }}~CORS_ORIGIN=https://${{ env.PROJECT_ID }}.web.app,https://${{ env.PROJECT_ID }}-qa.web.app,https://${{ env.PROJECT_ID }}.firebaseapp.com,https://${{ env.PROJECT_ID }}-qa.firebaseapp.com~ADMINS=${{ secrets.ADMINS }}~GCP_CONTROL_PLANE_PROJECT_NUMBER=${{ secrets.GCP_CONTROL_PLANE_PROJECT_NUMBER }}~GITHUB_OWNER=${{ github.repository_owner }}~FIREBASE_API_KEY=${{ secrets.FIREBASE_API_KEY }}"
+            --update-env-vars "^~^NODE_ENV=production~FIREBASE_PROJECT_ID=${{ env.PROJECT_ID }}~GCP_PROJECT_ID=${{ env.PROJECT_ID }}~BILLING_ACCOUNT_ID=${{ secrets.BILLING_ACCOUNT_ID }}~CORS_ORIGIN=https://${{ env.PROJECT_ID }}.web.app,https://${{ env.PROJECT_ID }}-qa.web.app,https://${{ env.PROJECT_ID }}.firebaseapp.com,https://${{ env.PROJECT_ID }}-qa.firebaseapp.com~ADMINS=${{ secrets.ADMINS }}~GCP_CONTROL_PLANE_PROJECT_NUMBER=${{ secrets.GCP_CONTROL_PLANE_PROJECT_NUMBER }}~GITHUB_OWNER=${{ github.repository_owner }}~FIREBASE_API_KEY=${{ secrets.FIREBASE_API_KEY }}~BILLING_BQ_PROJECT=${{ secrets.BILLING_BQ_PROJECT }}~BILLING_BQ_DATASET=${{ secrets.BILLING_BQ_DATASET }}~BILLING_BQ_TABLE=${{ secrets.BILLING_BQ_TABLE }}"
 
   deploy-hosting:
     name: Deploy Hosting + Verify

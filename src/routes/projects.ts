@@ -6,6 +6,7 @@ import admin from 'firebase-admin';
 import { getDb } from '../services/firebaseAdmin';
 import * as GcpService from '../services/gcp';
 import * as GithubService from '../services/github';
+import * as BillingService from '../services/billing';
 import { requireAuth, requireAdminAuth, log, AuthenticatedRequest } from '../middleware/auth';
 
 class BillingError extends Error {
@@ -298,6 +299,22 @@ router.delete('/projects/:id', requireAdminAuth, async (req: Request, res: Respo
     } catch (e: any) {
         await plog('project.delete.initial_error', { error: (e as Error).message });
         res.status(500).json({ ok: false, error: 'Failed to start project deletion.' });
+    }
+});
+
+// --- Billing info for a project ---
+router.get('/projects/:id/billing', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+    const { id } = req.params;
+    try {
+        const doc = await PROJECTS_COLLECTION.doc(id).get();
+        if (!doc.exists) return res.status(404).json({ ok: false, error: 'Project not found' });
+
+        const gcpProjectId = doc.data()?.gcpProjectId || id;
+        const data = await BillingService.getFullBillingData(gcpProjectId);
+        res.json({ ok: true, ...data });
+    } catch (e: any) {
+        log('billing.route.error', { id, error: e.message });
+        res.status(500).json({ ok: false, error: 'Failed to fetch billing data' });
     }
 });
 

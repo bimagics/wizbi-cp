@@ -9,6 +9,8 @@ import admin from 'firebase-admin';
 import * as GcpService from '../services/gcp';
 import * as GithubService from '../services/github';
 
+import * as BillingService from '../services/billing';
+
 const db = getDb();
 const PROJECTS = db.collection('projects');
 const ORGS = db.collection('orgs');
@@ -340,6 +342,26 @@ export function registerTools(server: McpServer): void {
                 return { content: [{ type: 'text' as const, text: JSON.stringify({ ok: true, ts: new Date().toISOString(), firestore: 'connected' }) }] };
             } catch (e: any) {
                 return { content: [{ type: 'text' as const, text: `Health check failed: ${e.message}` }], isError: true };
+            }
+        }
+    );
+
+    // ─── Billing ─────────────────────────────────────────────
+
+    server.tool(
+        'get_project_billing',
+        'Get billing information and monthly cost for a GCP project',
+        { id: z.string().describe('Project ID') },
+        async ({ id }) => {
+            toolLog('get_project_billing', { id });
+            const doc = await PROJECTS.doc(id).get();
+            if (!doc.exists) return { content: [{ type: 'text' as const, text: 'Error: Project not found.' }], isError: true };
+            const gcpProjectId = doc.data()?.gcpProjectId || id;
+            try {
+                const data = await BillingService.getFullBillingData(gcpProjectId);
+                return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] };
+            } catch (e: any) {
+                return { content: [{ type: 'text' as const, text: `Error: ${e.message}` }], isError: true };
             }
         }
     );
