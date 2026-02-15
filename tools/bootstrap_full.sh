@@ -348,6 +348,15 @@ if [ -n "$OP_NAME" ] && [ "$OP_NAME" != "null" ]; then
 fi
 ok "Firebase added"
 
+step "Creating Firestore database"
+# The app requires Firestore for user profiles, projects, and settings.
+# Without this, ALL /api/* endpoints that touch Firestore will return 500.
+gcloud firestore databases create \
+  --location="$REGION" \
+  --project="$PROJECT_ID" \
+  --quiet 2>/dev/null || true
+ok "Firestore database ready"
+
 step "Creating Firebase Web App"
 # A Web App is needed to get the API key and appId for Firebase Auth
 WEB_APP_CREATE_RESULT=$(curl -s -X POST -H "Authorization: Bearer $TOKEN" \
