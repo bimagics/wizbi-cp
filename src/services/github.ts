@@ -204,13 +204,14 @@ export async function createGithubRepoFromTemplate(project: ProjectData, teamSlu
     await client.git.createRef({ owner: GITHUB_OWNER, repo: newRepoName, ref: 'refs/heads/dev', sha: mainBranch.object.sha });
     log('github.branch.dev.create.success', { repoName: newRepoName });
 
-    const filesToCustomize = ['README.md', 'firebase.json', '.env.example'];
+    const filesToCustomize = ['README.md', 'firebase.json', '.env.example', 'package.json', 'package-lock.json', 'public/index.html'];
     const branchesToUpdate = ['main', 'dev'];
 
     log('github.repo.customize.start', { repoName: repo.name, files: filesToCustomize, branches: branchesToUpdate });
+    const replacements = { ...project, githubRepoUrl: repo.html_url };
     for (const branch of branchesToUpdate) {
         for (const file of filesToCustomize) {
-            await customizeFileContent(repo.name, file, project, branch);
+            await customizeFileContent(repo.name, file, replacements, branch);
         }
     }
     log('github.repo.customize.success', { repoName: repo.name });
@@ -229,9 +230,11 @@ async function customizeFileContent(repoName: string, filePath: string, replacem
         let content = Buffer.from(file.content, 'base64').toString('utf8');
         let originalContent = content;
 
-        if (filePath === 'package.json' && replacements.name) {
+        if ((filePath === 'package.json' || filePath === 'package-lock.json') && replacements.id) {
             const pkg = JSON.parse(content);
-            pkg.name = replacements.name;
+            pkg.name = replacements.id;
+            // package-lock.json also has the name in packages[""]
+            if (pkg.packages?.['']) pkg.packages[''].name = replacements.id;
             content = JSON.stringify(pkg, null, 2);
         } else {
             if (replacements.id) content = content.replace(/\{\{PROJECT_ID\}\}/g, replacements.id);
