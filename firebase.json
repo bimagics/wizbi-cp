@@ -23,6 +23,13 @@
           ]
         }
       ],
+      "redirects": [
+        {
+          "source": "/",
+          "destination": "/admin/",
+          "type": 302
+        }
+      ],
       "rewrites": [
         {
           "source": "/admin/**",
@@ -58,6 +65,13 @@
               "value": "same-origin-allow-popups"
             }
           ]
+        }
+      ],
+      "redirects": [
+        {
+          "source": "/",
+          "destination": "/admin/",
+          "type": 302
         }
       ],
       "rewrites": [

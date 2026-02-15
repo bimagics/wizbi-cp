@@ -357,6 +357,40 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" \
   "https://firebasehosting.googleapis.com/v1beta1/projects/$PROJECT_ID/sites?siteId=${HOSTING_SITE}-qa" >/dev/null 2>&1 || true
 ok "Hosting sites: ${HOSTING_SITE}, ${HOSTING_SITE}-qa"
 
+step "Configuring Firebase Authentication"
+# Enable Google Sign-In provider via Identity Toolkit API
+# x-goog-user-project is required because Cloud Shell's host project differs from the target project
+AUTH_TOKEN=$(gcloud auth print-access-token)
+
+# Set authorized domains for Firebase Auth
+curl -s -X PATCH \
+  "https://identitytoolkit.googleapis.com/admin/v2/projects/${PROJECT_ID}/config?updateMask=authorizedDomains" \
+  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "x-goog-user-project: ${PROJECT_ID}" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"authorizedDomains\": [
+      \"localhost\",
+      \"${HOSTING_SITE}.firebaseapp.com\",
+      \"${HOSTING_SITE}.web.app\",
+      \"${HOSTING_SITE}-qa.firebaseapp.com\",
+      \"${HOSTING_SITE}-qa.web.app\"
+    ]
+  }" > /dev/null 2>&1 || true
+
+# Enable Google as an identity provider
+curl -s -X POST \
+  "https://identitytoolkit.googleapis.com/v2/projects/${PROJECT_ID}/defaultSupportedIdpConfigs?idpId=google.com" \
+  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "x-goog-user-project: ${PROJECT_ID}" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"name\": \"projects/${PROJECT_ID}/defaultSupportedIdpConfigs/google.com\",
+    \"enabled\": true
+  }" > /dev/null 2>&1 || true
+
+ok "Firebase Auth configured (Google Sign-In enabled)"
+
 # =========================================
 # PHASE 3 — Secrets (requires billing for Secret Manager)
 # =========================================
@@ -551,6 +585,9 @@ cat > firebase.json <<FIREBASE_EOF
           ]
         }
       ],
+      "redirects": [
+        { "source": "/", "destination": "/admin/", "type": 302 }
+      ],
       "rewrites": [
         { "source": "/admin/**", "destination": "/admin/index.html" },
         { "source": "/api/**", "run": { "serviceId": "cp-unified", "region": "${REGION}" } }
@@ -568,6 +605,9 @@ cat > firebase.json <<FIREBASE_EOF
             { "key": "Cross-Origin-Opener-Policy", "value": "same-origin-allow-popups" }
           ]
         }
+      ],
+      "redirects": [
+        { "source": "/", "destination": "/admin/", "type": 302 }
       ],
       "rewrites": [
         { "source": "/admin/**", "destination": "/admin/index.html" },
