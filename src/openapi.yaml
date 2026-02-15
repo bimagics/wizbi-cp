@@ -37,7 +37,6 @@ components:
       properties:
         id: { type: string }
         name: { type: string }
-        phone: { type: string }
         gcpFolderId: { type: string }
         githubTeamSlug: { type: string }
         createdAt: { type: string, format: date-time }
@@ -128,7 +127,6 @@ paths:
               required: [name]
               properties:
                 name: { type: string }
-                phone: { type: string }
       responses:
         '201':
           description: Organization created

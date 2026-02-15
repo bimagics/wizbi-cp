@@ -376,7 +376,7 @@ document.addEventListener('firebase-config-loaded', () => {
         const tbody = document.getElementById('orgsTable').querySelector('tbody');
         tbody.innerHTML = orgs.length === 0 ? `<tr><td colspan="5">No organizations found.</td></tr>` : orgs.map(org => `
             <tr>
-                <td data-label="Name">${org.name}</td> <td data-label="ID">${org.id}</td> <td data-label="Phone">${org.phone || 'N/A'}</td>
+                <td data-label="Name">${org.name}</td> <td data-label="ID">${org.id}</td>
                 <td data-label="Created">${new Date(org.createdAt).toLocaleDateString()}</td>
                 <td data-label="Actions" class="actions-cell"><div class="actions-cell-content">
                    ${userProfile.roles?.superAdmin ? `<button class="icon-button delete" data-type="org" data-id="${org.id}" data-name="${org.name}" title="Delete Organization">${ICONS.DELETE}</button>` : ''}
@@ -415,7 +415,7 @@ document.addEventListener('firebase-config-loaded', () => {
         const name = e.target.elements.orgName.value.trim();
         if (!name) return;
         try {
-            await callApi('/orgs', { method: 'POST', body: JSON.stringify({ name, phone: e.target.elements.orgPhone.value.trim() }) });
+            await callApi('/orgs', { method: 'POST', body: JSON.stringify({ name }) });
             e.target.reset(); document.getElementById('formCreateOrgCard').classList.add('hidden'); await loadOrgs();
         } catch (error) { alert(`Error: ${error.message}`); }
     });

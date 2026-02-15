@@ -35,21 +35,31 @@ Thank you for your interest in contributing! 🎉
 
 ```
 src/
-├── index.ts          # Express server entry point
-├── routes/           # API route handlers
-│   ├── health.ts     # Health check + Firebase config
-│   ├── user.ts       # User profile & roles
-│   ├── projects.ts   # Project CRUD + provisioning
-│   ├── orgs.ts       # Organization management
-│   ├── github.ts     # Template repository management
-│   └── settings.ts   # Secret management
-├── services/         # Core business logic
-│   ├── gcp.ts        # GCP provisioning (projects, IAM, Cloud Run)
-│   ├── github.ts     # GitHub API integration
+├── index.ts              # Express server entry point
+├── openapi.yaml          # OpenAPI 3.1 specification
+├── middleware/
+│   └── auth.ts           # Unified auth (Firebase Token + API Key)
+├── routes/               # API route handlers
+│   ├── health.ts         # Health check + Firebase config
+│   ├── user.ts           # User profile & roles
+│   ├── projects.ts       # Project CRUD + provisioning
+│   ├── orgs.ts           # Organization management
+│   ├── github.ts         # Template management
+│   ├── github-setup.ts   # GitHub App creation wizard
+│   ├── settings.ts       # Secrets management
+│   └── api-keys.ts       # API key management
+├── services/             # Core business logic
+│   ├── gcp.ts            # GCP provisioning engine
+│   ├── github.ts         # GitHub API integration
+│   ├── billing.ts        # Cost tracking (Cloud Billing + BigQuery)
 │   ├── firebaseAdmin.ts  # Firebase Admin SDK init
-│   ├── secrets.ts    # Secret Manager access
-│   └── gcp_legacy.ts # Legacy GCP functions
-└── types/            # TypeScript type definitions
+│   ├── secrets.ts        # Secret Manager wrapper
+│   └── gcp_legacy.ts     # GCP folder operations
+├── mcp/                  # Model Context Protocol server
+│   ├── index.ts          # SSE transport + session management
+│   ├── tools.ts          # AI agent tools
+│   └── resources.ts      # Read-only resources
+└── types/                # TypeScript type definitions
 ```
 
 ## Deployment

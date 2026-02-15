@@ -45,7 +45,7 @@ router.get('/orgs', requireAuth, async (req: Request, res: Response) => {
 router.post('/orgs', requireAdminAuth, async (req: Request, res: Response) => {
     log('orgs.create.received', { body: req.body });
     try {
-        const { name, phone } = req.body || {};
+        const { name } = req.body || {};
         if (!name) return res.status(400).json({ ok: false, error: 'missing-name' });
 
         // GCP folder and GitHub team are optional — skip if not configured
@@ -70,7 +70,6 @@ router.post('/orgs', requireAdminAuth, async (req: Request, res: Response) => {
         log('orgs.create.firestore.start', { name });
         const docRef = await getDb().collection(ORGS_COLLECTION).add({
             name,
-            phone,
             ...(gcpFolderId && { gcpFolderId }),
             ...(githubTeamId && { githubTeamId }),
             ...(githubTeamSlug && { githubTeamSlug }),

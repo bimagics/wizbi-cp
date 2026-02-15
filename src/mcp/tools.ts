@@ -41,8 +41,8 @@ export function registerTools(server: McpServer): void {
     server.tool(
         'create_organization',
         'Create a new organization with GCP folder and GitHub team',
-        { name: z.string().describe('Organization name'), phone: z.string().optional().describe('Contact phone number') },
-        async ({ name, phone }) => {
+        { name: z.string().describe('Organization name') },
+        async ({ name }) => {
             toolLog('create_organization', { name });
             let gcpFolderId: string | undefined;
             let githubTeamId: number | undefined;
@@ -59,7 +59,7 @@ export function registerTools(server: McpServer): void {
             }
 
             const docRef = await ORGS.add({
-                name, phone,
+                name,
                 ...(gcpFolderId && { gcpFolderId }),
                 ...(githubTeamId && { githubTeamId }),
                 ...(githubTeamSlug && { githubTeamSlug }),

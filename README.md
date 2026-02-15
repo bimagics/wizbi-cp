@@ -149,6 +149,9 @@ Otherwise, set them manually under **Settings → Secrets → Actions**:
 | `GCP_CONTROL_PLANE_PROJECT_NUMBER` | Project number |
 | `BILLING_ACCOUNT_ID` | Billing account ID |
 | `ADMINS` | Comma-separated admin emails |
+| `BILLING_BQ_PROJECT` | BigQuery project for billing data |
+| `BILLING_BQ_DATASET` | BigQuery billing dataset |
+| `BILLING_BQ_TABLE` | BigQuery billing export table |
 
 ---
 
@@ -164,35 +167,66 @@ The Admin Panel auto-discovers all `template-*` repos in your org.
 
 ---
 
+## API & MCP Server
+
+| Interface | URL | Description |
+|-----------|-----|-------------|
+| REST API | `/api/*` | Full CRUD for all resources |
+| Swagger UI | `/api/docs` | Interactive API documentation |
+| OpenAPI Spec | `/api/openapi.json` | Machine-readable API spec |
+| MCP Server | `/api/mcp/sse` | AI agent interface (SSE transport) |
+
+Authentication via `X-API-Key` header or `Authorization: Bearer <firebase-token>`.
+
+Generate API keys in the Admin Panel or via `POST /api/api-keys`.
+
+---
+
 ## Project Structure
 
 ```
 ├── src/
 │   ├── index.ts              # Express server, CORS, routes
+│   ├── openapi.yaml          # OpenAPI 3.1 specification
+│   ├── middleware/
+│   │   └── auth.ts           # Unified auth (Firebase Token + API Key)
 │   ├── routes/
-│   │   ├── health.ts         # Health check
+│   │   ├── health.ts         # Health check + Firebase config
 │   │   ├── user.ts           # User profile & roles
 │   │   ├── projects.ts       # Project CRUD & provisioning
 │   │   ├── orgs.ts           # Organization management
 │   │   ├── github.ts         # Template management
-│   │   └── settings.ts       # Secrets & config
-│   └── services/
-│       ├── firebaseAdmin.ts  # Firebase Admin SDK init
-│       ├── gcp.ts            # GCP provisioning engine
-│       ├── gcp_legacy.ts     # GCP folder operations
-│       ├── github.ts         # GitHub API integration
-│       └── secrets.ts        # Secret Manager wrapper
+│   │   ├── github-setup.ts   # GitHub App creation wizard
+│   │   ├── settings.ts       # Secrets management
+│   │   └── api-keys.ts       # API key management
+│   ├── services/
+│   │   ├── firebaseAdmin.ts  # Firebase Admin SDK init
+│   │   ├── gcp.ts            # GCP provisioning engine
+│   │   ├── gcp_legacy.ts     # GCP folder operations
+│   │   ├── github.ts         # GitHub API integration
+│   │   ├── billing.ts        # Cost tracking (Cloud Billing + BigQuery)
+│   │   └── secrets.ts        # Secret Manager wrapper
+│   └── mcp/                  # Model Context Protocol server
+│       ├── index.ts          # SSE transport + session management
+│       ├── tools.ts          # 15+ tools for AI agents
+│       └── resources.ts      # Read-only resources for AI context
 ├── public/
 │   ├── index.html            # Landing page
 │   └── admin/                # Admin Panel (HTML/CSS/JS)
 ├── tools/
 │   ├── bootstrap_full.sh     # One-click setup wizard
+│   ├── setup_billing_export.sh  # BigQuery billing export setup
 │   └── tutorial.md           # Cloud Shell tutorial
 ├── .github/workflows/
 │   └── deploy.yml            # CI/CD pipeline
 ├── Dockerfile                # Multi-stage production build
-└── firebase.json             # Hosting config (targets)
+├── firebase.json             # Hosting config (targets)
+├── ARCHITECTURE.md           # Detailed technical architecture
+└── AGENTS.md                 # AI agent context file
 ```
+
+For detailed architecture documentation, see [ARCHITECTURE.md](ARCHITECTURE.md).
+For AI agent integration guidance, see [AGENTS.md](AGENTS.md).
 
 ---
 
