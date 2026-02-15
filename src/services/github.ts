@@ -14,6 +14,12 @@ let octokit: Octokit | null = null;
 let octokitCreatedAt = 0;
 const TOKEN_TTL_MS = 50 * 60 * 1000; // Refresh after 50 min (tokens expire at 60 min)
 
+/** Force the GitHub client to re-authenticate on next call (e.g. after new credentials are stored) */
+export function resetGitHubClient(): void {
+    octokit = null;
+    octokitCreatedAt = 0;
+}
+
 // --- Interfaces ---
 interface GitHubTeam { id: number; slug: string; }
 interface GitHubRepo { name: string; url: string; }

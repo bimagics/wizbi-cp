@@ -8,6 +8,7 @@ import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
 import crypto from 'crypto';
 import { requireAdminAuth, log } from './projects';
 import { clearSecretCache } from '../services/secrets';
+import { resetGitHubClient } from '../services/github';
 
 const router = Router();
 const secretClient = new SecretManagerServiceClient();
@@ -198,6 +199,7 @@ router.get('/github/setup/callback', async (req: Request, res: Response) => {
 
         // Clear the secret cache so the GitHub service picks up fresh credentials
         clearSecretCache();
+        resetGitHubClient();
 
         // Build the install URL so the user can install the app on their org
         const installUrl = `https://github.com/apps/${appSlug}/installations/new`;
