@@ -272,7 +272,7 @@ export async function* chat(
 
     const vertexAI = new VertexAI({ project: projectId, location });
     const model = vertexAI.getGenerativeModel({
-        model: 'gemini-2.0-flash',
+        model: 'gemini-2.5-flash',
         systemInstruction: { role: 'system', parts: [{ text: SYSTEM_INSTRUCTION }] },
         tools: toGeminiFunctionDeclarations(),
     });
