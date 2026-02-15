@@ -309,17 +309,28 @@ gcloud iam service-accounts create wizbi-provisioner --display-name="WIZBI Provi
 gcloud iam service-accounts create wizbi-factory     --display-name="WIZBI Project Factory" 2>/dev/null || true
 ok "Service Accounts created"
 
-step "Granting IAM roles (parallel)"
+step "Granting IAM roles"
+grant_role() {
+  local sa="$1" role="$2"
+  if ! gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$sa" --role="$role" --quiet --no-user-output-enabled 2>/dev/null; then
+    warn "Failed to grant $role to $sa — will retry"
+    sleep 5
+    gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$sa" --role="$role" --quiet --no-user-output-enabled || warn "Retry failed for $role"
+  fi
+}
+
+echo "  Granting deployer roles..."
 for ROLE in roles/run.admin roles/artifactregistry.writer roles/cloudbuild.builds.editor roles/iam.serviceAccountTokenCreator roles/secretmanager.secretAccessor roles/firebasehosting.admin roles/iam.serviceAccountUser; do
-  gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$DEPLOYER_SA" --role="$ROLE" --quiet --no-user-output-enabled 2>/dev/null &
+  grant_role "$DEPLOYER_SA" "$ROLE"
 done
+echo "  Granting provisioner roles..."
 for ROLE in roles/secretmanager.secretAccessor roles/secretmanager.secretVersionAdder roles/datastore.owner roles/iam.workloadIdentityPoolAdmin roles/firebase.admin roles/serviceusage.serviceUsageAdmin roles/iam.serviceAccountAdmin roles/resourcemanager.projectCreator; do
-  gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$PROVISIONER_SA" --role="$ROLE" --quiet --no-user-output-enabled 2>/dev/null &
+  grant_role "$PROVISIONER_SA" "$ROLE"
 done
+echo "  Granting factory roles..."
 for ROLE in roles/resourcemanager.projectCreator roles/billing.user roles/serviceusage.serviceUsageAdmin; do
-  gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$FACTORY_SA" --role="$ROLE" --quiet --no-user-output-enabled 2>/dev/null &
+  grant_role "$FACTORY_SA" "$ROLE"
 done
-wait
 ok "IAM roles granted"
 
 step "Setting up Workload Identity Federation for GitHub Actions"
@@ -744,9 +755,14 @@ FIREBASE_EOF
 ok "firebase.json updated with region: $REGION"
 
 step "Deploying Firebase Hosting"
-# Firebase CLI auto-detects gcloud credentials in Cloud Shell.
-# Use GOOGLE_APPLICATION_CREDENTIALS or gcloud auth for Firebase CLI auth.
+# Ensure Firebase CLI is authenticated
 export FIREBASE_CLI_EXPERIMENTS=webframeworks 2>/dev/null || true
+
+# Test Firebase auth — if it fails, prompt for login
+if ! firebase projects:list 2>/dev/null | grep -q "$PROJECT_ID"; then
+  echo "  Firebase CLI needs authentication..."
+  firebase login --no-localhost
+fi
 
 # Map Firebase targets to actual hosting sites
 firebase target:apply hosting production "${HOSTING_SITE}" --project "$PROJECT_ID" 2>/dev/null || true
