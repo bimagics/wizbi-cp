@@ -211,6 +211,7 @@ if [ -n "$BILLING_ACCOUNT" ]; then
     cloudbilling.googleapis.com \
     firebasehosting.googleapis.com \
     apikeys.googleapis.com \
+    iap.googleapis.com \
     --quiet
   ok "All APIs enabled"
 else
@@ -234,12 +235,12 @@ step "Granting Cloud Build SA permissions"
 PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
 COMPUTE_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
 if [ -n "$BILLING_ACCOUNT" ]; then
+  # Run sequentially — concurrent gcloud calls corrupt Cloud Shell auth state
   for ROLE in roles/storage.admin roles/artifactregistry.writer roles/artifactregistry.repoAdmin roles/logging.logWriter roles/cloudbuild.builds.builder; do
     gcloud projects add-iam-policy-binding "$PROJECT_ID" \
       --member="serviceAccount:$COMPUTE_SA" \
-      --role="$ROLE" --quiet --no-user-output-enabled 2>/dev/null &
+      --role="$ROLE" --quiet --no-user-output-enabled 2>/dev/null || true
   done
-  wait
   ok "Cloud Build SA permissions granted"
 else
   warn "Cloud Build SA permissions skipped (no billing)"
@@ -433,50 +434,98 @@ curl -s -X PATCH \
   -H "Content-Type: application/json" \
   -d '{"signIn":{"email":{"enabled":false}}}' > /dev/null 2>&1 || true
 
-# Step 2: Enable Google Sign-In provider
-# Google Sign-In requires a real OAuth client ID. Firebase Console auto-creates one,
-# but via the API we need to find the auto-created OAuth client.
-echo "  Looking for OAuth web client..."
-OAUTH_CLIENT_ID=""
-
-# Try to find the auto-created web client via API Keys (Firebase creates one with the web app)
-if [ -n "$FIREBASE_WEB_APP_ID" ]; then
-  # Get the web app config which includes the OAuth client ID used
-  WA_CONFIG=$(curl -s -H "Authorization: Bearer $AUTH_TOKEN" \
-    "https://firebase.googleapis.com/v1beta1/projects/${PROJECT_ID}/webApps/${FIREBASE_WEB_APP_ID}/config" 2>/dev/null || echo '{}')
-  # The authDomain's project will have auto-created OAuth clients
-fi
-
-# List existing API keys — one of them will be the Browser key
-BROWSER_KEY_NAME=$(gcloud services api-keys list --project="$PROJECT_ID" \
-  --format='value(name)' 2>/dev/null | head -1 || echo "")
-if [ -n "$BROWSER_KEY_NAME" ]; then
-  echo "  Found API key: $BROWSER_KEY_NAME"
-fi
-
-# Try enabling Google IdP — Firebase may auto-fill OAuth credentials
-echo "  Enabling Google Sign-In provider..."
-GOOGLE_IDP_RESULT=$(curl -s -w "\n%{http_code}" -X POST \
-  "https://identitytoolkit.googleapis.com/v2/projects/${PROJECT_ID}/defaultSupportedIdpConfigs?idpId=google.com" \
+# Step 2: Create OAuth brand (consent screen) — required before creating OAuth clients
+echo "  Creating OAuth consent screen..."
+BRAND_RESULT=$(curl -s -w "\n%{http_code}" -X POST \
+  "https://iap.googleapis.com/v1/projects/${PROJECT_NUMBER}/brands" \
   -H "Authorization: Bearer $AUTH_TOKEN" \
-  -H "x-goog-user-project: ${PROJECT_ID}" \
   -H "Content-Type: application/json" \
   -d "{
-    \"name\": \"projects/${PROJECT_ID}/defaultSupportedIdpConfigs/google.com\",
-    \"enabled\": true,
-    \"clientId\": \"${PROJECT_NUMBER}-compute@developer.gserviceaccount.com\",
-    \"clientSecret\": \"placeholder\"
+    \"applicationTitle\": \"WIZBI Control Plane\",
+    \"supportEmail\": \"${ADMIN_EMAIL}\"
   }" 2>/dev/null)
+BRAND_HTTP=$(echo "$BRAND_RESULT" | tail -1)
+if [ "$BRAND_HTTP" = "200" ] || [ "$BRAND_HTTP" = "409" ]; then
+  echo "  OAuth consent screen ready"
+fi
 
-GOOGLE_IDP_HTTP=$(echo "$GOOGLE_IDP_RESULT" | tail -1)
-GOOGLE_IDP_BODY=$(echo "$GOOGLE_IDP_RESULT" | head -n -1)
+# Step 3: Create a real OAuth 2.0 Web Client
+echo "  Creating OAuth Web Client..."
+OAUTH_CLIENT_ID=""
+OAUTH_CLIENT_SECRET=""
 
-if [ "$GOOGLE_IDP_HTTP" = "200" ] || [ "$GOOGLE_IDP_HTTP" = "201" ]; then
-  ok "Google Sign-In enabled via API"
-elif echo "$GOOGLE_IDP_BODY" | grep -q "DUPLICATE_IDP\|ALREADY_EXISTS"; then
-  ok "Google Sign-In already enabled"
+# Try creating via IAP OAuth clients API (most reliable for automation)
+OAUTH_RESULT=$(curl -s -w "\n%{http_code}" -X POST \
+  "https://iap.googleapis.com/v1/projects/${PROJECT_NUMBER}/brands/${PROJECT_NUMBER}/identityAwareProxyClients" \
+  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"displayName\": \"Web Client (WIZBI)\"}" 2>/dev/null)
+OAUTH_HTTP=$(echo "$OAUTH_RESULT" | tail -1)
+OAUTH_BODY=$(echo "$OAUTH_RESULT" | head -n -1)
+
+if [ "$OAUTH_HTTP" = "200" ] || [ "$OAUTH_HTTP" = "201" ]; then
+  # Extract the full client name (projects/123/brands/123/identityAwareProxyClients/CLIENT_ID.apps.googleusercontent.com)
+  IAP_CLIENT_NAME=$(echo "$OAUTH_BODY" | python3 -c "import sys,json; print(json.load(sys.stdin).get('name',''))" 2>/dev/null || echo "")
+  OAUTH_CLIENT_ID=$(echo "$IAP_CLIENT_NAME" | sed 's|.*/||')
+  OAUTH_CLIENT_SECRET=$(echo "$OAUTH_BODY" | python3 -c "import sys,json; print(json.load(sys.stdin).get('secret',''))" 2>/dev/null || echo "")
+fi
+
+# Fallback: Try to find existing OAuth clients (Firebase may auto-create one)
+if [ -z "$OAUTH_CLIENT_ID" ]; then
+  echo "  Looking for existing OAuth clients..."
+  # List OAuth2 clients via the Cloud Console API
+  CLIENTS_RESULT=$(curl -s \
+    "https://oauth2.googleapis.com/v1/projects/${PROJECT_ID}/oauthClients" \
+    -H "Authorization: Bearer $AUTH_TOKEN" 2>/dev/null || echo "{}")
+  
+  # Try gcloud approach
+  EXISTING_CLIENT=$(gcloud alpha iap oauth-clients list "projects/${PROJECT_NUMBER}/brands/${PROJECT_NUMBER}" \
+    --format='value(name)' --project="$PROJECT_ID" 2>/dev/null | head -1 || echo "")
+  if [ -n "$EXISTING_CLIENT" ]; then
+    OAUTH_CLIENT_ID=$(echo "$EXISTING_CLIENT" | sed 's|.*/||')
+    OAUTH_CLIENT_SECRET=$(gcloud alpha iap oauth-clients describe "$EXISTING_CLIENT" \
+      --format='value(secret)' --project="$PROJECT_ID" 2>/dev/null || echo "")
+  fi
+fi
+
+# Step 4: Enable Google Sign-In provider with real OAuth credentials
+echo "  Enabling Google Sign-In provider..."
+GOOGLE_ENABLED=false
+
+if [ -n "$OAUTH_CLIENT_ID" ] && [ -n "$OAUTH_CLIENT_SECRET" ]; then
+  echo "  Using OAuth Client: ${OAUTH_CLIENT_ID:0:20}..."
+  
+  # Try POST first (create), then PATCH (update)
+  for METHOD in POST PATCH; do
+    if [ "$METHOD" = "POST" ]; then
+      IDP_URL="https://identitytoolkit.googleapis.com/v2/projects/${PROJECT_ID}/defaultSupportedIdpConfigs?idpId=google.com"
+    else
+      IDP_URL="https://identitytoolkit.googleapis.com/v2/projects/${PROJECT_ID}/defaultSupportedIdpConfigs/google.com?updateMask=enabled,clientId,clientSecret"
+    fi
+    
+    GOOGLE_IDP_RESULT=$(curl -s -w "\n%{http_code}" -X "$METHOD" "$IDP_URL" \
+      -H "Authorization: Bearer $AUTH_TOKEN" \
+      -H "x-goog-user-project: ${PROJECT_ID}" \
+      -H "Content-Type: application/json" \
+      -d "{
+        \"name\": \"projects/${PROJECT_ID}/defaultSupportedIdpConfigs/google.com\",
+        \"enabled\": true,
+        \"clientId\": \"${OAUTH_CLIENT_ID}\",
+        \"clientSecret\": \"${OAUTH_CLIENT_SECRET}\"
+      }" 2>/dev/null)
+    
+    GOOGLE_IDP_HTTP=$(echo "$GOOGLE_IDP_RESULT" | tail -1)
+    
+    if [ "$GOOGLE_IDP_HTTP" = "200" ] || [ "$GOOGLE_IDP_HTTP" = "201" ]; then
+      GOOGLE_ENABLED=true
+      break
+    fi
+  done
+fi
+
+if [ "$GOOGLE_ENABLED" = "true" ]; then
+  ok "Google Sign-In enabled automatically"
 else
-  echo "  API returned HTTP $GOOGLE_IDP_HTTP — trying Firebase Console approach"
   echo ""
   warn "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   warn "ACTION REQUIRED: Enable Google Sign-In manually (30 seconds):"
