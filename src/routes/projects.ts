@@ -81,7 +81,10 @@ async function fetchUserProfile(req: AuthenticatedRequest, res: Response, next: 
             req.userProfile = userDoc.data() as UserProfile;
         }
         next();
-    } catch (e: any) { res.status(500).json({ error: 'Failed to fetch user profile' }); }
+    } catch (e: any) {
+        console.error(JSON.stringify({ evt: 'user.fetchProfile.error', uid: req.user?.uid, email: req.user?.email, error: e.message, code: e.code }));
+        res.status(500).json({ error: 'Failed to fetch user profile', detail: e.message });
+    }
 }
 
 function requireSuperAdmin(req: AuthenticatedRequest, res: Response, next: NextFunction) {

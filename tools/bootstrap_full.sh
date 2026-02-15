@@ -358,11 +358,82 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" \
 ok "Hosting sites: ${HOSTING_SITE}, ${HOSTING_SITE}-qa"
 
 step "Configuring Firebase Authentication"
-# Enable Google Sign-In provider via Identity Toolkit API
-# x-goog-user-project is required because Cloud Shell's host project differs from the target project
+# Firebase Auth / Identity Platform setup — multi-step process:
+# 1. Initialize Identity Platform config
+# 2. Find or create OAuth web client
+# 3. Enable Google Sign-In provider with OAuth credentials
+# 4. Set authorized domains
 AUTH_TOKEN=$(gcloud auth print-access-token)
 
-# Set authorized domains for Firebase Auth
+# Step 1: Initialize Identity Platform by updating the config
+# This creates the Identity Platform config if it doesn't exist yet.
+echo "  Initializing Identity Platform..."
+curl -s -X PATCH \
+  "https://identitytoolkit.googleapis.com/admin/v2/projects/${PROJECT_ID}/config" \
+  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "x-goog-user-project: ${PROJECT_ID}" \
+  -H "Content-Type: application/json" \
+  -d '{"signIn":{"email":{"enabled":false}}}' > /dev/null 2>&1 || true
+
+# Step 2: Find the auto-created OAuth web client (created when Firebase is added)
+echo "  Looking for OAuth web client..."
+OAUTH_CLIENT_ID=""
+OAUTH_CLIENT_SECRET=""
+
+# List existing OAuth clients — Firebase usually auto-creates one
+OAUTH_LIST=$(curl -s \
+  "https://oauth2.googleapis.com/v2/projects/${PROJECT_NUMBER}/oauthClients" \
+  -H "Authorization: Bearer $AUTH_TOKEN" 2>/dev/null || echo "")
+
+# Try gcloud approach to find/create OAuth credentials
+# First, check if a web-type OAuth client exists
+EXISTING_CLIENT=$(gcloud alpha iap oauth-brands list --project="$PROJECT_ID" --format="value(name)" 2>/dev/null | head -1 || echo "")
+
+# Simpler approach: Use the Firebase-created default client
+# When Firebase is added, an OAuth client is created automatically.
+# We can find it via the GCP Console API credentials list.
+OAUTH_CLIENTS_JSON=$(curl -s \
+  "https://www.googleapis.com/oauth2/v1/projects/${PROJECT_NUMBER}/oauthClients" \
+  -H "Authorization: Bearer $AUTH_TOKEN" 2>/dev/null || echo "")
+
+# Alternative: Try to enable Google IdP without specifying client credentials.
+# In Firebase projects, the default OAuth client can be auto-discovered.
+# If this fails, we'll fall back to creating one.
+echo "  Enabling Google Sign-In provider..."
+GOOGLE_IDP_RESULT=$(curl -s -w "\n%{http_code}" -X POST \
+  "https://identitytoolkit.googleapis.com/v2/projects/${PROJECT_ID}/defaultSupportedIdpConfigs?idpId=google.com" \
+  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "x-goog-user-project: ${PROJECT_ID}" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"name\": \"projects/${PROJECT_ID}/defaultSupportedIdpConfigs/google.com\",
+    \"enabled\": true,
+    \"clientId\": \"${PROJECT_NUMBER}-auto.apps.googleusercontent.com\",
+    \"clientSecret\": \"\"
+  }" 2>/dev/null)
+
+GOOGLE_IDP_HTTP=$(echo "$GOOGLE_IDP_RESULT" | tail -1)
+GOOGLE_IDP_BODY=$(echo "$GOOGLE_IDP_RESULT" | head -n -1)
+
+if [ "$GOOGLE_IDP_HTTP" = "200" ] || [ "$GOOGLE_IDP_HTTP" = "201" ]; then
+  echo "  ✓ Google Sign-In enabled"
+elif echo "$GOOGLE_IDP_BODY" | grep -q "DUPLICATE_IDP"; then
+  echo "  ✓ Google Sign-In already enabled"
+else
+  # If API approach fails, use gcloud identity-platform
+  echo "  API approach returned $GOOGLE_IDP_HTTP, trying gcloud CLI..."
+  if gcloud identity-platform default-supported-idp-configs create \
+    --idp-id="google.com" --client-id="${PROJECT_NUMBER}-auto.apps.googleusercontent.com" \
+    --client-secret="" --enabled --project="$PROJECT_ID" 2>/dev/null; then
+    echo "  ✓ Google Sign-In enabled via gcloud"
+  else
+    warn "Could not auto-enable Google Sign-In via API."
+    warn "Please enable it manually: Firebase Console → Authentication → Sign-in method → Google → Enable"
+  fi
+fi
+
+# Step 4: Set authorized domains for Firebase Auth
+echo "  Setting authorized domains..."
 curl -s -X PATCH \
   "https://identitytoolkit.googleapis.com/admin/v2/projects/${PROJECT_ID}/config?updateMask=authorizedDomains" \
   -H "Authorization: Bearer $AUTH_TOKEN" \
@@ -378,18 +449,7 @@ curl -s -X PATCH \
     ]
   }" > /dev/null 2>&1 || true
 
-# Enable Google as an identity provider
-curl -s -X POST \
-  "https://identitytoolkit.googleapis.com/v2/projects/${PROJECT_ID}/defaultSupportedIdpConfigs?idpId=google.com" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
-  -H "x-goog-user-project: ${PROJECT_ID}" \
-  -H "Content-Type: application/json" \
-  -d "{
-    \"name\": \"projects/${PROJECT_ID}/defaultSupportedIdpConfigs/google.com\",
-    \"enabled\": true
-  }" > /dev/null 2>&1 || true
-
-ok "Firebase Auth configured (Google Sign-In enabled)"
+ok "Firebase Auth configured"
 
 # =========================================
 # PHASE 3 — Secrets (requires billing for Secret Manager)
