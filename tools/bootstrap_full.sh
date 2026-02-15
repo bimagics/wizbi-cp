@@ -428,8 +428,20 @@ AR_BUCKET="artifacts.${PROJECT_ID}.appspot.com"
 gsutil mb -p "$PROJECT_ID" -l "$REGION" "gs://${AR_BUCKET}" 2>/dev/null || true
 gsutil iam ch "serviceAccount:${COMPUTE_SA}:roles/storage.objectAdmin" "gs://${AR_BUCKET}" 2>/dev/null || true
 
+# Grant repository-level Artifact Registry writer to the Compute SA
+# Project-level IAM for AR can take 7+ min to propagate, but repo-level propagates instantly.
+echo "  Granting repository-level Artifact Registry write access..."
+gcloud artifacts repositories add-iam-policy-binding "$AR_REPO" \
+  --location="$REGION" --project="$PROJECT_ID" \
+  --member="serviceAccount:${COMPUTE_SA}" \
+  --role="roles/artifactregistry.writer" --quiet --no-user-output-enabled 2>/dev/null || true
+gcloud artifacts repositories add-iam-policy-binding "$AR_REPO" \
+  --location="$REGION" --project="$PROJECT_ID" \
+  --member="serviceAccount:${COMPUTE_SA}" \
+  --role="roles/artifactregistry.repoAdmin" --quiet --no-user-output-enabled 2>/dev/null || true
+
 # Brief wait for bucket-level IAM (much faster than project-level)
-echo "  Waiting for bucket IAM propagation (30s)..."
+echo "  Waiting for IAM propagation (30s)..."
 sleep 30
 
 # Verify GCS access is working before attempting build
