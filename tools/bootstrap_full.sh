@@ -210,6 +210,7 @@ if [ -n "$BILLING_ACCOUNT" ]; then
     cloudresourcemanager.googleapis.com \
     cloudbilling.googleapis.com \
     firebasehosting.googleapis.com \
+    apikeys.googleapis.com \
     --quiet
   ok "All APIs enabled"
 else
@@ -276,11 +277,31 @@ if [ -n "$BILLING_ACCOUNT" ]; then
 fi
 
 step "Creating Firestore (Native Mode)"
-# Create App Engine app (required for Firestore in some regions)
-gcloud app create --region="$FIRESTORE_LOCATION" 2>/dev/null || true
-# Create Firestore database
-gcloud firestore databases create --location="$FIRESTORE_LOCATION" --type=firestore-native 2>/dev/null || true
-ok "Firestore ready"
+# IMPORTANT: Create Firestore BEFORE App Engine!
+# gcloud app create auto-creates a Datastore-mode database, which is incompatible
+# with the Firebase Admin SDK's Firestore client. By creating Firestore first in
+# native mode, the App Engine step won't override it.
+gcloud firestore databases create \
+  --location="$FIRESTORE_LOCATION" \
+  --type=firestore-native \
+  --project="$PROJECT_ID" 2>/dev/null || true
+
+# Now create App Engine (if needed for the region — won't override existing DB)
+gcloud app create --region="$FIRESTORE_LOCATION" --project="$PROJECT_ID" 2>/dev/null || true
+
+# Verify the database exists and is in native mode
+FS_TYPE=$(gcloud firestore databases describe --project="$PROJECT_ID" --format='value(type)' 2>/dev/null || echo "UNKNOWN")
+if [ "$FS_TYPE" = "FIRESTORE_NATIVE" ]; then
+  ok "Firestore ready (native mode)"
+elif [ "$FS_TYPE" = "DATASTORE_MODE" ]; then
+  err "Firestore is in DATASTORE_MODE — this is incompatible with the app!"
+  err "Fix: delete and recreate the database:"
+  err "  gcloud firestore databases delete --database='(default)' --project=$PROJECT_ID"
+  err "  gcloud firestore databases create --location=$FIRESTORE_LOCATION --type=firestore-native --project=$PROJECT_ID"
+  exit 1
+else
+  warn "Could not verify Firestore mode (got: $FS_TYPE) — proceeding"
+fi
 
 step "Creating Service Accounts"
 gcloud iam service-accounts create wizbi-deployer   --display-name="WIZBI Deployer (CI/CD)" 2>/dev/null || true
